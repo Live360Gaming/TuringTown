@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # Reused by deploy.yml to validate the exact released commit.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+
+      - name: Build frontend
+        working-directory: game
+        run: |
+          npm ci
+          mkdir -p ../wwwroot/__ci_static_probe ../wwwroot/build
+          printf 'static asset probe\n' > ../wwwroot/__ci_static_probe/probe.txt
+          printf 'stale build output\n' > ../wwwroot/build/__stale.txt
+          npm run build
+          test -f ../wwwroot/index.html
+          test ! -e ../wwwroot/build/__stale.txt
+          grep -qx 'static asset probe' ../wwwroot/__ci_static_probe/probe.txt
+          printf 'host output must not enter the image\n' > ../wwwroot/build/__host_only.txt
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 11.0.x
+
+      - name: Build backend
+        run: |
+          dotnet restore TuringTown.slnx
+          dotnet build TuringTown.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: |
+          if grep -rlE --include='*.csproj' --exclude-dir=node_modules 'Microsoft\.NET\.Test\.Sdk|<IsTestProject>true' . ; then
+            dotnet test TuringTown.slnx --configuration Release --no-build
+          else
+            echo "No test projects found; skipping."
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Validate Docker image build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: turingtown:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify static assets in Docker image
+        run: |
+          container=$(docker run -d -p 127.0.0.1:18080:8080 turingtown:ci)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:18080/ -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          html=$(curl -fsS http://127.0.0.1:18080/)
+          printf '%s\n' "$html" | grep -q '<!doctype html>'
+          script=$(printf '%s\n' "$html" | sed -n 's/.*src="\([^"]*\.js\)".*/\1/p')
+          test -n "$script"
+          curl -fsS "http://127.0.0.1:18080/${script#./}" -o /dev/null
+          curl -fsS http://127.0.0.1:18080/style.css -o /dev/null
+          curl -fsS http://127.0.0.1:18080/assets/preloader.png -o /dev/null
+          curl -fsS http://127.0.0.1:18080/__ci_static_probe/probe.txt | grep -qx 'static asset probe'
+          if curl -fsS http://127.0.0.1:18080/build/__host_only.txt -o /dev/null; then
+            echo "Host-generated game output was included in the image"
+            exit 1
+          fi
