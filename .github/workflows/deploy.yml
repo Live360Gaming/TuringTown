@@ -1,7 +1,7 @@
 name: Deploy
 
 # Production deploys happen only when a stable GitHub Release is published.
-# Drafts never fire "published"; prereleases are filtered out by the guard job.
+# Drafts never fire "published"; prereleases are skipped by the guard job.
 on:
   release:
     types: [published]
@@ -12,66 +12,52 @@ concurrency:
   group: production-deploy
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/live360gaming/turingtown
+
 jobs:
   guard:
-    name: Validate release
-    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Validate Semantic Versioning tag
-        id: version
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release tag '$TAG' is not a stable SemVer tag (expected vMAJOR.MINOR.PATCH)."
-            exit 1
-          fi
-          echo "version=$TAG" >> "$GITHUB_OUTPUT"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Confirm release commit is on main
+      - name: Validate tag and commit
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Release commit $GITHUB_SHA is not contained in main."
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag '$TAG' must be vMAJOR.MINOR.PATCH."
             exit 1
           fi
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::Release commit is not on main."; exit 1; }
 
-  validate:
-    name: Validate
+  ci:
     needs: guard
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
   publish:
-    name: Publish image
-    needs: [guard, validate]
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
     outputs:
-      image: ${{ steps.image.outputs.name }}
-      digest: ${{ steps.result.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Resolve image name
-        id: image
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -81,73 +67,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Never overwrite a published version. A re-run of the same release
-      # (same commit) reuses the existing image instead of rebuilding.
-      - name: Check for existing version
-        id: existing
-        env:
-          IMAGE: ${{ steps.image.outputs.name }}
-          VERSION: ${{ needs.guard.outputs.version }}
-        run: |
-          if ! docker buildx imagetools inspect "$IMAGE:$VERSION" > inspect.txt 2>/dev/null; then
-            echo "No existing image for $VERSION; building."
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          revision=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Image}}' \
-            | jq -r 'if has("config") then .config.Labels else .["linux/amd64"].config.Labels end
-                     | .["org.opencontainers.image.revision"] // empty')
-          if [ "$revision" != "$GITHUB_SHA" ]; then
-            echo "::error::$IMAGE:$VERSION already exists from commit '${revision:-unknown}', not $GITHUB_SHA. Refusing to overwrite."
-            exit 1
-          fi
-          digest=$(awk '/^Digest:/ {print $2; exit}' inspect.txt)
-          echo "$IMAGE:$VERSION already published from this commit ($digest); reusing."
-          echo "exists=true" >> "$GITHUB_OUTPUT"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
-      - name: Image metadata
-        id: meta
-        if: steps.existing.outputs.exists == 'false'
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ steps.image.outputs.name }}
-          flavor: latest=false
-          tags: |
-            type=raw,value=${{ needs.guard.outputs.version }}
-            type=sha,prefix=sha-,format=short
-            type=raw,value=latest
-
-      - name: Build and push
-        id: build
-        if: steps.existing.outputs.exists == 'false'
+      - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.IMAGE }}:${{ github.event.release.tag_name }}
           cache-from: type=gha
 
-      - name: Resolve digest
-        id: result
-        env:
-          BUILT: ${{ steps.build.outputs.digest }}
-          EXISTING: ${{ steps.existing.outputs.digest }}
-        run: |
-          digest="${BUILT:-$EXISTING}"
-          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::Could not determine image digest (got '$digest')."
-            exit 1
-          fi
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
   deploy:
-    name: Deploy to Azure App Service
-    needs: [guard, publish]
+    needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     environment:
       name: production
       url: ${{ steps.verify.outputs.url }}
@@ -157,87 +89,38 @@ jobs:
     env:
       APP: ${{ vars.AZURE_WEBAPP_NAME }}
       RG: ${{ vars.AZURE_RESOURCE_GROUP }}
-      CONTAINER_NAME: ${{ vars.AZURE_CONTAINER_NAME }}
-      CONTAINER_PORT: ${{ vars.AZURE_CONTAINER_PORT }}
-      VERSION: ${{ needs.guard.outputs.version }}
-      IMAGE_REF: ${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}
     steps:
-      - name: Check configuration
-        run: |
-          missing=0
-          for v in APP RG CONTAINER_NAME CONTAINER_PORT; do
-            if [ -z "${!v}" ]; then echo "::error::Environment variable for $v is not set in the production environment."; missing=1; fi
-          done
-          exit $missing
-
       - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Sidecar-enabled apps report linuxFxVersion "SITECONTAINERS";
-      # classic custom-container apps report "DOCKER|<image>".
-      - name: Deploy image
+      # Updates only the image and port of the existing main container, so any
+      # registry credentials already configured on it are preserved.
+      - name: Deploy image by digest
+        env:
+          IMAGE_REF: ${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}
+          CONTAINER: ${{ vars.AZURE_CONTAINER_NAME }}
+          PORT: ${{ vars.AZURE_CONTAINER_PORT }}
         run: |
-          fx=$(az webapp config show --name "$APP" --resource-group "$RG" --query linuxFxVersion -o tsv)
-          echo "Deploying $IMAGE_REF (linuxFxVersion: $fx)"
-
-          case "$fx" in
-            SITECONTAINERS*)
-              sub=$(az account show --query id -o tsv)
-              url="https://management.azure.com/subscriptions/$sub/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/sitecontainers/$CONTAINER_NAME?api-version=2024-04-01"
-              # Change only the image and port; existing auth settings are preserved.
-              az rest --method get --url "$url" \
-                | jq --arg image "$IMAGE_REF" --arg port "$CONTAINER_PORT" \
-                    '{properties: (.properties | del(.createdTime, .lastModifiedTime) | .image = $image | .targetPort = $port)}' \
-                > sitecontainer.json
-              az rest --method put --url "$url" --body @sitecontainer.json --output none
-              az webapp restart --name "$APP" --resource-group "$RG"
-              configured=$(az rest --method get --url "$url" --query properties.image -o tsv)
-              ;;
-            DOCKER\|*)
-              # Registry URL and credentials are omitted so existing settings are preserved.
-              az webapp config container set --name "$APP" --resource-group "$RG" \
-                --container-image-name "$IMAGE_REF" --output none
-              current_port=$(az webapp config appsettings list --name "$APP" --resource-group "$RG" \
-                --query "[?name=='WEBSITES_PORT'].value" -o tsv)
-              if [ -z "$current_port" ]; then
-                az webapp config appsettings set --name "$APP" --resource-group "$RG" \
-                  --settings WEBSITES_PORT="$CONTAINER_PORT" --output none
-              fi
-              configured=$(az webapp config show --name "$APP" --resource-group "$RG" --query linuxFxVersion -o tsv)
-              ;;
-            *)
-              echo "::error::Unsupported container configuration '$fx'. Check with: az webapp config show -n $APP -g $RG --query linuxFxVersion"
-              exit 1
-              ;;
-          esac
-
-          if [[ "$configured" != *"$IMAGE_REF"* ]]; then
-            echo "::error::App Service reports image '$configured', expected '$IMAGE_REF'."
-            exit 1
-          fi
-          echo "App Service is configured with $configured"
+          sub=$(az account show --query id -o tsv)
+          url="https://management.azure.com/subscriptions/$sub/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/sitecontainers/$CONTAINER?api-version=2024-04-01"
+          az rest --method get --url "$url" \
+            | jq --arg image "$IMAGE_REF" --arg port "$PORT" \
+                '{properties: (.properties | del(.createdTime, .lastModifiedTime) | .image = $image | .targetPort = $port)}' \
+            > container.json
+          az rest --method put --url "$url" --body @container.json --output none
+          az webapp restart --name "$APP" --resource-group "$RG"
+          echo "Deployed $IMAGE_REF"
 
       - name: Verify availability
         id: verify
         run: |
           host=$(az webapp show --name "$APP" --resource-group "$RG" --query defaultHostName -o tsv)
           echo "url=https://$host" >> "$GITHUB_OUTPUT"
-          for attempt in $(seq 1 30); do
-            root=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://$host/" || true)
-            api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://$host/api/test" || true)
-            echo "Attempt $attempt/30: / -> $root, /api/test -> $api"
-            if [ "$root" = 200 ] && [ "$api" = 200 ]; then
-              {
-                echo "### Deployed $VERSION"
-                echo "- URL: https://$host"
-                echo "- Image: \`$IMAGE_REF\`"
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            sleep 10
+          for path in / /api/test; do
+            curl --fail --silent --show-error --output /dev/null --max-time 10 \
+              --retry 30 --retry-delay 10 --retry-connrefused --retry-all-errors \
+              "https://$host$path"
           done
-          echo "::error::https://$host did not become healthy after 30 attempts. Inspect logs with: az webapp log tail -n $APP -g $RG"
-          exit 1
