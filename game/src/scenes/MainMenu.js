@@ -7,6 +7,23 @@ export class MainMenu extends Scene
         super('MainMenu');
     }
 
+    async fetchTestEndpoint() {
+        const url = `${window.location.origin}/api/test`;
+    
+        try {
+            const response = await fetch(url);
+    
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+    
+            const data = await response.json();
+            console.log(data);
+        } catch (error) {
+            console.error('Fetch failed:', error);
+        }
+    }
+
     create ()
     {
         //  Get the current highscore from the registry
@@ -41,5 +58,7 @@ export class MainMenu extends Scene
             this.scene.start('ClickerGame');
 
         });
+
+        this.fetchTestEndpoint();
     }
 }
