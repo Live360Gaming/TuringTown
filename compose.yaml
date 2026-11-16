@@ -1,0 +1,7 @@
+﻿services:
+  turingtown:
+    image: turingtown
+    build:
+      context: .
+      dockerfile: Dockerfile
+
