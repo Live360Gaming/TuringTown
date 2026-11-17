@@ -1,5 +1,5 @@
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Authorization;
 
 namespace TuringTown.Models;
 
@@ -10,11 +10,22 @@ namespace TuringTown.Models;
 public partial record struct RoomCode(uint Number)
 {
     /// <summary>
+    /// Uses crypto random number to generate a room code.
+    /// </summary>
+    /// <returns></returns>
+    public static RoomCode CreateRandomRoomCode()
+    {
+        byte[] bytes = RandomNumberGenerator.GetBytes(sizeof(uint));
+        uint roomNumber = BitConverter.ToUInt32(bytes);
+        return new RoomCode(roomNumber);
+    }
+
+    /// <summary>
     /// Everything non-hexadecimal
     /// </summary>
     [GeneratedRegex(@"[^A-Za-z0-9]")]
     private static partial Regex StripBadChars { get; }
-    
+
     public static bool TryFromString(string stringCode, out RoomCode roomCode)
     {
         try
@@ -29,9 +40,9 @@ public partial record struct RoomCode(uint Number)
                 roomCode = default;
                 return false;
             }
-            
+
             uint code = BitConverter.ToUInt32(buffer, 0);
-            
+
             roomCode = new RoomCode(code);
             return true;
         }
@@ -41,15 +52,15 @@ public partial record struct RoomCode(uint Number)
             return false;
         }
     }
-    
+
     public override string ToString()
     {
         // I know Endian exists, but I don't care this will be the same each time.
         byte[] bytes = BitConverter.GetBytes(Number);
-        
+
         // "AAAAAAAA"
         string code = Convert.ToHexString(bytes);
-        
+
         // "AAAA-AAAA"
         return $"{code[..4]}-{code[4..8]}";
     }
