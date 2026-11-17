@@ -4,6 +4,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
 
 builder.Services.AddSingleton<RoomManager>();
 
@@ -42,5 +43,8 @@ app.UseRouting();
 //app.UseHttpsRedirection();
 
 app.MapControllers();
+
+// Liveness check used by the CI/deploy smoke tests. Available in all environments.
+app.MapHealthChecks("/api/test");
 
 app.Run();
