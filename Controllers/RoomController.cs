@@ -35,6 +35,11 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
         public Guid? PlayerId { get; init; }
     }
 
+    /// <summary>
+    /// Adds a player to a room, it's the client responsibility to follow up with a connection.
+    /// </summary>
+    /// <param name="req"></param>
+    /// <returns></returns>
     [HttpPost("join")]
     public IActionResult JoinRoom([FromBody] JoinRoomReq req)
     {

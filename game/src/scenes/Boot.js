@@ -1,5 +1,7 @@
 import { Scene } from 'phaser';
 
+// This scene is a preloader for the preloader, think of it like a loading screen for the initial loading screen.
+// Similar to how a BIOS actually boots the OS which needs to boot itself.
 export class Boot extends Scene
 {
     constructor ()
@@ -9,23 +11,14 @@ export class Boot extends Scene
 
     preload ()
     {
-        //  The Boot Scene is typically used to load in any assets you require for your Preloader, such as a game logo or background.
-        //  The smaller the file size of the assets, the better, as the Boot Scene itself has no preloader.
-
-        this.load.image('preloader', 'assets/preloader.png');
+        // Preload the loading screen image.
+        // TODO: Placeholder AI slop preloader image.
+        this.load.image('preloader', 'assets/preloader.jpg');
     }
 
     create ()
     {
-        //  A global value to store the highscore in
-        this.registry.set('highscore', 0);
-
-        // this.scene.start('Preloader');
-
-        this.input.once('pointerdown', () => {
-
-            this.scene.start('Preloader');
-
-        });
+        // Now switch to the loading screen.
+        this.scene.start('Preloader');
     }
 }

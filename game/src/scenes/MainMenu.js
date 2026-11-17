@@ -1,3 +1,4 @@
+/*
 import { Scene } from 'phaser';
 
 export class MainMenu extends Scene
@@ -62,3 +63,4 @@ export class MainMenu extends Scene
         this.fetchTestEndpoint();
     }
 }
+*/

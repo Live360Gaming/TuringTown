@@ -15,4 +15,8 @@
       <Folder Include="wwwroot\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Remove="game\public\assets\preloader.png" />
+    </ItemGroup>
+
 </Project>
