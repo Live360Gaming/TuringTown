@@ -1,0 +1,22 @@
+info:
+  name: Join Room
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{TURING_TOWN_API}}/room/join"
+  body:
+    type: json
+    data: |-
+      {
+        "RoomCode": "2169-14B7"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://localhost:5278/api/room
+  url: "{{TURING_TOWN_API}}/room/create"
   auth: inherit
 
 settings:

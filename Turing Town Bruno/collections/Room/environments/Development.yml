@@ -1,0 +1,5 @@
+name: Development
+variables:
+  - name: TURING_TOWN_API
+    value: http://localhost:5278/api
+    description: ""
