@@ -1,0 +1,12 @@
+opencollection: 1.0.0
+info:
+  name: "Turing Town"
+  type: workspace
+
+collections:
+  - name: "Room"
+    path: "collections/Room"
+
+specs:
+
+docs: ''
