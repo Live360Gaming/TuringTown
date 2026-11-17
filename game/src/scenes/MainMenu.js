@@ -1,66 +1,54 @@
-/*
-import { Scene } from 'phaser';
+import {Scene} from 'phaser'
+import {PHONE_WIDTH, PHONE_HEIGHT, TV_WIDTH, TV_HEIGHT, PHONE_CENTER_X, PHONE_CENTER_Y} from "../constants.js";
 
-export class MainMenu extends Scene
-{
-    constructor ()
-    {
+export class MainMenu extends Scene {
+    constructor() {
         super('MainMenu');
     }
 
-    async fetchTestEndpoint() {
-        const url = `${window.location.origin}/api/test`;
-    
-        try {
-            const response = await fetch(url);
-    
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
-    
-            const data = await response.json();
-            console.log(data);
-        } catch (error) {
-            console.error('Fetch failed:', error);
-        }
+    create() {
+        const buttonHeight = 170;
+
+        this.add.image(PHONE_CENTER_X, PHONE_CENTER_Y, 'background');
+
+        // Create the TV Host button
+        const tvBtn = this.createButton(PHONE_CENTER_X, PHONE_CENTER_Y - buttonHeight / 2, 'start_tv_btn', () => {
+            this.scene.start('Tv');
+        });
+
+        // Create the Mobile Join button
+        const phoneBtn = this.createButton(PHONE_CENTER_X, PHONE_CENTER_Y + buttonHeight / 2, 'join_phone_btn', () => {
+        });
     }
 
-    create ()
-    {
-        //  Get the current highscore from the registry
-        const score = this.registry.get('highscore');
+    createButton(x, y, textureKey, onClick) {
+        const btn = this.add.image(x, y, textureKey)
+            .setInteractive({useHandCursor: true});
 
-        const textStyle = { fontFamily: 'Arial Black', fontSize: 38, color: '#ffffff', stroke: '#000000', strokeThickness: 8 };
-
-        this.add.image(512, 384, 'background');
-
-        const logo = this.add.image(512, -270, 'logo');
-
-        this.tweens.add({
-            targets: logo,
-            y: 270,
-            duration: 1000,
-            ease: 'Bounce'
+        // Hover effect (desktop)
+        btn.on('pointerover', () => {
+            btn.setScale(1.05);
+            btn.setTint(0xffffff);
         });
 
-        this.add.text(32, 32, `High Score: ${score}`, textStyle);
-
-        const instructions = [
-            'How many coins can you',
-            'click in 10 seconds?',
-            '',
-            'Click to Start!'
-        ]
-
-        this.add.text(512, 550, instructions, textStyle).setAlign('center').setOrigin(0.5);
-
-        this.input.once('pointerdown', () => {
-
-            this.scene.start('ClickerGame');
-
+        btn.on('pointerout', () => {
+            btn.setScale(1);
+            btn.clearTint();
         });
 
-        this.fetchTestEndpoint();
+        // Press down effect
+        btn.on('pointerdown', () => {
+            btn.setScale(0.96);
+            btn.setTint(0xcccccc);
+        });
+
+        // Trigger action on release
+        btn.on('pointerup', () => {
+            btn.setScale(1.05);
+            btn.clearTint();
+            onClick();
+        });
+
+        return btn;
     }
 }
-*/

@@ -18,6 +18,12 @@ export class Boot extends Scene
 
     create ()
     {
+        let mainCamera = this.cameras.main;
+
+        //  We loaded this image in our Boot Scene, so we can display it here
+        // TODO: Make this fit the screen
+        this.add.image(mainCamera.centerX, mainCamera.centerY, 'preloader');
+        
         // Now switch to the loading screen.
         this.scene.start('Preloader');
     }
