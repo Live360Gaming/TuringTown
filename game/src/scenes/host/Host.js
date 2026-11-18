@@ -1,7 +1,7 @@
 import {Scene} from "phaser";
 import {HOST_CENTER_X, HOST_CENTER_Y, HOST_HEIGHT, HOST_WIDTH} from "../../constants.js";
 import {NetworkManager} from "../../core/network.js";
-import {enterFixedSize} from "../../core/fitImage.js";
+import {enterFixedSize, enterFullWindow} from "../../core/fitImage.js";
 import {applyVolume, getVolume, setVolume} from "../../core/hostSettings.js";
 
 const BTN = 0x3355aa;
@@ -38,6 +38,7 @@ export class Host extends Scene {
         // Buttons first so they show even while the room is being created.
         this.createButton(HOST_CENTER_X, HOST_CENTER_Y + 120, 'Start Game', () => this.startGame());
         this.createButton(HOST_WIDTH - 100, 50, 'Settings', () => this.openSettings(), {width: 160, height: 50, fontSize: '24px'});
+        this.createButton(100, 50, 'Quit', () => this.quit(), {width: 160, height: 50, fontSize: '24px'});
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});
@@ -58,6 +59,12 @@ export class Host extends Scene {
         this.closeSettings();
         this.lobbyMusic?.destroy();
         this.network?.destroy();
+    }
+
+    /** Leave the lobby and go back to the main menu (which fills the whole window). */
+    quit() {
+        enterFullWindow(this.scale);
+        this.scene.start('MainMenu');
     }
 
     applyState(state) {
