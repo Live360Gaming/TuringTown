@@ -41,7 +41,6 @@ export class Host extends Scene {
         // Buttons first so they show even while the room is being created.
         this.createButton(HOST_CENTER_X, HOST_CENTER_Y + 120, 'Start Game', () => this.startGame());
         this.createButton(HOST_WIDTH - 100, 50, 'Settings', () => this.openSettings(), {width: 160, height: 50, fontSize: '24px'});
-        this.createButton(100, 50, 'Quit', () => this.quit(), {width: 160, height: 50, fontSize: '24px'});
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});
@@ -144,7 +143,8 @@ export class Host extends Scene {
         const fullscreenBtn = this.createButton(cx, 480, 'Toggle Fullscreen', () => {
             this.scale.isFullscreen ? this.scale.stopFullscreen() : this.scale.startFullscreen();
         }, {width: 360, height: 60, fontSize: '26px'});
-        const closeBtn = this.createButton(cx, 560, 'Close', () => this.closeSettings(), {width: 200, height: 60, fontSize: '26px'});
+        const closeBtn = this.createButton(cx - 120, 560, 'Close', () => this.closeSettings(), {width: 200, height: 60, fontSize: '26px'});
+        const quitBtn = this.createButton(cx + 120, 560, 'Quit', () => this.quit(), {width: 200, height: 60, fontSize: '26px'});
 
         ui.message = this.add.text(cx, 610, '', {fontSize: '20px', color: '#ffcc66'}).setOrigin(0.5);
 
@@ -152,7 +152,7 @@ export class Host extends Scene {
             label(215, 'Max Players'), ui.minus, ui.maxText, ui.plus,
             label(305, 'Volume'), ui.track, ui.handle, ui.volText,
             label(395, 'Family Friendly'), ui.family,
-            fullscreenBtn, closeBtn, ui.message]);
+            fullscreenBtn, closeBtn, quitBtn, ui.message]);
 
         // Keyboard handlers exist only while the panel is open, so they can't stack up or touch gameplay input.
         this.input.keyboard.on('keydown-ESC', this.closeSettings, this);
