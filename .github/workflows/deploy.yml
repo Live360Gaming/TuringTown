@@ -1,10 +1,14 @@
 name: Deploy
 
 # Production deploys happen only when a stable GitHub Release is published.
-# Drafts never fire "published"; prereleases are skipped by the guard job.
+#   - `released` fires once when a release is published as stable (directly or from a draft) and
+#     when a prerelease is promoted to stable. It never fires for drafts or prereleases.
+#   - The guard job re-checks that independently (defense in depth).
+# Releases created with the default GITHUB_TOKEN do NOT trigger this workflow; create them with a
+# person's credentials, a GitHub App token or a PAT. See docs/RELEASING.md.
 on:
   release:
-    types: [published]
+    types: [released]
 
 permissions: {}
 
@@ -14,10 +18,11 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/live360gaming/turingtown
+  IMAGE_REPO: live360gaming/turingtown
 
 jobs:
   guard:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -36,9 +41,16 @@ jobs:
             echo "::error::Release tag '$TAG' must be vMAJOR.MINOR.PATCH."
             exit 1
           fi
+          tag_commit=$(git rev-parse "refs/tags/$TAG^{commit}")
+          if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $TAG points at $tag_commit but this run is for $GITHUB_SHA."
+            exit 1
+          fi
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "::error::Release commit is not on main."; exit 1; }
+            || { echo "::error::Release commit $GITHUB_SHA is not on main."; exit 1; }
+          echo "Releasing $TAG at $GITHUB_SHA"
 
+  # CI must pass on the exact release commit before anything is pushed.
   ci:
     needs: guard
     permissions:
@@ -52,12 +64,32 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.verify.outputs.digest }}
+      image_ref: ${{ steps.verify.outputs.image_ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
+
+      # Version tags are immutable: never overwrite one that already exists.
+      - name: Refuse to overwrite an existing tag
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          existing=$(scripts/ghcr-resolve.sh "$IMAGE_REPO" "$TAG")
+          rc=$?
+          set -e
+          case "$rc" in
+            3) echo "Tag $IMAGE:$TAG does not exist yet." ;;
+            0) echo "::error::$IMAGE:$TAG already exists ($existing). Tags are immutable. Use 'Re-run failed jobs' to retry only a failed deploy, or cut the next patch release."; exit 1 ;;
+            *) echo "::error::Could not determine whether $IMAGE:$TAG exists (exit $rc)."; exit 1 ;;
+          esac
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -73,54 +105,116 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE }}:${{ github.event.release.tag_name }}
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.TAG }}
           cache-from: type=gha
+
+      # The tag must resolve, via the registry, to exactly the digest that was pushed, and the
+      # index must contain a runnable linux/amd64 manifest. Deploy uses this immutable digest.
+      - id: verify
+        name: Verify tag resolves to the published digest
+        env:
+          PUSHED_DIGEST: ${{ steps.build.outputs.digest }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          resolved=$(scripts/ghcr-resolve.sh --require-amd64 "$IMAGE_REPO" "$TAG")
+          if [ "$resolved" != "$PUSHED_DIGEST" ]; then
+            echo "::error::$IMAGE:$TAG resolves to $resolved but the build pushed $PUSHED_DIGEST."
+            exit 1
+          fi
+          echo "digest=$resolved" >> "$GITHUB_OUTPUT"
+          echo "image_ref=$IMAGE@$resolved" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Published $TAG"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Tag: \`$IMAGE:$TAG\`"
+            echo "- Digest (deployed): \`$resolved\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment:
       name: production
-      url: ${{ steps.verify.outputs.url }}
+      url: ${{ steps.url.outputs.url }}
     permissions:
       contents: read
       id-token: write
     env:
       APP: ${{ vars.AZURE_WEBAPP_NAME }}
       RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+      CONTAINER: ${{ vars.AZURE_CONTAINER_NAME }}
+      PORT: ${{ vars.AZURE_CONTAINER_PORT }}
+      IMAGE_REF: ${{ needs.publish.outputs.image_ref }}
+      DIGEST: ${{ needs.publish.outputs.digest }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Updates only the image and port of the existing main container, so any
-      # registry credentials already configured on it are preserved.
+      # Resolved first so the Deployments tab links to the live URL even when a later step fails.
+      - name: Resolve live URL
+        id: url
+        run: |
+          host=$(az webapp show --name "$APP" --resource-group "$RG" --query defaultHostName -o tsv)
+          [ -n "$host" ] || { echo "::error::Could not resolve the default host name of $APP."; exit 1; }
+          echo "url=https://$host" >> "$GITHUB_OUTPUT"
+
+      # Updates only the image and port of the existing main container, so any registry
+      # credentials already configured on it are preserved.
       - name: Deploy image by digest
-        env:
-          IMAGE_REF: ${{ env.IMAGE }}@${{ needs.publish.outputs.digest }}
-          CONTAINER: ${{ vars.AZURE_CONTAINER_NAME }}
-          PORT: ${{ vars.AZURE_CONTAINER_PORT }}
         run: |
           sub=$(az account show --query id -o tsv)
           url="https://management.azure.com/subscriptions/$sub/resourceGroups/$RG/providers/Microsoft.Web/sites/$APP/sitecontainers/$CONTAINER?api-version=2024-04-01"
+          echo "deploy_url=$url" >> "$GITHUB_ENV"
           az rest --method get --url "$url" \
             | jq --arg image "$IMAGE_REF" --arg port "$PORT" \
                 '{properties: (.properties | del(.createdTime, .lastModifiedTime) | .image = $image | .targetPort = $port)}' \
             > container.json
           az rest --method put --url "$url" --body @container.json --output none
           az webapp restart --name "$APP" --resource-group "$RG"
-          echo "Deployed $IMAGE_REF"
+          echo "Requested $IMAGE_REF on $APP"
+
+      # Success is only reported once Azure is actually configured with the expected digest.
+      - name: Confirm Azure is configured with the expected digest
+        run: |
+          az rest --method get --url "$deploy_url" \
+            --query "properties.{image:image, targetPort:targetPort}" -o json > configured.json
+          cat configured.json
+          configured_image=$(jq -r '.image' configured.json)
+          configured_port=$(jq -r '.targetPort' configured.json)
+          case "$configured_image" in
+            *"@$DIGEST") ;;
+            *) echo "::error::Azure container '$CONTAINER' is configured with '$configured_image', expected digest $DIGEST."; exit 1 ;;
+          esac
+          if [ "$configured_port" != "$PORT" ]; then
+            echo "::error::Azure container '$CONTAINER' targetPort is '$configured_port', expected $PORT."
+            exit 1
+          fi
 
       - name: Verify availability
-        id: verify
         run: |
-          host=$(az webapp show --name "$APP" --resource-group "$RG" --query defaultHostName -o tsv)
-          echo "url=https://$host" >> "$GITHUB_OUTPUT"
-          for path in / /api/test; do
-            curl --fail --silent --show-error --output /dev/null --max-time 10 \
-              --retry 30 --retry-delay 10 --retry-connrefused --retry-all-errors \
-              "https://$host$path"
-          done
+          scripts/verify-endpoints.sh --timeout 600 --interval 10 \
+            "${{ steps.url.outputs.url }}" / /api/test
+          {
+            echo "### Deployed"
+            echo "- Digest: \`$DIGEST\`"
+            echo "- Live: ${{ steps.url.outputs.url }} (/ and /api/test returned 200)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure diagnostics (best effort, no secrets)
+        if: ${{ failure() }}
+        continue-on-error: true
+        run: scripts/azure-diagnostics.sh "$APP" "$RG"

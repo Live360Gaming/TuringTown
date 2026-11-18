@@ -61,26 +61,11 @@ jobs:
         run: |
           docker run -d --name app -p 8080:8080 turingtown:ci
           # Require HTTP 200 from the frontend (/) and the health endpoint (/api/test).
-          # Retry for up to ~60s while the container starts (connection errors / 5xx),
-          # but fail immediately on any other non-200 status, e.g. a 404.
-          for path in / /api/test; do
-            status=000
-            error=""
-            for attempt in $(seq 1 30); do
-              status=$(curl --silent --show-error --output /dev/null --max-time 10 \
-                --write-out '%{http_code}' "http://localhost:8080$path" 2>curl_err.txt) || true
-              error=$(cat curl_err.txt)
-              case "$status" in
-                200) break ;;
-                000|5??) sleep 2 ;;
-                *) break ;;
-              esac
-            done
-            if [ "$status" != "200" ]; then
-              echo "::error::Smoke test failed for $path: HTTP status $status ${error:+(curl: $error)}"
-              echo "Container logs:"
-              docker logs app
-              exit 1
-            fi
-            echo "OK $path -> $status"
-          done
+          # Retries for up to ~60s while the container starts (connection errors / 5xx),
+          # but fails immediately on any other non-200 status, e.g. a 404.
+          if ! scripts/verify-endpoints.sh --strict --timeout 60 --interval 2 \
+              http://localhost:8080 / /api/test; then
+            echo "Container logs:"
+            docker logs app
+            exit 1
+          fi
