@@ -35,6 +35,9 @@ export class Host extends Scene {
         // Add a background image for the host
         this.add.image(HOST_CENTER_X, HOST_CENTER_Y, 'background_tv');
 
+        // ESC with nothing open asks to quit; ESC on the dialog cancels it. (While settings are open, ESC closes those instead.)
+        this.input.keyboard.on('keydown-ESC', this.onEsc, this);
+
         // Buttons first so they show even while the room is being created.
         this.createButton(HOST_CENTER_X, HOST_CENTER_Y + 120, 'Start Game', () => this.startGame());
         this.createButton(HOST_WIDTH - 100, 50, 'Settings', () => this.openSettings(), {width: 160, height: 50, fontSize: '24px'});
@@ -56,9 +59,33 @@ export class Host extends Scene {
     }
 
     cleanup() {
+        this.input.keyboard.off('keydown-ESC', this.onEsc, this);
+        this.closeQuitConfirm();
         this.closeSettings();
         this.lobbyMusic?.destroy();
         this.network?.destroy();
+    }
+
+    onEsc() {
+        if (this.quitDialog) this.closeQuitConfirm();
+        else if (!this.settingsPanel) this.openQuitConfirm();
+    }
+
+    openQuitConfirm() {
+        if (this.quitDialog) return;
+        const cx = HOST_CENTER_X;
+        const cy = HOST_CENTER_Y;
+        const dim = this.add.rectangle(cx, cy, HOST_WIDTH, HOST_HEIGHT, 0x000000, 0.6).setInteractive();
+        const box = this.add.rectangle(cx, cy, 560, 260, PANEL).setStrokeStyle(3, 0xffffff);
+        const title = this.add.text(cx, cy - 55, 'Would you like to quit?', {fontSize: '36px', color: '#ffffff'}).setOrigin(0.5);
+        const cancel = this.createButton(cx - 130, cy + 55, 'Cancel', () => this.closeQuitConfirm(), {width: 200, height: 60, fontSize: '26px'});
+        const quit = this.createButton(cx + 130, cy + 55, 'Quit', () => this.quit(), {width: 200, height: 60, fontSize: '26px'});
+        this.quitDialog = this.add.container(0, 0, [dim, box, title, cancel, quit]).setDepth(200);
+    }
+
+    closeQuitConfirm() {
+        this.quitDialog?.destroy();
+        this.quitDialog = null;
     }
 
     /** Leave the lobby and go back to the main menu (which fills the whole window). */
