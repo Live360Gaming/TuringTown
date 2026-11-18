@@ -1,3 +1,4 @@
+import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
 import { fitImageToScreen } from '../../core/fitImage.js';
 import { LoadingIndicator } from '../../core/LoadingIndicator.js';
@@ -51,8 +52,12 @@ export class Preloader extends Scene
             return;
         }
 
-        this.indicator.complete().then(() => {
-            if (this.scene.isActive()) this.scene.start('MainMenu');
+        // Hold the loading screen for a random 3-5s so the messages can be enjoyed.
+        const delay = Phaser.Math.Between(3000, 5000);
+        this.time.delayedCall(delay, () => {
+            this.indicator.complete().then(() => {
+                if (this.scene.isActive()) this.scene.start('MainMenu');
+            });
         });
     }
 }
