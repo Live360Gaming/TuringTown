@@ -9,6 +9,11 @@
 </head>
 
 <body>
+    <div id="boot-splash" style="position:fixed;inset:0;background:#000;display:flex;align-items:flex-end;justify-content:flex-end;padding:4vmin;gap:2vmin;font:bold 3vmin 'Courier New',monospace;color:#39FF14;z-index:10">
+        <style>@keyframes bs{to{transform:rotate(360deg)}}</style>
+        <span>LOADING...</span>
+        <div style="width:6vmin;height:6vmin;border:1vmin solid #39FF14;border-top-color:#00F0FF;border-radius:50%;animation:bs 1s linear infinite"></div>
+    </div>
     <div id="game-container"></div>
     <script type="module" src="src/main.js"></script>
 </body>

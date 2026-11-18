@@ -14,12 +14,13 @@ export class Boot extends Scene
     {
         // Preload the loading screen image.
         // TODO: Placeholder AI slop preloader image.
-        this.load.image('preloader', 'assets/preloader.jpg');
+        this.load.image('preloader', 'assets/preloader.png');
     }
 
     create ()
     {
         fitImageToScreen(this, 'preloader');
+        document.getElementById('boot-splash')?.remove();
 
 
         // Now switch to the loading screen.
