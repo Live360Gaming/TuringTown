@@ -2,15 +2,15 @@
 // something, I guess it's just in case.
 
 // Landscape
-export const TV_WIDTH = 1280;
-export const TV_HEIGHT = 720;
+export const HOST_WIDTH = 1280;
+export const HOST_HEIGHT = 720;
 
-export const TV_CENTER_X = TV_WIDTH / 2;
-export const TV_CENTER_Y = TV_HEIGHT / 2;
+export const HOST_CENTER_X = HOST_WIDTH / 2;
+export const HOST_CENTER_Y = HOST_HEIGHT / 2;
 
 // Portrait
-export const PHONE_WIDTH = 720;
-export const PHONE_HEIGHT = 1280;
+export const PLAYER_WIDTH = 720;
+export const PLAYER_HEIGHT = 1280;
 
-export const PHONE_CENTER_X = PHONE_WIDTH / 2;
-export const PHONE_CENTER_Y = PHONE_HEIGHT / 2;
+export const PLAYER_CENTER_X = PLAYER_WIDTH / 2;
+export const PLAYER_CENTER_Y = PLAYER_HEIGHT / 2;

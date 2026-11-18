@@ -1,5 +1,5 @@
 import {Scene} from 'phaser'
-import {PHONE_WIDTH, PHONE_HEIGHT, TV_WIDTH, TV_HEIGHT, PHONE_CENTER_X, PHONE_CENTER_Y} from "../../constants.js";
+import {PLAYER_WIDTH, PLAYER_HEIGHT, HOST_WIDTH, HOST_HEIGHT, PLAYER_CENTER_X, PLAYER_CENTER_Y} from "../../constants.js";
 
 export class MainMenu extends Scene {
     constructor() {
@@ -9,15 +9,16 @@ export class MainMenu extends Scene {
     create() {
         const buttonHeight = 170;
 
-        this.add.image(PHONE_CENTER_X, PHONE_CENTER_Y, 'background');
+        this.add.image(PLAYER_CENTER_X, PLAYER_CENTER_Y, 'background');
 
-        // Create the TV Host button
-        const tvBtn = this.createButton(PHONE_CENTER_X, PHONE_CENTER_Y - buttonHeight / 2, 'start_tv_btn', () => {
-            this.scene.start('Tv');
+        // Create the Host button
+        const hostBtn = this.createButton(PLAYER_CENTER_X, PLAYER_CENTER_Y - buttonHeight / 2, 'start_tv_btn', () => {
+            this.scene.start('Host');
         });
 
-        // Create the Mobile Join button
-        const phoneBtn = this.createButton(PHONE_CENTER_X, PHONE_CENTER_Y + buttonHeight / 2, 'join_phone_btn', () => {
+        // Create the Player Join button
+        const playerBtn = this.createButton(PLAYER_CENTER_X, PLAYER_CENTER_Y + buttonHeight / 2, 'join_phone_btn', () => {
+            this.scene.start('Player');
         });
     }
 
