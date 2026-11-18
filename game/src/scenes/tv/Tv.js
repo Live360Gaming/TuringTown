@@ -1,6 +1,6 @@
 import {Scene} from "phaser";
-import {TV_CENTER_X, TV_CENTER_Y, TV_HEIGHT, TV_WIDTH} from "../constants.js";
-import {NetworkManager} from "../utils/network.js";
+import {TV_CENTER_X, TV_CENTER_Y, TV_HEIGHT, TV_WIDTH} from "../../constants.js";
+import {NetworkManager} from "../../core/network.js";
 
 export class Tv extends Scene {
     constructor() {

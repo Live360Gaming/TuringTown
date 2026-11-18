@@ -1,10 +1,10 @@
-import { Boot } from './scenes/Boot';
-import { Preloader } from "./scenes/Preloader.js";
+import { Boot } from './scenes/shared/Boot.js';
+import { Preloader } from "./scenes/shared/Preloader.js";
 import { Game } from 'phaser';
-import { MainMenu } from "./scenes/MainMenu.js";
+import { MainMenu } from "./scenes/shared/MainMenu.js";
 import * as Phaser from 'phaser';
 import {PHONE_HEIGHT, PHONE_WIDTH} from "./constants.js";
-import {Tv} from "./scenes/Tv.js";
+import {Tv} from "./scenes/tv/Tv.js";
 
 const config = {
     type: Phaser.AUTO,

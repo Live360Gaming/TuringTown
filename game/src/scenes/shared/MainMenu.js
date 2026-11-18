@@ -1,5 +1,5 @@
 import {Scene} from 'phaser'
-import {PHONE_WIDTH, PHONE_HEIGHT, TV_WIDTH, TV_HEIGHT, PHONE_CENTER_X, PHONE_CENTER_Y} from "../constants.js";
+import {PHONE_WIDTH, PHONE_HEIGHT, TV_WIDTH, TV_HEIGHT, PHONE_CENTER_X, PHONE_CENTER_Y} from "../../constants.js";
 
 export class MainMenu extends Scene {
     constructor() {
