@@ -1,4 +1,6 @@
+import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
+import { fitImageToScreen } from '../../core/fitImage.js';
 
 // Loading screen to download all the assets before starting the game.
 export class Preloader extends Scene
@@ -10,11 +12,8 @@ export class Preloader extends Scene
 
     init ()
     {
-        let mainCamera = this.cameras.main;
-        
         //  We loaded this image in our Boot Scene, so we can display it here
-        // TODO: Make this fit the screen
-        this.add.image(mainCamera.centerX, mainCamera.centerY, 'preloader');
+        fitImageToScreen(this, 'preloader');
     }
 
     preload ()
@@ -26,11 +25,15 @@ export class Preloader extends Scene
         this.load.image('start_tv_btn', 'start_tv_btn.jpg');
         this.load.image('background', 'background.jpg');
         this.load.image('background_tv', 'background_tv.jpg');
+
+        this.load.setPath('audio');
+        this.load.audio('lobby_music', 'lobby_music.mp3');
     }
 
     create ()
     {
-        // Now switch to the main menu.
-        this.scene.start('MainMenu');
+        // TEMP: random delay (1-3s) so the loading screen is visible.
+        const delay = Phaser.Math.Between(1000, 3000);
+        this.time.delayedCall(delay, () => this.scene.start('MainMenu'));
     }
 }

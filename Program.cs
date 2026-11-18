@@ -1,10 +1,17 @@
+using TuringTown.Models;
 using TuringTown.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddHealthChecks();
+
+builder.Services.AddOptions<GameOptions>()
+    .Bind(builder.Configuration.GetSection(GameOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 
 builder.Services.AddSingleton<RoomManager>();
 

@@ -1,4 +1,5 @@
 import { Scene } from 'phaser';
+import { fitImageToScreen } from '../../core/fitImage.js';
 
 // This scene is a preloader for the preloader, think of it like a loading screen for the initial loading screen.
 // Similar to how a BIOS actually boots the OS which needs to boot itself.
@@ -18,12 +19,9 @@ export class Boot extends Scene
 
     create ()
     {
-        let mainCamera = this.cameras.main;
+        fitImageToScreen(this, 'preloader');
 
-        //  We loaded this image in our Boot Scene, so we can display it here
-        // TODO: Make this fit the screen
-        this.add.image(mainCamera.centerX, mainCamera.centerY, 'preloader');
-        
+
         // Now switch to the loading screen.
         this.scene.start('Preloader');
     }

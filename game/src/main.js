@@ -16,8 +16,9 @@ const config = {
     // Lets scenes use real HTML elements (e.g. the room code input)
     dom: {createContainer: true},
     backgroundColor: 'black',
+    // Boot, loading and menu screens fill the whole window; Host switches to a fixed 16:9 FIT.
     scale: {
-        mode: Phaser.Scale.FIT,
+        mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
     scene: [
