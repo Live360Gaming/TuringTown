@@ -1,11 +1,13 @@
-import { Boot } from './scenes/shared/Boot.js';
-import { Preloader } from "./scenes/shared/Preloader.js";
+import { Boot } from './scenes/boot/Boot.js';
+import { Preloader } from "./scenes/boot/Preloader.js";
 import { Game } from 'phaser';
-import { MainMenu } from "./scenes/shared/MainMenu.js";
+import { MainMenu } from "./scenes/menu/MainMenu.js";
 import * as Phaser from 'phaser';
 import {PLAYER_HEIGHT, PLAYER_WIDTH} from "./constants.js";
 import {Host} from "./scenes/host/Host.js";
 import {Player} from "./scenes/player/Player.js";
+import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
+import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
 
 const config = {
     type: Phaser.AUTO,
@@ -27,6 +29,9 @@ const config = {
         MainMenu,
         Host,
         Player,
+        // Overlays come after Host so they draw on top of it.
+        HostSettings,
+        QuitConfirm,
     ]
 };
 

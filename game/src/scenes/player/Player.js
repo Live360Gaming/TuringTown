@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import {Scene} from "phaser";
 import {NetworkManager} from "../../core/network.js";
+import {enterFullWindow} from "../../core/scaling.js";
 
 // Players can be on a phone or a laptop, so unlike the Host this scene fills the whole window
 // (Phaser RESIZE mode) and lays itself out from the real screen size instead of a fixed resolution.
@@ -10,7 +11,7 @@ export class Player extends Scene {
     }
 
     create() {
-        this.enterFullWindow();
+        enterFullWindow(this.scale);
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});
@@ -54,6 +55,7 @@ export class Player extends Scene {
 
         this.layout();
         this.scale.on('resize', this.layout, this);
+        this.events.once('shutdown', () => this.scale.off('resize', this.layout, this));
     }
 
     /** Position and size everything from the current window size. */
@@ -106,23 +108,4 @@ export class Player extends Scene {
         }
     }
 
-    // Switch the (game-wide) scale manager to fill the window while this scene runs,
-    // and put it back to FIT for the fixed-resolution scenes when it stops.
-    enterFullWindow() {
-        const scale = this.scale;
-
-        scale.scaleMode = Phaser.Scale.RESIZE;
-        // FIT locks the display to the old aspect ratio and leaves a CSS size on the canvas; clear both.
-        scale.displaySize.setAspectMode(Phaser.Structs.Size.NONE);
-        scale.canvas.style.width = '';
-        scale.canvas.style.height = '';
-        scale.refresh();
-
-        this.events.once('shutdown', () => {
-            scale.off('resize', this.layout, this);
-            scale.scaleMode = Phaser.Scale.FIT;
-            scale.displaySize.setAspectMode(Phaser.Structs.Size.FIT);
-            scale.refresh();
-        });
-    }
 }

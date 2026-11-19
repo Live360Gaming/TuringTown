@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
-import { fitImageToScreen } from '../../core/fitImage.js';
-import { LoadingIndicator } from '../../core/LoadingIndicator.js';
+import { fitImageToScreen } from '../../core/scaling.js';
+import { LoadingIndicator } from '../../core/ui/LoadingIndicator.js';
 
 // Loading screen to download all the assets before starting the game.
 export class Preloader extends Scene
