@@ -3,6 +3,7 @@ import {Scene} from "phaser";
 import {NetworkManager} from "../../core/network.js";
 import {enterFullWindow} from "../../core/scaling.js";
 import {createTextButton, PANEL} from "../../core/ui/Button.js";
+import {loadCredentials, saveCredentials} from "../../core/session.js";
 
 // Players can be on a phone or a laptop, so unlike the Host this scene fills the whole window
 // (Phaser RESIZE mode) and lays itself out from the real screen size instead of a fixed resolution.
@@ -12,6 +13,13 @@ export class Player extends Scene {
     }
 
     create() {
+        // A refresh mid-game: rejoin the same seat instead of asking for the code again.
+        const saved = loadCredentials();
+        if (saved) {
+            this.scene.start('PlayerLobby', saved);
+            return;
+        }
+
         enterFullWindow(this.scale);
 
         // Initialize the network manager
@@ -90,19 +98,14 @@ export class Player extends Scene {
         this.statusText.setPosition(cx, cy - 30 * s).setFontSize(28 * s)
             .setWordWrapWidth(panelW - 60 * s);
 
-        if (this.codeInput.active) {
-            this.codeInput.setPosition(cx, cy - 150 * s);
-            this.codeInput.node.style.width = `${420 * s}px`;
-            this.codeInput.node.style.fontSize = `${44 * s}px`;
-            // Phaser caches the element's size for centring, so re-measure after changing it.
-            this.codeInput.updateSize();
-        }
+        this.codeInput.setPosition(cx, cy - 150 * s);
+        this.codeInput.node.style.width = `${420 * s}px`;
+        this.codeInput.node.style.fontSize = `${44 * s}px`;
+        // Phaser caches the element's size for centring, so re-measure after changing it.
+        this.codeInput.updateSize();
 
-        if (this.joinBtn.active) {
-            this.joinBtn.setPosition(cx, cy + 100 * s).setScale(s);
-        }
-        // After joining there is no Join button, so Quit moves up into its place.
-        this.quitBtn.setPosition(cx, cy + (this.joinBtn.active ? 220 : 100) * s).setScale(s);
+        this.joinBtn.setPosition(cx, cy + 100 * s).setScale(s);
+        this.quitBtn.setPosition(cx, cy + 220 * s).setScale(s);
     }
 
     /** Leave the join screen and go back to the main menu. */
@@ -118,15 +121,16 @@ export class Player extends Scene {
         this.statusText.setText('Joining...');
 
         try {
-            const {playerId} = await this.network.post('/api/room/join', {roomCode});
-            this.playerId = playerId;
-            this.roomCode = roomCode;
+            const joined = await this.network.post('/api/room/join', {roomCode});
 
-            // Joined: swap the form out for a waiting message.
-            this.codeInput.destroy();
-            this.joinBtn.destroy();
-            this.statusText.setText(`Joined ${roomCode}\nWaiting for host...`);
-            this.layout();
+            // Joined: hand off to the waiting screen, which opens the real-time connection.
+            const credentials = {
+                roomCode: joined.roomCode,
+                playerId: joined.playerId,
+                playerToken: joined.playerToken,
+            };
+            saveCredentials(credentials);
+            this.scene.start('PlayerLobby', credentials);
         } catch (err) {
             this.statusText.setText(err.message);
         } finally {

@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
 import { fitImageToScreen } from '../../core/scaling.js';
 import { LoadingIndicator } from '../../core/ui/LoadingIndicator.js';
+import { CHARACTER_KEYS, ROBOT_KEYS } from '../../constants.js';
 
 // Loading screen to download all the assets before starting the game.
 export class Preloader extends Scene
@@ -39,6 +40,11 @@ export class Preloader extends Scene
         this.load.image('start_tv_btn', 'start_tv_btn.jpg');
         this.load.image('background', 'background.jpg');
         this.load.image('background_tv', 'background_tv.jpg');
+        this.load.image('table', 'table.png');
+
+        // The characters, and the robots that are only shown once a bot has been found (see core/session.js).
+        this.load.setPath('assets/characters');
+        [...CHARACTER_KEYS, ...ROBOT_KEYS].forEach(key => this.load.image(key, `${key}.png`));
 
         this.load.setPath('audio');
         this.load.audio('lobby_music', 'lobby_music.mp3');

@@ -36,6 +36,11 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
         public string? Error { get; init; }
         public string? Code { get; init; }
         public Guid? PlayerId { get; init; }
+        public string? RoomCode { get; init; }
+        public string? PlayerToken { get; init; }
+        public string? CharacterId { get; init; }
+        public string? Alias { get; init; }
+        public string? Color { get; init; }
     }
 
     /// <summary>
@@ -77,7 +82,12 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
         // Return the player id to the client.
         return Ok(new JoinRoomResp
         {
-            PlayerId = player.Id
+            PlayerId = player.Id,
+            RoomCode = room.Code.ToString(),
+            PlayerToken = player.Token,
+            CharacterId = player.CharacterId,
+            Alias = player.Alias,
+            Color = player.Color
         });
     }
 

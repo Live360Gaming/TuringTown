@@ -1,5 +1,7 @@
 using TuringTown.Models;
 using TuringTown.Services;
+using TuringTown.Services.Ai;
+using TuringTown.Services.Games;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +9,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddHealthChecks();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 
 builder.Services.AddOptions<GameOptions>()
     .Bind(builder.Configuration.GetSection(GameOptions.SectionName))
@@ -14,6 +18,14 @@ builder.Services.AddOptions<GameOptions>()
     .ValidateOnStart();
 
 builder.Services.AddSingleton<RoomManager>();
+
+// Turing Town: the game engine, its timings, and the AI behind the bots (the scripted agent works offline).
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
+builder.Services.AddSingleton<IBotAgent, ScriptedBotAgent>();
+builder.Services.AddSingleton<IContentFilter, AllowAllContentFilter>();
+builder.Services.AddSingleton<IRoomBroadcaster, SignalRRoomBroadcaster>();
+builder.Services.AddSingleton<GameCoordinator>();
 
 var app = builder.Build();
 
@@ -50,8 +62,12 @@ app.UseRouting();
 //app.UseHttpsRedirection();
 
 app.MapControllers();
+app.MapHub<TuringTown.Hubs.GameHub>("/hubs/game");
 
 // Liveness check used by the CI/deploy smoke tests. Available in all environments.
 app.MapHealthChecks("/api/test");
 
 app.Run();
+
+// Lets the integration tests start the whole app (WebApplicationFactory<Program>).
+public partial class Program;

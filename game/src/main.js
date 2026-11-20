@@ -6,6 +6,8 @@ import * as Phaser from 'phaser';
 import {PLAYER_HEIGHT, PLAYER_WIDTH} from "./constants.js";
 import {Host} from "./scenes/host/Host.js";
 import {Player} from "./scenes/player/Player.js";
+import {PlayerLobby} from "./scenes/player/PlayerLobby.js";
+import {TURING_TOWN_SCENES} from "./minigames/turing-town/index.js";
 import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
 import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
 
@@ -29,6 +31,9 @@ const config = {
         MainMenu,
         Host,
         Player,
+        PlayerLobby,
+        // The game's own screens, one per stage; the director starts them as the server moves the game along.
+        ...TURING_TOWN_SCENES,
         // Overlays come after Host so they draw on top of it.
         HostSettings,
         QuitConfirm,

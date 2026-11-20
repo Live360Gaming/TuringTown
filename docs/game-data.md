@@ -3,8 +3,16 @@
 Code is behavior. Data is content and numbers. A mini game is described by data, and its content (prompts,
 questions, etc.) can be produced by an agent that returns data in a fixed structure. This doc defines that structure.
 
-Status: **design only.** Nothing here is implemented yet. It extends [content-policy.md](content-policy.md), which
-already owns the Family Friendly toggle (`Room.ContentPolicy`).
+Status: **a design, partly built.** The first game, Turing Town, exists (see [game-flow.md](game-flow.md)). What is
+implemented: `game.json` for Turing Town, the onboarding-question shape (`{id, text, mature}`) with its validation
+(`QuestionValidator`), the `family`/`mature` tone mapping from `ContentPolicy`, and the `IBotAgent` boundary with an
+offline `ScriptedBotAgent`. **Not implemented:** the real AI agent and the prompt below, the JSON Schema file, and
+the built-in packs as files (the built-in questions are in code). It extends [content-policy.md](content-policy.md),
+which already owns the Family Friendly toggle (`Room.ContentPolicy`).
+
+Turing Town also uses the AI at runtime for the bots' chat and votes, not only for content. That goes through the same
+`IBotAgent` and the same `ContentPolicy`, but it is conversation, not a content pack, so it is described in
+[game-flow.md](game-flow.md).
 
 ## The three pieces of data
 
@@ -169,17 +177,23 @@ generation fails and the only content before AI generation exists. It needs a `f
 
 ## Layout
 
-Intended direction. A folder is created when the first file needs it, not before.
+What exists today, and what is intended. A folder is created when the first file needs it, not before.
 
 ```
-game/src/data/                          bundled platform config (imported through Vite)
-game/src/minigames/<id>/                code for one mini game
-game/public/minigames/<id>/game.json
-game/public/minigames/<id>/content.schema.json
-game/public/minigames/<id>/packs/family.json    built-in packs, same structure as agent output
-game/public/minigames/<id>/packs/mature.json
-game/public/assets/pack.json            platform assets (Phaser pack file)
+game/src/minigames/<id>/                a mini game: scenes, data, index.js     (exists: turing-town)
+  data/game.json                        the game definition, read by the agent  (exists)
+  data/tutorial.js                      how-to-play step list                   (exists)
+  scenes/host/, scenes/player/          one scene per stage and role            (exists)
+game/src/data/                          bundled platform config via Vite        (intended)
+game/public/minigames/<id>/content.schema.json    JSON Schema for one item      (intended)
+game/public/minigames/<id>/packs/family.json      built-in packs, same shape as (intended)
+game/public/minigames/<id>/packs/mature.json      agent output
+game/public/assets/pack.json            platform assets (Phaser pack file)      (intended)
 ```
+
+`game.json` sits in `src` for now because nothing reads it at runtime yet; when the server needs it for the prompt,
+decide on one source of truth (see below). A game's own assets, when it has real ones, should load on demand with
+`load.pack` from `minigames/<id>/pack.json`, not in the global Preloader.
 
 Conventions:
 
@@ -193,5 +207,6 @@ Conventions:
 
 - Where the server reads `game.json`: duplicated on the server, or the server serves `public/minigames`. The prompt
   needs it server-side, so it should have one source of truth.
-- Final shape of the first mini game's item (answers, options) is decided with that game's design.
+- Turing Town's item is a bare onboarding question. If a later game needs more fields, extend the item schema
+  per game; `id`, `text` and `mature` stay required.
 - Retry and fallback policy when the agent's output keeps failing validation.

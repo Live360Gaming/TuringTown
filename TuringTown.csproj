@@ -15,6 +15,15 @@
       <Folder Include="wwwroot\" />
     </ItemGroup>
 
+    <!-- The test project lives in a subfolder, so keep its sources out of this project's globbing. -->
+    <ItemGroup>
+      <Compile Remove="TuringTown.Tests\**" />
+      <Content Remove="TuringTown.Tests\**" />
+      <None Remove="TuringTown.Tests\**" />
+      <EmbeddedResource Remove="TuringTown.Tests\**" />
+      <InternalsVisibleTo Include="TuringTown.Tests" />
+    </ItemGroup>
+
     <ItemGroup>
       <None Remove="game\public\assets\preloader.png" />
     </ItemGroup>

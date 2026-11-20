@@ -1,0 +1,18 @@
+{
+  "id": "turing-town",
+  "schemaVersion": 1,
+  "name": "Turing Town",
+  "description": "A social-deduction party game. One or two AI bots hide among the human players. Everyone answers an onboarding form, then chats anonymously (only an alias like \"Purple Mango\", never real names or personal details) for a timed discussion, then votes someone out. Humans win by voting out every bot. The bots win by surviving until they match the humans.",
+  "players": { "min": 2, "max": 4 },
+  "content": {
+    "itemsPerRound": 3,
+    "rounds": 1,
+    "itemSchema": "onboarding question: { id, text, mature }",
+    "constraints": [
+      "Each item is an onboarding-form question, shown on a phone.",
+      "Keep each question under 120 characters.",
+      "Never ask for a name, age, location, school, workplace, contact detail or social handle."
+    ]
+  },
+  "tones": ["family", "mature"]
+}

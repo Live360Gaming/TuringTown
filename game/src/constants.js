@@ -14,3 +14,11 @@ export const PLAYER_HEIGHT = 1280;
 
 export const PLAYER_CENTER_X = PLAYER_WIDTH / 2;
 export const PLAYER_CENTER_Y = PLAYER_HEIGHT / 2;
+
+
+// Image keys for the characters in assets/characters/ (512x512 transparent PNGs, loaded by the Preloader).
+// CHARACTER_KEYS are the human-looking characters. The server hands these out (Models/Characters.cs lists the
+// same keys), to humans and bots alike, so nobody can tell a bot from how it looks.
+// ROBOT_KEYS are only ever shown once a bot has been found out (see GameSession.spriteKey).
+export const CHARACTER_KEYS = Array.from({length: 6}, (_, i) => `character_${String(i + 1).padStart(2, '0')}`);
+export const ROBOT_KEYS = Array.from({length: 3}, (_, i) => `robot_${String(i + 1).padStart(2, '0')}`);

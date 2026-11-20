@@ -13,6 +13,13 @@ public enum RoomJoinError
     GameStarted
 }
 
+public enum RoomStartError
+{
+    None,
+    NotInLobby,
+    NotEnoughPlayers
+}
+
 public enum RoomSettingsError
 {
     None,
@@ -43,6 +50,11 @@ public readonly record struct RoomSnapshot(
 public class Room(RoomCode rc, GameOptions options)
 {
     /// <summary>
+    /// The only game that exists so far. Clients use it to pick the right scenes.
+    /// </summary>
+    public const string GameId = "turing-town";
+
+    /// <summary>
     /// The code used to join the room.
     /// </summary>
     public RoomCode Code { get; } = rc;
@@ -53,11 +65,11 @@ public class Room(RoomCode rc, GameOptions options)
     public string HostToken { get; } = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
 
     /// <summary>
-    /// The players currently in the game.
+    /// The players currently in the game. Humans join in the lobby, bots are added when the game starts.
     /// </summary>
     private readonly List<Player> _players = new();
 
-    private RoomPhase _phase = RoomPhase.Lobby;
+    private GameState _state = GameState.InLobby(GameId);
 
     // New sessions default to the configured maximum.
     private RoomSettings _settings = new(options.MaxPlayers, FamilyFriendly: true);
@@ -74,6 +86,18 @@ public class Room(RoomCode rc, GameOptions options)
         }
     }
 
+    /// <summary>
+    /// The current stage of the game.
+    /// </summary>
+    public GameState State
+    {
+        get
+        {
+            lock (this)
+                return _state;
+        }
+    }
+
     public bool IsHost(string? token) =>
         token is not null && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
             System.Text.Encoding.UTF8.GetBytes(token), System.Text.Encoding.UTF8.GetBytes(HostToken));
@@ -81,8 +105,10 @@ public class Room(RoomCode rc, GameOptions options)
     public RoomSnapshot GetSnapshot()
     {
         lock (this)
-            return new RoomSnapshot(_phase, _players.Count, _settings, options.MaxPlayers, options.MinPlayers);
+            return new RoomSnapshot(PhaseOf(_state), _players.Count, _settings, options.MaxPlayers, options.MinPlayers);
     }
+
+    private static RoomPhase PhaseOf(GameState state) => state.Stage == Stage.Lobby ? RoomPhase.Lobby : RoomPhase.InGame;
 
     /// <summary>
     /// Adds a new player if the room is in the lobby and below its player limit.
@@ -92,7 +118,7 @@ public class Room(RoomCode rc, GameOptions options)
         // The check and the add share one lock so the limit can never be exceeded by concurrent joins.
         lock (this)
         {
-            if (_phase != RoomPhase.Lobby)
+            if (_state.Stage != Stage.Lobby)
             {
                 player = null;
                 error = RoomJoinError.GameStarted;
@@ -106,10 +132,185 @@ public class Room(RoomCode rc, GameOptions options)
                 return false;
             }
 
-            player = new Player { Id = Guid.NewGuid() };
+            player = NewPlayer(isBot: false);
             _players.Add(player);
             error = RoomJoinError.None;
             return true;
+        }
+    }
+
+    // Must be called with the lock held.
+    private Player NewPlayer(bool isBot)
+    {
+        var (alias, color) = Aliases.PickRandom(_players.Select(p => p.Alias));
+        return new Player
+        {
+            Id = Guid.NewGuid(),
+            Token = isBot ? string.Empty : Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)),
+            CharacterId = Characters.PickRandom(_players.Select(p => p.CharacterId)),
+            Alias = alias,
+            Color = color,
+            IsBot = isBot,
+            // Bots are always "online"; there is no connection to lose.
+            Connected = isBot
+        };
+    }
+
+    /// <summary>
+    /// Looks up a player by id, verifying their secret token.
+    /// </summary>
+    public bool TryGetPlayer(Guid id, string? token, out Player? player)
+    {
+        lock (this)
+        {
+            player = _players.FirstOrDefault(p => p.Id == id && !p.IsBot);
+            if (player is null || token is null || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(token), System.Text.Encoding.UTF8.GetBytes(player.Token)))
+            {
+                player = null;
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Moves the room out of the lobby once enough humans have joined, and seats the bots.
+    /// </summary>
+    /// <param name="botCountFor">How many bots to add for the given number of humans.</param>
+    public RoomStartError TryStart(Func<int, int> botCountFor)
+    {
+        lock (this)
+        {
+            if (_state.Stage != Stage.Lobby) return RoomStartError.NotInLobby;
+
+            int humans = _players.Count;
+            if (humans < options.MinPlayers) return RoomStartError.NotEnoughPlayers;
+
+            int bots = botCountFor(humans);
+            for (int i = 0; i < bots; i++)
+                _players.Add(NewPlayer(isBot: true));
+
+            _state = new GameState(GameId, Stage.Tutorial, 0, 0, null, null);
+            return RoomStartError.None;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the current state and returns it.
+    /// </summary>
+    internal GameState SetState(GameState state)
+    {
+        lock (this)
+        {
+            _state = state;
+            return state;
+        }
+    }
+
+    /// <summary>
+    /// Changes the state only if the room is still in <paramref name="expected"/>, so a late call can never
+    /// overwrite a stage the game has already moved on from.
+    /// </summary>
+    internal bool TryUpdateState(Stage expected, Func<GameState, GameState> change, out GameState state)
+    {
+        lock (this)
+        {
+            if (_state.Stage != expected)
+            {
+                state = _state;
+                return false;
+            }
+
+            _state = change(_state);
+            state = _state;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Everyone in the room, sorted by alias so that seat order never gives a bot away.
+    /// </summary>
+    public IReadOnlyList<PlayerInfo> GetRoster()
+    {
+        lock (this)
+            return _players.OrderBy(p => p.Alias, StringComparer.Ordinal).Select(ToSeat).Select(s => s.ToInfo()).ToArray();
+    }
+
+    /// <summary>
+    /// A server-side copy of every seat, including the secret role.
+    /// </summary>
+    internal IReadOnlyList<PlayerSeat> GetSeats()
+    {
+        lock (this)
+            return _players.OrderBy(p => p.Alias, StringComparer.Ordinal).Select(ToSeat).ToArray();
+    }
+
+    internal bool TryGetSeat(Guid id, out PlayerSeat seat)
+    {
+        lock (this)
+        {
+            Player? player = _players.FirstOrDefault(p => p.Id == id);
+            seat = player is null ? default : ToSeat(player);
+            return player is not null;
+        }
+    }
+
+    private static PlayerSeat ToSeat(Player p) => new(p.Id, p.Alias, p.Color, p.CharacterId, p.IsBot, p.Alive, p.Connected);
+
+    /// <summary>
+    /// Marks the player as connected through the given hub connection (a newer connection replaces an older one).
+    /// </summary>
+    public void SetConnected(Guid playerId, string connectionId)
+    {
+        lock (this)
+        {
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId);
+            if (player is null) return;
+            player.ConnectionId = connectionId;
+            player.Connected = true;
+        }
+    }
+
+    /// <summary>
+    /// Marks the player as disconnected, but only if <paramref name="connectionId"/> is still their current
+    /// connection (a refresh opens the new connection before the old one reports closing).
+    /// </summary>
+    /// <returns>True if the roster changed.</returns>
+    public bool SetDisconnected(Guid playerId, string connectionId)
+    {
+        lock (this)
+        {
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId);
+            if (player is null || player.IsBot || player.ConnectionId != connectionId) return false;
+            player.ConnectionId = null;
+            player.Connected = false;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Votes a player out. They stay in the room as a spectator.
+    /// </summary>
+    internal void Eliminate(Guid playerId)
+    {
+        lock (this)
+        {
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId);
+            if (player is not null) player.Alive = false;
+        }
+    }
+
+    /// <summary>
+    /// Ends the game: bots leave, everyone is alive again and the room is back in the lobby.
+    /// </summary>
+    internal void ResetToLobby()
+    {
+        lock (this)
+        {
+            _players.RemoveAll(p => p.IsBot);
+            foreach (Player player in _players) player.Alive = true;
+            _state = GameState.InLobby(GameId);
         }
     }
 
@@ -120,7 +321,7 @@ public class Room(RoomCode rc, GameOptions options)
     {
         lock (this)
         {
-            if (_phase != RoomPhase.Lobby)
+            if (_state.Stage != Stage.Lobby)
                 return RoomSettingsError.NotInLobby;
 
             if (maxPlayers is { } max)
