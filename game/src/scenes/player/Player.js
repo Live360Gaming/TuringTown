@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 import {Scene} from "phaser";
 import {NetworkManager} from "../../core/network.js";
 import {enterFullWindow} from "../../core/scaling.js";
+import {createTextButton, PANEL} from "../../core/ui/Button.js";
 
 // Players can be on a phone or a laptop, so unlike the Host this scene fills the whole window
 // (Phaser RESIZE mode) and lays itself out from the real screen size instead of a fixed resolution.
@@ -18,12 +19,16 @@ export class Player extends Scene {
 
         this.background = this.add.image(0, 0, 'background');
 
+        // Rounded card the form sits on (redrawn in layout()).
+        this.panel = this.add.graphics();
+
         this.titleText = this.add.text(0, 0, 'Enter Room Code', {color: '#ffffff'})
             .setOrigin(0.5)
             .setResolution(window.devicePixelRatio);
 
         // A real HTML input so phones bring up their keyboard.
         this.codeInput = this.add.dom(0, 0, 'input', {
+            boxSizing: 'border-box',
             padding: '0.3em',
             textAlign: 'center',
             textTransform: 'uppercase',
@@ -49,9 +54,10 @@ export class Player extends Scene {
             .setOrigin(0.5)
             .setResolution(window.devicePixelRatio);
 
-        this.joinBtn = this.add.image(0, 0, 'join_phone_btn')
-            .setInteractive({useHandCursor: true})
-            .on('pointerup', () => this.join());
+        this.joinBtn = createTextButton(this, 0, 0, 'Join', () => this.join(), {width: 360, height: 80, fontSize: '40px'});
+        this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px'});
+
+        this.input.keyboard.on('keydown-ESC', () => this.quit());
 
         this.layout();
         this.scale.on('resize', this.layout, this);
@@ -71,18 +77,37 @@ export class Player extends Scene {
         this.background.setPosition(cx, cy)
             .setScale(Math.max(width / this.background.width, height / this.background.height));
 
-        this.titleText.setPosition(cx, cy - 200 * s).setFontSize(48 * s);
-        this.statusText.setPosition(cx, cy + 40 * s).setFontSize(32 * s);
+        // Card: portrait panel centred on screen, like the mockup.
+        const panelW = 560 * s;
+        const panelH = 700 * s;
+        this.panel.clear()
+            .fillStyle(PANEL, 1)
+            .fillRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s)
+            .lineStyle(3, 0xffffff, 1)
+            .strokeRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s);
+
+        this.titleText.setPosition(cx, cy - 250 * s).setFontSize(44 * s);
+        this.statusText.setPosition(cx, cy - 30 * s).setFontSize(28 * s)
+            .setWordWrapWidth(panelW - 60 * s);
 
         if (this.codeInput.active) {
-            this.codeInput.setPosition(cx, cy - 80 * s);
-            this.codeInput.node.style.width = `${480 * s}px`;
-            this.codeInput.node.style.fontSize = `${48 * s}px`;
+            this.codeInput.setPosition(cx, cy - 150 * s);
+            this.codeInput.node.style.width = `${420 * s}px`;
+            this.codeInput.node.style.fontSize = `${44 * s}px`;
+            // Phaser caches the element's size for centring, so re-measure after changing it.
+            this.codeInput.updateSize();
         }
 
         if (this.joinBtn.active) {
-            this.joinBtn.setPosition(cx, cy + 200 * s).setScale(s);
+            this.joinBtn.setPosition(cx, cy + 100 * s).setScale(s);
         }
+        // After joining there is no Join button, so Quit moves up into its place.
+        this.quitBtn.setPosition(cx, cy + (this.joinBtn.active ? 220 : 100) * s).setScale(s);
+    }
+
+    /** Leave the join screen and go back to the main menu. */
+    quit() {
+        this.scene.start('MainMenu');
     }
 
     async join() {
@@ -101,6 +126,7 @@ export class Player extends Scene {
             this.codeInput.destroy();
             this.joinBtn.destroy();
             this.statusText.setText(`Joined ${roomCode}\nWaiting for host...`);
+            this.layout();
         } catch (err) {
             this.statusText.setText(err.message);
         } finally {
