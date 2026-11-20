@@ -13,7 +13,7 @@ http:
     type: json
     data: |-
       {
-        "MaxPlayers": 6,
+        "MaxPlayers": 4,
         "FamilyFriendly": true
       }
   auth: inherit
