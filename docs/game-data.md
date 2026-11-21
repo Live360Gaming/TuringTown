@@ -5,9 +5,10 @@ questions, etc.) can be produced by an agent that returns data in a fixed struct
 
 Status: **a design, partly built.** The first game, Turing Town, exists (see [game-flow.md](game-flow.md)). What is
 implemented: `game.json` for Turing Town, the onboarding-question shape (`{id, kind, text, mature, options, minSelect, maxSelect}`) with its validation
-(`QuestionValidator`), the `family`/`mature` tone mapping from `ContentPolicy`, and the `IBotAgent` boundary with an
-offline `ScriptedBotAgent`. **Not implemented:** the real AI agent and the prompt below, the JSON Schema file, and
-the built-in packs as files (the built-in questions are in code). It extends [content-policy.md](content-policy.md),
+(`QuestionValidator`), the `family`/`mature` tone mapping from `ContentPolicy`, the `IBotAgent` and `IQuestionGenerator` boundaries with
+offline defaults, and the real generator on Azure AI Foundry (`FoundryQuestionGenerator`, prompts in `Services/Ai/Prompts`, see
+[ai-agents.md](ai-agents.md)). The prompt below is the original design; the shipped one is `questions-system.md`. **Not implemented:** the JSON
+Schema file as a file (the schema is built in code) and the built-in packs as files (the built-in questions are in code). It extends [content-policy.md](content-policy.md),
 which already owns the Family Friendly toggle (`Room.ContentPolicy`).
 
 Turing Town also uses the AI at runtime for the bots' chat and votes, not only for content. That goes through the same

@@ -153,8 +153,10 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
   personal details in a question or an option, nothing mature in a family room) and every answer, human or bot
   (`OnboardingAnswerValidator`). A bad question set is replaced by the built-in one; a bad bot answer is replaced
   per question.
-- **Not written yet:** the real agent and generator (Azure AI Foundry). Their endpoint, auth and request shape are to be
-  configuration-bound.
+- **The real agent and generator** (`FoundryBotAgent`, `FoundryQuestionGenerator`) run on Azure AI Foundry when `Ai:Provider=Foundry`. They are
+  off by default. Everything about them (configuration, secrets, prompts, limits, abuse protections, testing) is in [ai-agents.md](ai-agents.md).
+- At the Results stage the engine can hand the finished game (aliases and game text only) to an opt-in `IGameArchive` (`Storage:ArchiveTranscripts`),
+  for tuning the bots. It is off by default and no bot ever reads it.
 
 ## Configuration
 
@@ -175,7 +177,7 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `BotChatMinDelayMs` / `BotChatMaxDelayMs` | 4000 / 12000 | bots wait a random time so they type like people |
 | `BotTypingMsPerChar` / `BotTypingMaxMs` | 120 / 4000 | typing time before a line appears (the agent's own time counts) |
 | `BotMentionIgnorePercent` | 15 | percent of @mentions a bot leaves for its next normal turn |
-| `BotPaceToHumans` | false | the bot never says much more than the humans (about 1.3x, at least one line); meant for the real AI |
+| `BotPaceToHumans` | unset | the bot never says much more than the humans (about 1.3x, at least one line). Unset means on for a game on the real AI, off for the scripted bots |
 | `BotOwnLinesContext` | 5 | how many of its own latest lines a bot is shown, so it stays consistent |
 | `BotVoteMinDelayMs` / `BotVoteMaxDelayMs` | 3000 / 15000 | |
 

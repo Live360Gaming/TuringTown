@@ -100,6 +100,7 @@ public sealed record StyleProfile(
 /// <param name="AlivePlayers">Aliases of the other living players (never this bot's own alias).</param>
 /// <param name="History">The finished rounds, as the Reveal showed them.</param>
 /// <param name="OwnLines">This bot's own latest lines, so it stays consistent.</param>
+/// <param name="ChatMaxLength">The longest chat line the game accepts.</param>
 public sealed record BotContext(
     BotKey Key,
     string BotAlias,
@@ -109,4 +110,5 @@ public sealed record BotContext(
     IReadOnlyList<string> AlivePlayers,
     IReadOnlyList<RoundOutcome> History,
     IReadOnlyList<ChatLine> OwnLines,
-    StyleProfile Style);
+    StyleProfile Style,
+    int ChatMaxLength = 200);

@@ -37,6 +37,7 @@ public sealed class FallbackQuestionGenerator(IQuestionGenerator primary, IQuest
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
+            AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "questions"));
             return await fallback.GenerateAsync(request, ct);
         }
     }

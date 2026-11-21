@@ -21,6 +21,7 @@ public sealed class TuringTownEngine : IDisposable
     private readonly IBotAgent _agent;
     private readonly IQuestionGenerator _questionGenerator;
     private readonly IBotMemoryStore _memory;
+    private readonly IGameArchive _archive;
     private readonly Guid _gameId = Guid.NewGuid();
     private readonly IContentFilter _contentFilter;
     private readonly IRoomBroadcaster _broadcaster;
@@ -61,6 +62,7 @@ public sealed class TuringTownEngine : IDisposable
         IBotAgent agent,
         IQuestionGenerator questionGenerator,
         IBotMemoryStore memory,
+        IGameArchive archive,
         IContentFilter contentFilter,
         IRoomBroadcaster broadcaster,
         TimeProvider time,
@@ -72,6 +74,7 @@ public sealed class TuringTownEngine : IDisposable
         _agent = agent;
         _questionGenerator = questionGenerator;
         _memory = memory;
+        _archive = archive;
         _contentFilter = contentFilter;
         _broadcaster = broadcaster;
         _opt = options;
@@ -297,6 +300,42 @@ public sealed class TuringTownEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Hands the finished game to the (opt-in) transcript archive. Aliases and game text only: no onboarding answers, no
+    /// ids, no tokens. It runs in the background so a slow store never holds up the Results screen.
+    /// </summary>
+    private void ArchiveInBackground(string winner, IReadOnlyList<RoleReveal> roles)
+    {
+        GameArchive archive;
+        lock (_gate)
+        {
+            archive = new GameArchive(
+                _gameId,
+                _clock.UtcNow,
+                winner,
+                roles.Select(r => new ArchivedPlayer(r.Alias, r.WasBot ? "Bot" : "Human")).ToArray(),
+                _questions.Select(q => new ArchivedQuestion(q.Text, q.Kind, q.Options.Select(o => o.Text).ToArray())).ToArray(),
+                _history.ToArray(),
+                _chat.Snapshot().Select(m => new ArchivedLine(m.Alias, m.Text, DateTimeOffset.FromUnixTimeMilliseconds(m.SentAtUtcMs))).ToArray());
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _archive.ArchiveAsync(archive, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // The game was disposed.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Room {Room}: could not archive the finished game", _room.Code);
+            }
+        });
+    }
+
     private async Task RunResultsAsync(string winner)
     {
         IReadOnlyList<RoleReveal> roles = _room.GetSeats().Select(s => new RoleReveal(s.Id, s.Alias, s.IsBot)).ToArray();
@@ -305,6 +344,8 @@ public sealed class TuringTownEngine : IDisposable
             foreach (RoleReveal role in roles.Where(r => r.WasBot))
                 _unmasked.Add(role.PlayerId);
         }
+
+        ArchiveInBackground(winner, roles);
 
         TimeSpan duration = TimeSpan.FromSeconds(_opt.ResultsSeconds);
         await EnterStageAsync(Stage.Results, 0, 0, duration, new ResultsData(winner, roles));
@@ -549,6 +590,7 @@ public sealed class TuringTownEngine : IDisposable
 
             if (QuestionValidator.IsValid(questions, policy, _opt.Mix) && await QuestionsAllowedAsync(questions, policy))
                 return questions;
+            AiMetrics.QuestionFailures.Add(1, new KeyValuePair<string, object?>("reason", "validation"));
             _logger.LogWarning("Room {Room}: the generated onboarding questions failed validation, using the built-in ones", _room.Code);
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
@@ -557,6 +599,7 @@ public sealed class TuringTownEngine : IDisposable
         }
         catch (Exception ex)
         {
+            AiMetrics.QuestionFailures.Add(1, new KeyValuePair<string, object?>("reason", "error"));
             _logger.LogWarning(ex, "Room {Room}: could not get onboarding questions from the agent, using the built-in ones", _room.Code);
         }
 
@@ -664,7 +707,8 @@ public sealed class TuringTownEngine : IDisposable
             seats.Where(s => s.Alive && s.Id != bot.Id).Select(s => s.Alias).ToArray(),
             _history.ToArray(),
             own,
-            _style);
+            _style,
+            _opt.ChatMaxLength);
     }
 
     private async Task BotChatLoopAsync(PlayerSeat bot, int round, CancellationToken ct)
@@ -741,7 +785,7 @@ public sealed class TuringTownEngine : IDisposable
     /// </summary>
     private int PaceBudget()
     {
-        if (!_opt.BotPaceToHumans) return _opt.BotMessagesPerRound;
+        if (_opt.BotPaceToHumans != true) return _opt.BotMessagesPerRound;
 
         lock (_gate)
         {

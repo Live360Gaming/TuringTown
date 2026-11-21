@@ -27,6 +27,9 @@ public sealed class TuringTownOptions
     public int SingleChoiceQuestions { get; set; } = 1;
     public int MultiChoiceQuestions { get; set; } = 1;
 
+    /// <summary>A copy, so one game can be tuned (for example by the agent it runs on) without changing the shared settings.</summary>
+    public TuringTownOptions Clone() => (TuringTownOptions)MemberwiseClone();
+
     public QuestionMix Mix => new(TextQuestions, SingleChoiceQuestions, MultiChoiceQuestions);
 
     public int QuestionCount => Mix.Total;
@@ -59,9 +62,10 @@ public sealed class TuringTownOptions
 
     /// <summary>
     /// When true a bot never says much more than the humans do (at most about 1.3x a human's lines this round, and
-    /// always at least one), still capped by <see cref="BotMessagesPerRound"/>. Meant for the real AI.
+    /// always at least one), still capped by <see cref="BotMessagesPerRound"/>. Left unset it is on for a game that runs on
+    /// the real AI and off for the scripted bots.
     /// </summary>
-    public bool BotPaceToHumans { get; set; }
+    public bool? BotPaceToHumans { get; set; }
 
     /// <summary>How many of its own latest lines a bot is shown, so it stays consistent.</summary>
     public int BotOwnLinesContext { get; set; } = 5;

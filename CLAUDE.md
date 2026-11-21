@@ -87,9 +87,12 @@ served under a sub-path).
 
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,
 default ON). See [docs/content-policy.md](docs/content-policy.md). The design for per-game data and AI-generated
-content (schemas, prompts, tone handling) is in [docs/game-data.md](docs/game-data.md). Only the offline part exists:
-the bots go through `IBotAgent` and the onboarding questions through `IQuestionGenerator`, and there is **no real AI agent wired in yet** (no
-`FoundryBotAgent`, and `AllowAllContentFilter` is a placeholder for Azure Content Safety).
+content (schemas, prompts, tone handling) is in [docs/game-data.md](docs/game-data.md). The bots go through `IBotAgent` and the
+onboarding questions through `IQuestionGenerator`. Both run **offline by default** (`Ai:Provider=Scripted`), and on Azure AI Foundry
+when `Ai:Provider=Foundry`, with the scripted agents as the fallback so a game never stalls. How it works, the config and secrets
+(`Foundry:Endpoint` / `Deployment` / `ApiKey` are the existing user secrets; managed identity in production), the abuse protections
+and the evaluation tests are in [docs/ai-agents.md](docs/ai-agents.md). `AllowAllContentFilter` is still the default
+`IContentFilter`; `ContentSafety:Provider=Azure` switches on Azure AI Content Safety.
 
 **Hosting limit.** Rooms, engines and SignalR groups are all in one process's memory, so the app must run as a
 **single instance**. Scaling out would need a SignalR backplane and shared room state.

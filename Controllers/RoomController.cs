@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using TuringTown.Models;
 using TuringTown.Services;
 
@@ -17,6 +18,7 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
     /// </summary>
     /// <returns></returns>
     [HttpPost("create")]
+    [EnableRateLimiting(Program.RoomRateLimit)]
     public IActionResult CreateRoom()
     {
         // Create a new random room code.
@@ -49,6 +51,7 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
     /// <param name="req"></param>
     /// <returns></returns>
     [HttpPost("join")]
+    [EnableRateLimiting(Program.RoomRateLimit)]
     public IActionResult JoinRoom([FromBody] JoinRoomReq req)
     {
         // Parse the room code

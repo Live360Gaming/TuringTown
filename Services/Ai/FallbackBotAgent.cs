@@ -26,16 +26,16 @@ public sealed class FallbackBotAgent(IBotAgent primary, IBotAgent fallback, Agen
     }
 
     public Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest request, CancellationToken ct) =>
-        Run(timeouts.Onboarding, c => primary.AnswerOnboardingAsync(request, c), c => fallback.AnswerOnboardingAsync(request, c), ct);
+        Run("onboarding", timeouts.Onboarding, c => primary.AnswerOnboardingAsync(request, c), c => fallback.AnswerOnboardingAsync(request, c), ct);
 
     public Task<string?> NextChatMessageAsync(ChatRequest request, CancellationToken ct) =>
-        Run(timeouts.Chat, c => primary.NextChatMessageAsync(request, c), _ => Task.FromResult<string?>(null), ct);
+        Run("chat", timeouts.Chat, c => primary.NextChatMessageAsync(request, c), _ => Task.FromResult<string?>(null), ct);
 
     public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct) =>
-        Run(timeouts.Vote, c => primary.CastVoteAsync(request, c), c => fallback.CastVoteAsync(request, c), ct);
+        Run("vote", timeouts.Vote, c => primary.CastVoteAsync(request, c), c => fallback.CastVoteAsync(request, c), ct);
 
     public Task EndRoundAsync(RoundEndRequest request, CancellationToken ct) =>
-        Run<object?>(timeouts.RoundNotes,
+        Run<object?>("round_notes", timeouts.RoundNotes,
             async c =>
             {
                 await primary.EndRoundAsync(request, c);
@@ -44,7 +44,7 @@ public sealed class FallbackBotAgent(IBotAgent primary, IBotAgent fallback, Agen
             _ => Task.FromResult<object?>(null),
             ct);
 
-    private static async Task<T> Run<T>(TimeSpan timeout, Func<CancellationToken, Task<T>> call, Func<CancellationToken, Task<T>> backup, CancellationToken ct)
+    private static async Task<T> Run<T>(string kind, TimeSpan timeout, Func<CancellationToken, Task<T>> call, Func<CancellationToken, Task<T>> backup, CancellationToken ct)
     {
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(timeout);
@@ -55,6 +55,7 @@ public sealed class FallbackBotAgent(IBotAgent primary, IBotAgent fallback, Agen
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             // Timed out or failed; the game keeps moving.
+            AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", kind));
             return await backup(ct);
         }
     }

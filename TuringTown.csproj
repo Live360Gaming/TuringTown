@@ -9,11 +9,19 @@
   </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Azure.AI.ContentSafety" Version="1.0.0" />
+        <PackageReference Include="Azure.Identity" Version="1.21.0" />
+        <PackageReference Include="Azure.Storage.Blobs" Version="12.30.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0-rc.3.26522.148" />
+        <PackageReference Include="OpenAI" Version="2.15.0" />
     </ItemGroup>
 
     <ItemGroup>
       <Folder Include="wwwroot\" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="Services\Ai\Prompts\*.md" />
     </ItemGroup>
 
     <!-- The test project lives in a subfolder, so keep its sources out of this project's globbing. -->

@@ -37,11 +37,11 @@ public static class PromptText
     }
 
     private static bool IsInvisible(char c) =>
-        c is >= '​' and <= '‏'    // zero-width space, joiners, direction marks
-            or >= '‪' and <= '‮'  // bidi embedding and override
-            or >= '⁠' and <= '⁤'  // word joiner and invisible operators
-            or >= '⁦' and <= '⁩'  // bidi isolates
-            or '﻿'                      // byte order mark
+        c is >= '\u200B' and <= '\u200F'    // zero-width space, joiners, direction marks
+            or >= '\u202A' and <= '\u202E'  // bidi embedding and override
+            or >= '\u2060' and <= '\u2064'  // word joiner and invisible operators
+            or >= '\u2066' and <= '\u2069'  // bidi isolates
+            or '\uFEFF'                      // byte order mark
         || (char.IsControl(c) && !char.IsWhiteSpace(c))
         || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format;
 }

@@ -11,9 +11,9 @@ namespace TuringTown.Services.Games;
 /// Starts games and keeps track of the engine running each room.
 /// </summary>
 public sealed class GameCoordinator(
-    IBotAgent agent,
-    IQuestionGenerator questionGenerator,
+    AgentSelector agents,
     IBotMemoryStore memory,
+    IGameArchive archive,
     IContentFilter contentFilter,
     IRoomBroadcaster broadcaster,
     TimeProvider time,
@@ -21,6 +21,7 @@ public sealed class GameCoordinator(
     ILoggerFactory loggerFactory)
 {
     private readonly ConcurrentDictionary<RoomCode, TuringTownEngine> _engines = new();
+    private readonly ConcurrentDictionary<TuringTownEngine, IDisposable> _leases = new();
 
     /// <summary>
     /// Moves the room out of the lobby, seats the bots and starts the game.
@@ -30,9 +31,16 @@ public sealed class GameCoordinator(
         RoomStartError error = room.TryStart(TuringTownEngine.BotCountFor);
         if (error != RoomStartError.None) return error;
 
-        TuringTownEngine engine = new(room, agent, questionGenerator, memory, contentFilter, broadcaster, time, options.Value,
+        // The real AI while the limits allow, the scripted bots otherwise. The choice is made once, for the whole game.
+        AgentSet set = agents.Select();
+
+        TuringTownOptions tuned = options.Value.Clone();
+        tuned.BotPaceToHumans ??= set.UsesAi;
+
+        TuringTownEngine engine = new(room, set.Agent, set.Questions, memory, archive, contentFilter, broadcaster, time, tuned,
             loggerFactory.CreateLogger<TuringTownEngine>(), finished => Finished(room, finished));
 
+        if (set.Lease is not null) _leases[engine] = set.Lease;
         _engines[room.Code] = engine;
         engine.Start();
         return RoomStartError.None;
@@ -43,6 +51,7 @@ public sealed class GameCoordinator(
     private void Finished(Room room, TuringTownEngine engine)
     {
         _engines.TryRemove(new KeyValuePair<RoomCode, TuringTownEngine>(room.Code, engine));
+        if (_leases.TryRemove(engine, out IDisposable? lease)) lease.Dispose();
         engine.Dispose();
     }
 }

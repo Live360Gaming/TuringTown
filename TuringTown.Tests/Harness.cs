@@ -92,6 +92,7 @@ internal sealed class Harness : IRoomBroadcaster
     public FakeTimeProvider Time { get; } = new();
     public TestAgent Agent { get; } = new();
     public InMemoryBotMemoryStore Memory { get; } = new();
+    public InMemoryGameArchive Archive { get; } = new();
     public TuringTownEngine Engine { get; }
     public TuringTownOptions Options { get; } = new()
     {
@@ -117,7 +118,7 @@ internal sealed class Harness : IRoomBroadcaster
     public List<GameState> States { get; } = [];
     public List<Sent> Messages { get; } = [];
 
-    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null)
+    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null, IGameArchive? archive = null)
     {
         configure?.Invoke(Options);
         Room = new Room(RoomCode.CreateRandomRoomCode(), gameOptions ?? new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
@@ -130,7 +131,7 @@ internal sealed class Harness : IRoomBroadcaster
         }
 
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
-        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
+        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
         Engine.Start();
     }
 
