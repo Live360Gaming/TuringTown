@@ -42,7 +42,15 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             if (message.playerId !== this.session.you?.id) buzz(60);
             this.notifyIfMentioned(message);
         });
-        this.events.once('shutdown', () => this.feed.destroy());
+        // "Purple Mango is typing..." for everyone else, bots included.
+        const showTyping = typing => this.feed.setTyping(
+            this.session.roster.filter(p => typing.has(p.id) && p.id !== this.session.you?.id).map(p => p.alias));
+        this.listen(this.session, 'typing', showTyping);
+        showTyping(new Set(this.session.typing.keys()));
+        this.events.once('shutdown', () => {
+            this.feed.destroy();
+            if (this.typingReported) this.session.reportTyping(false);
+        });
 
         this.chips = [];
 
@@ -57,6 +65,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             input.addEventListener('keydown', e => {
                 if (e.key === 'Enter') this.send();
             });
+            input.addEventListener('input', () => this.reportTyping());
 
             this.sendBtn = createTextButton(this, 0, 0, 'Send', () => this.send(), {width: 110, height: 56, fontSize: '26px'});
 
@@ -99,6 +108,17 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         this.time.delayedCall(4000, () => this.statusText.setText('').setColor('#ffffff'));
     }
 
+    /** Tells the room while there is text in the box. Repeats every few seconds, so a stuck flag is refreshed or expires. */
+    reportTyping(forceStop = false) {
+        const typing = !forceStop && this.chatInput.node.value.trim().length > 0;
+        const now = Date.now();
+        if (typing && this.typingReported && now - this.typingSentAt < 4000) return;
+        if (!typing && !this.typingReported) return;
+        this.typingReported = typing;
+        this.typingSentAt = now;
+        this.session.reportTyping(typing);
+    }
+
     async send() {
         const input = this.chatInput.node;
         const text = input.value.trim();
@@ -108,6 +128,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         try {
             await this.session.invoke('SendChat', text);
             input.value = '';
+            this.reportTyping(true);
             this.statusText.setText('');
         } catch (err) {
             this.statusText.setText(hubErrorMessage(err));

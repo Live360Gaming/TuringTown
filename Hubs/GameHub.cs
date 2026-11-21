@@ -178,6 +178,13 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         Throw(await RequireEngine(room).SendChatAsync(playerId, text));
     }
 
+    /// <summary>The player started (true) or stopped (false) typing in the chat box. Shown to the room as a typing indicator.</summary>
+    public async Task SetTyping(bool typing)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        await RequireEngine(room).SetTypingAsync(playerId, typing);
+    }
+
     public async Task CastVote(Guid targetPlayerId)
     {
         (Room room, Guid playerId) = RequirePlayer();

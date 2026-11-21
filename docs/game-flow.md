@@ -68,6 +68,7 @@ Server to client:
 | `StateChanged` | `{gameId, stage, round, step, endsAtUtcMs, data}`. Always a **full snapshot**, never a delta. |
 | `RosterChanged` | `PlayerInfo[]` (also changes when someone connects, disconnects or is voted out) |
 | `ChatMessage` | `{id, playerId, alias, color, characterId, text, sentAtUtcMs, mentions}` (`mentions` = ids of the players it @mentions) |
+| `Typing` | `{playerId, typing}`: a player started or stopped typing in the Discussion. Humans and bots look identical, and the client drops the flag when that player's message arrives, the stage changes, or 30 s pass |
 | `Progress` | `{done, total}` for the current Onboarding or Voting stage |
 
 Client to server (a refused call throws a `HubException` with a readable message):
@@ -80,6 +81,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `TutorialStep(step)` / `TutorialDone()` | host | Tutorial |
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
 | `SendChat(text)` | living player | Discussion |
+| `SetTyping(bool typing)` | living player | Discussion. Sent while the chat box has text, repeated every 4 s, and `false` on send |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
 | `ReturnToLobby()` | host or leader | Results |
 

@@ -531,6 +531,14 @@ public sealed class TuringTownEngine : IDisposable
         return await PostChatAsync(seat, text, _cts.Token);
     }
 
+    /// <summary>A human started or stopped typing. Ignored unless they could send a message right now.</summary>
+    public async Task SetTypingAsync(Guid playerId, bool typing)
+    {
+        if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot || !seat.Alive) return;
+        if (_room.State.Stage != Stage.Discussion) return;
+        await _broadcaster.Typing(_room, playerId, typing);
+    }
+
     public async Task<string?> CastVoteAsync(Guid playerId, Guid targetId)
     {
         if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot) return "Unknown player.";
@@ -763,17 +771,31 @@ public sealed class TuringTownEngine : IDisposable
                         RecentLines(), mentions, context.AlivePlayers, context);
                 }
 
-                DateTimeOffset asked = _clock.UtcNow;
-                string? line = await _agent.NextChatMessageAsync(request, ct);
-                TimeSpan thought = _clock.UtcNow - asked;
-                NoteLatency(bot, thought);
-                if (line is null) continue;
+                // Shown as "typing" while the bot thinks and types, exactly like a human at the keyboard.
+                await _broadcaster.Typing(_room, bot.Id, true);
+                string? line;
+                string? error;
+                try
+                {
+                    DateTimeOffset asked = _clock.UtcNow;
+                    line = await _agent.NextChatMessageAsync(request, ct);
+                    TimeSpan thought = _clock.UtcNow - asked;
+                    NoteLatency(bot, thought);
+                    if (line is null) continue;
 
-                // Typing takes time too. The time the agent already took counts towards it.
-                TimeSpan typing = TimeSpan.FromMilliseconds(Math.Min(_opt.BotTypingMaxMs, line.Length * (long)_opt.BotTypingMsPerChar)) - thought;
-                if (typing > TimeSpan.Zero) await _clock.Delay(typing, ct);
+                    // Typing takes time too. The time the agent already took counts towards it.
+                    TimeSpan typing = TimeSpan.FromMilliseconds(Math.Min(_opt.BotTypingMaxMs, line.Length * (long)_opt.BotTypingMsPerChar)) - thought;
+                    if (typing > TimeSpan.Zero) await _clock.Delay(typing, ct);
 
-                if (await PostChatAsync(bot, line, ct) is null)
+                    error = await PostChatAsync(bot, line, ct);
+                }
+                finally
+                {
+                    // Also on a quiet turn or when the discussion ends. The client drops it when the message arrives too.
+                    await _broadcaster.Typing(_room, bot.Id, false);
+                }
+
+                if (error is null)
                 {
                     posted++;
                     lock (_gate)

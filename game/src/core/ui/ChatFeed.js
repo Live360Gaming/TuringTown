@@ -15,6 +15,7 @@ export class ChatFeed {
     constructor(scene, {x = 0, y = 0, width = 400, height = 400, fontSize = 22, avatarSize = 44, highlightPlayerId = null} = {}) {
         this.scene = scene;
         this.messages = [];
+        this.typingAliases = [];
         this.items = [];
         this.highlightPlayerId = highlightPlayerId;
         this.box = {x, y, width, height, fontSize, avatarSize};
@@ -27,6 +28,12 @@ export class ChatFeed {
 
     setMessages(messages) {
         this.messages = [...messages];
+        this.render();
+    }
+
+    /** Aliases of who is typing right now; shown as a line under the last message. */
+    setTyping(aliases) {
+        this.typingAliases = aliases;
         this.render();
     }
 
@@ -44,6 +51,17 @@ export class ChatFeed {
         const textX = x + avatarSize + gap;
         const textWidth = Math.max(40, width - avatarSize - gap);
         let bottom = y + height;
+
+        if (this.typingAliases.length > 0) {
+            const names = this.typingAliases.length > 2 ? 'Several people' : this.typingAliases.join(' and ');
+            const verb = this.typingAliases.length > 2 || this.typingAliases.length === 2 ? 'are' : 'is';
+            const typing = this.scene.add.text(x, 0, `${names} ${verb} typing...`, {fontSize: `${fontSize * 0.85}px`, fontStyle: 'italic', color: '#b8c0d0'})
+                .setResolution(window.devicePixelRatio);
+            typing.setWordWrapWidth(width);
+            bottom -= typing.height + gap * 0.5;
+            typing.setY(bottom + gap * 0.25);
+            this.items.push(typing);
+        }
 
         for (let i = this.messages.length - 1; i >= 0; i--) {
             const message = this.messages[i];

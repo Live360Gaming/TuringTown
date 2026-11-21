@@ -4,6 +4,8 @@ import {GameDirector} from './director.js';
 import {ROBOT_KEYS} from '../constants.js';
 
 const REGISTRY_KEY = 'session';
+/** A typing indicator with no update for this long is dropped (a phone that went away mid-sentence). */
+const TYPING_EXPIRY_MS = 30000;
 /** A message the main menu shows once, e.g. the goodbye when the host closes the room. */
 export const MENU_NOTICE_KEY = 'menuNotice';
 
@@ -11,7 +13,7 @@ export const MENU_NOTICE_KEY = 'menuNotice';
  * One player's or the host's live connection to a room, and everything the server has told them about it.
  * It outlives scenes: scenes read it and listen to it, but never create or stop the connection.
  *
- * Events: 'state' (state), 'roster' (roster), 'chat' (message), 'progress' ({done, total}), and
+ * Events: 'state' (state), 'roster' (roster), 'chat' (message), 'typing' (Set of player ids), 'progress' ({done, total}), and
  * 'presence' ({player, status}) with status 'disconnected' | 'reconnected' | 'removed' when someone drops, comes
  * back, or is cleared from the lobby.
  *
@@ -32,6 +34,8 @@ export class GameSession extends Phaser.Events.EventEmitter {
         this.state = null;
         this.roster = [];
         this.transcript = [];
+        // Players who are typing right now (humans and bots alike), id -> expiry timer.
+        this.typing = new Map();
         this.you = null;
         this.progress = {done: 0, total: 0};
         this.clockOffsetMs = 0;
@@ -57,8 +61,10 @@ export class GameSession extends Phaser.Events.EventEmitter {
             on: {
                 StateChanged: state => this.setState(state),
                 RosterChanged: roster => this.setRoster(roster),
+                Typing: ({playerId, typing}) => this.setTypingFor(playerId, typing),
                 ChatMessage: message => {
                     this.transcript.push(message);
+                    this.setTypingFor(message.playerId, false);
                     this.emit('chat', message);
                 },
                 RoomClosed: reason => this.onRoomClosed(reason),
@@ -114,6 +120,7 @@ Thanks for playing. Goodbye!`);
     }
 
     setState(state) {
+        if (this.state?.stage !== state.stage) this.clearTyping();
         this.state = state;
         this.progress = {done: 0, total: 0};
 
@@ -182,6 +189,30 @@ Thanks for playing. Goodbye!`);
             else if (before.connected && !after.connected) this.emit('presence', {player: after, status: 'disconnected'});
             else if (!before.connected && after.connected) this.emit('presence', {player: after, status: 'reconnected'});
         }
+    }
+
+    /**
+     * Marks a player as typing (or not) and emits 'typing' with the Set of player ids. The server only says when someone
+     * starts and stops, so a flag that is never cleared (a phone that went away) expires on its own.
+     */
+    setTypingFor(playerId, typing) {
+        clearTimeout(this.typing.get(playerId));
+        const had = this.typing.has(playerId);
+        if (typing) this.typing.set(playerId, setTimeout(() => this.setTypingFor(playerId, false), TYPING_EXPIRY_MS));
+        else this.typing.delete(playerId);
+        if (had !== typing) this.emit('typing', new Set(this.typing.keys()));
+    }
+
+    clearTyping() {
+        if (this.typing.size === 0) return;
+        this.typing.forEach(timer => clearTimeout(timer));
+        this.typing.clear();
+        this.emit('typing', new Set());
+    }
+
+    /** Tells the room this player started or stopped typing. Best effort: a failure just means no indicator. */
+    reportTyping(typing) {
+        this.invoke('SetTyping', typing).catch(() => {});
     }
 
     /** Calls a hub method. Rejects with the server's message if it refuses (see hubErrorMessage). */

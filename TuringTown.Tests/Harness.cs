@@ -221,6 +221,15 @@ internal sealed class Harness : IRoomBroadcaster
         return Task.CompletedTask;
     }
 
+    /// <summary>Typing indicators as (player, typing) in order. Kept apart from <see cref="Messages"/>.</summary>
+    public List<(Guid PlayerId, bool Typing)> TypingEvents { get; } = [];
+
+    public Task Typing(Room room, Guid playerId, bool typing)
+    {
+        lock (TypingEvents) TypingEvents.Add((playerId, typing));
+        return Task.CompletedTask;
+    }
+
     public Task Progress(Room room, int done, int total)
     {
         Record("progress", new { done, total });

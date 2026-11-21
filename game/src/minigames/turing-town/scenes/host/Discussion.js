@@ -13,5 +13,8 @@ export class TuringTownHostDiscussion extends HostStage {
 
         const table = createTable(this, {drift: true});
         table.showRecent(this.session.transcript);
+
+        // A soft pop on the TV for every new line.
+        this.listen(this.session, 'chat', () => this.sound.play('message_sfx2'));
     }
 }

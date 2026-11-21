@@ -29,6 +29,7 @@ export function createTable(scene, {drift = false} = {}) {
     const session = scene.session;
     const seats = new Map(); // player id -> {x, size, index, avatar}
     const bubbles = new Map(); // player id -> container
+    const typingBubbles = new Map(); // player id -> container with animated dots
     let items = [];
     let driftTweens = [];
 
@@ -92,6 +93,7 @@ export function createTable(scene, {drift = false} = {}) {
         if (!seat) return;
 
         bubbles.get(message.playerId)?.destroy();
+        hideTyping(message.playerId);
 
         const text = scene.add.text(0, 0, message.text, textStyle('bubble', {
             align: 'center', wordWrap: {width: BUBBLE_WIDTH - 24},
@@ -124,6 +126,37 @@ export function createTable(scene, {drift = false} = {}) {
     };
 
     scene.listen(session, 'chat', showBubble);
+
+    // Three bouncing dots above whoever is typing. A bot that is thinking looks exactly like a person at the keyboard.
+    function hideTyping(playerId) {
+        const bubble = typingBubbles.get(playerId);
+        if (!bubble) return;
+        scene.tweens.killTweensOf(bubble.list);
+        bubble.destroy();
+        typingBubbles.delete(playerId);
+    }
+
+    const showTyping = playerId => {
+        const seat = seats.get(playerId);
+        if (!seat || typingBubbles.has(playerId)) return;
+
+        const background = scene.add.graphics();
+        background.fillStyle(0xffffff, 1).fillRoundedRect(-44, -56, 88, 46, 23);
+        background.fillTriangle(-10, -10, 10, -10, 0, 4);
+        const dots = [-22, 0, 22].map((dx, i) => {
+            const dot = scene.add.circle(dx, -33, 7, 0x6b7280);
+            scene.tweens.add({targets: dot, y: -41, duration: 350, yoyo: true, repeat: -1, delay: i * 140, ease: 'Sine.easeInOut'});
+            return dot;
+        });
+        const x = Math.min(HOST_WIDTH - 54, Math.max(54, seat.avatar.x));
+        const bubble = scene.add.container(x, AVATAR_Y - seat.size / 2 - 14, [background, ...dots]).setDepth(3);
+        typingBubbles.set(playerId, bubble);
+    };
+
+    scene.listen(session, 'typing', typing => {
+        [...typingBubbles.keys()].filter(id => !typing.has(id)).forEach(hideTyping);
+        typing.forEach(showTyping);
+    });
 
     // The TV may open mid-discussion (a refresh): show what was said in the last few seconds.
     const showRecent = transcript => {

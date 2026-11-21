@@ -207,6 +207,22 @@ public class BotPlumbingTests
     }
 
     [Fact]
+    public async Task A_bot_shows_as_typing_while_it_writes_and_stops_when_it_has_posted()
+    {
+        Harness h = new(humans: 2, o => o.BotMessagesPerRound = 1);
+        h.Agent.Chat = _ => "a perfectly human line";
+
+        await h.ThroughOnboardingAsync();
+        await h.UntilAsync(() => BotLines(h) == 1, "the bot's line");
+
+        (Guid PlayerId, bool Typing)[] events;
+        lock (h.TypingEvents) events = h.TypingEvents.ToArray();
+        Assert.Equal([true, false], events.Select(e => e.Typing));
+        Assert.Single(events.Select(e => e.PlayerId).Distinct());
+        Assert.DoesNotContain(h.Humans, p => p.Id == events[0].PlayerId);
+    }
+
+    [Fact]
     public async Task Typing_time_is_capped()
     {
         Harness h = new(humans: 2, o =>
