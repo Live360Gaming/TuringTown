@@ -48,8 +48,9 @@ internal readonly record struct PlayerSeat(Guid Id, string Alias, string Color, 
 /// <param name="Mentions">Ids of the players this message @mentions (only real, seated players; never the sender).</param>
 public readonly record struct ChatMessage(Guid Id, Guid PlayerId, string Alias, string Color, string CharacterId, string Text, long SentAtUtcMs, IReadOnlyList<Guid> Mentions);
 
-/// <summary>How a player answers an onboarding question. There is never a "correct" answer: these are private
-/// preference questions that feed the bots' personas.</summary>
+/// <summary>How a player answers an onboarding question. There is never a "correct" answer: these are opinion
+/// questions. The answers stay private during the Onboarding and are shown to everyone, by alias, from the first
+/// Discussion on (<see cref="DiscussionData"/>). They also feed the bots' personas.</summary>
 public enum QuestionKind
 {
     Text,
@@ -94,6 +95,21 @@ public readonly record struct QuestionMix(int Text, int SingleChoice, int MultiC
 
 /// <summary>Data for the Onboarding stage.</summary>
 public readonly record struct OnboardingData(IReadOnlyList<OnboardingQuestion> Questions);
+
+/// <summary>
+/// One player's answer on the public answer board: the free text, or the chosen option texts joined with ", ".
+/// Empty when the player gave no answer. Deliberately has no role.
+/// </summary>
+public readonly record struct BoardAnswer(Guid PlayerId, string Alias, string Answer);
+
+/// <summary>One onboarding question with everyone's answers, sorted by alias (so the order is no tell).</summary>
+public sealed record BoardQuestion(string Question, QuestionKind Kind, IReadOnlyList<BoardAnswer> Answers);
+
+/// <summary>
+/// Data for the Discussion stage: the answer board, what every player (bots included) said on the onboarding form.
+/// It is built once, after the bots have answered, and is the same in every round.
+/// </summary>
+public readonly record struct DiscussionData(IReadOnlyList<BoardQuestion> Board);
 
 public readonly record struct VoteCount(string Alias, int Votes);
 

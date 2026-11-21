@@ -108,6 +108,8 @@ public sealed class FoundryBotAgent(
         {
             ["alias"] = ctx.BotAlias,
             ["style"] = PromptJson.Serialize(ctx.Style),
+            // What the humans wrote for each text question, so the bot can model its answer on one or two of them.
+            ["human_answers"] = PromptJson.Serialize(ctx.Style.TextAnswers),
             ["questions"] = questions
         });
 
@@ -224,6 +226,12 @@ public sealed class FoundryBotAgent(
             answer = p.Kind == QuestionKind.Text ? p.Text ?? "" : string.Join(", ", p.ChosenOptions)
         })),
         ["players"] = PromptJson.Serialize(ctx.AlivePlayers),
+        // The public answer board, as every player sees it. Aliases and answers only, player text quoted and capped.
+        ["board"] = PromptJson.Serialize(ctx.PublicBoard.Select(q => new
+        {
+            question = q.Question,
+            answers = q.Answers.Select(a => new { player = a.Alias, answer = PromptText.Sanitize(a.Answer, StyleProfile.MaxSampleLength) })
+        })),
         ["history"] = PromptJson.Serialize(ctx.History.Select(h => new
         {
             round = h.Round,

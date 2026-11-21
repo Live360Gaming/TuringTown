@@ -125,7 +125,8 @@ server finds them (`TuringTownEngine.FindMentions`) and puts their ids in the me
   (`BotMentionReplyMinDelayMs`/`MaxDelayMs`) instead of ignoring the question. The lines that mentioned it are passed to
   the agent in `ChatRequest.Mentions`, and `ChatRequest.OtherPlayers` lists everyone else by alias (no roles, so a bot
   can mention anyone, including a teammate it cannot identify).
-- Screens: phones show a tap-to-add `@Alias` chip for each other living player, show a message that mentions you in gold,
+- Screens: on phones, typing `@` opens a list of the other living players (filtered by what follows; tap, or
+  arrows + Enter/Tab, inserts `@Alias `), show a message that mentions you in gold,
   and buzz the phone if it can. The TV draws a mentioning message in a golden bubble.
 
 ## AI boundary

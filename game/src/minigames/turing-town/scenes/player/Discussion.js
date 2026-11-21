@@ -1,13 +1,8 @@
-import {readableOn} from '../../../../core/theme.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
-import {addHoverFill, BTN, createTextButton} from '../../../../core/ui/Button.js';
-import * as Phaser from 'phaser';
+import {createTextButton} from '../../../../core/ui/Button.js';
 import {ChatFeed} from '../../../../core/ui/ChatFeed.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {buzz, hapticsEnabled, hapticsSupported, setHapticsEnabled} from '../../../../core/haptics.js';
-
-const CHIP_W = 240;
-const CHIP_H = 40;
 
 // The anonymous chat on a phone. Only your alias is ever shown. Someone who has been voted out can read but not write.
 export class TuringTownPlayerDiscussion extends PlayerStage {
@@ -31,6 +26,20 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
                 if (on) buzz(40);
             }, {width: 110, height: 44, fontSize: '18px', variant: 'ghost'});
         }
+        // Everyone's form answers, by alias: a list that opens over the chat.
+        this.board = this.session.state?.data?.board ?? [];
+        this.answersBtn = null;
+        this.answersPanel = null;
+        if (this.board.length > 0) {
+            this.answersBtn = createTextButton(this, 0, 0, 'Answers', () => this.toggleAnswers(),
+                {width: 120, height: 44, fontSize: '18px', variant: 'ghost'});
+            this.answersPanel = this.add.dom(0, 0, 'div').setOrigin(0, 0).setDepth(10);
+            this.answersPanel.node.className = 'tt-answers';
+            this.answersPanel.node.hidden = true;
+            this.fillAnswers();
+            this.listen(this.session, 'roster', () => this.fillAnswers());
+        }
+
         this.statusText = this.addText(this.canWrite ? '' : 'You were voted out. You can only watch now.', {align: 'center'});
 
         // Lines that @mention you are shown in gold.
@@ -52,50 +61,194 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             if (this.typingReported) this.session.reportTyping(false);
         });
 
-        this.chips = [];
-
         if (this.canWrite) {
-            // A real HTML input so phones bring up their keyboard.
-            this.chatInput = this.add.dom(0, 0, 'input');
-            const input = this.chatInput.node;
-            input.placeholder = 'Say something...';
+            // A real HTML input so phones bring up their keyboard. It sits in a wrapper that also holds the
+            // @mention popup, so the popup moves with the box.
+            this.chatInput = this.add.dom(0, 0, 'div');
+            const box = this.chatInput.node;
+            box.className = 'tt-chatbox';
+
+            const input = document.createElement('input');
+            input.placeholder = 'Say something... (@ to mention)';
             input.className = 'tt-input';
             input.maxLength = 200;
             input.autocomplete = 'off';
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') this.send();
+            input.setAttribute('role', 'combobox');
+            input.setAttribute('aria-autocomplete', 'list');
+            input.setAttribute('aria-expanded', 'false');
+            this.inputEl = input;
+
+            this.mentionList = document.createElement('ul');
+            this.mentionList.className = 'tt-mention-list';
+            this.mentionList.id = 'tt-mention-list';
+            this.mentionList.setAttribute('role', 'listbox');
+            this.mentionList.hidden = true;
+            input.setAttribute('aria-controls', this.mentionList.id);
+            box.append(this.mentionList, input);
+
+            this.mention = null;
+            input.addEventListener('keydown', e => this.onKeyDown(e));
+            input.addEventListener('input', () => {
+                this.reportTyping();
+                this.updateMentions();
             });
-            input.addEventListener('input', () => this.reportTyping());
+            // Moving the cursor into or out of an "@name" opens or closes the popup.
+            input.addEventListener('click', () => this.updateMentions());
+            input.addEventListener('keyup', e => {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') this.updateMentions();
+            });
+            input.addEventListener('blur', () => this.closeMentions());
 
             this.sendBtn = createTextButton(this, 0, 0, 'Send', () => this.send(), {width: 110, height: 56, fontSize: '26px'});
-
-            // One tap adds "@Alias " to what you are typing, so nobody has to type a full name on a phone.
-            this.chips = this.session.roster
-                .filter(player => player.alive && player.id !== this.session.you.id)
-                .map(player => this.createChip(player));
         }
     }
 
-    createChip(player) {
-        const bg = this.add.rectangle(0, 0, CHIP_W, CHIP_H, BTN)
-            .setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(player.color).color)
-            .setInteractive({useHandCursor: true});
-        const label = this.add.text(0, 0, `@${player.alias}`, {fontSize: '18px', color: readableOn(player.color, '#405FC2')}).setOrigin(0.5);
-        const chip = this.add.container(0, 0, [bg, label]);
-
-        addHoverFill(bg);
-        bg.on('pointerup', () => this.insertMention(player.alias));
-        return chip;
+    /**
+     * The answer board as HTML. Answers are player text, so only textContent is used. Someone voted out is dimmed.
+     * Bots' answers look exactly like everyone else's: the server sends them sorted by alias, with no roles.
+     */
+    fillAnswers() {
+        const panel = this.answersPanel.node;
+        const sections = this.board.map(question => {
+            const section = document.createElement('section');
+            const heading = document.createElement('h3');
+            heading.textContent = question.question;
+            const list = document.createElement('ul');
+            for (const entry of question.answers ?? []) {
+                const player = this.session.roster.find(p => p.id === entry.playerId);
+                const item = document.createElement('li');
+                if (player && !player.alive) item.classList.add('tt-answer-out');
+                if (entry.playerId === this.session.you?.id) item.classList.add('tt-answer-you');
+                const name = document.createElement('span');
+                name.className = 'tt-answer-name';
+                name.style.color = player?.color ?? '';
+                name.textContent = entry.alias;
+                const text = document.createElement('span');
+                text.className = entry.answer ? 'tt-answer-text' : 'tt-answer-text tt-answer-empty';
+                text.textContent = entry.answer || '(no answer)';
+                item.append(name, text);
+                list.append(item);
+            }
+            section.append(heading, list);
+            return section;
+        });
+        panel.replaceChildren(...sections);
     }
 
-    /** Puts "@Alias " where the cursor is in the chat box. */
-    insertMention(alias) {
-        const input = this.chatInput.node;
-        const text = `@${alias} `;
-        const start = input.selectionStart ?? input.value.length;
-        const end = input.selectionEnd ?? start;
-        input.setRangeText(text, start, end, 'end');
+    toggleAnswers() {
+        const panel = this.answersPanel.node;
+        panel.hidden = !panel.hidden;
+        this.answersBtn.setLabel(panel.hidden ? 'Answers' : 'Chat');
+        if (!panel.hidden) panel.scrollTop = 0;
+    }
+
+    onKeyDown(e) {
+        const m = this.mention;
+        if (m) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const step = e.key === 'ArrowDown' ? 1 : -1;
+                this.highlightMention((m.index + step + m.matches.length) % m.matches.length);
+                return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                this.pickMention(m.matches[m.index]);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this.closeMentions();
+                return;
+            }
+        }
+        if (e.key === 'Enter') this.send();
+    }
+
+    /**
+     * Opens the popup while the cursor is right after an "@" plus the start of a name, for example "hi @pur|".
+     * The "@" must start the text or follow a space, so an email address does not open it. Aliases contain a
+     * space ("Purple Mango"), so the typed part may too. It only stays open while some name still matches.
+     */
+    updateMentions() {
+        const input = this.inputEl;
+        const caret = input.selectionStart ?? input.value.length;
+        if (input.selectionEnd !== caret) return this.closeMentions();
+
+        const before = input.value.slice(0, caret);
+        const at = before.lastIndexOf('@');
+        if (at < 0 || (at > 0 && !/\s/.test(before[at - 1]))) return this.closeMentions();
+
+        const query = before.slice(at + 1).toLowerCase();
+        const youId = this.session.you?.id;
+        const matches = this.session.roster
+            .filter(p => p.alive && p.id !== youId)
+            .filter(p => {
+                const alias = p.alias.toLowerCase();
+                // "pur", "mango" and "purple m" all find "Purple Mango".
+                return alias.startsWith(query) || alias.split(/\s+/).some(word => word.startsWith(query));
+            });
+        if (matches.length === 0) return this.closeMentions();
+
+        // Keep the highlighted name when it still matches, so typing does not make the choice jump around.
+        const keepId = this.mention?.matches[this.mention.index]?.id;
+        const index = Math.max(0, matches.findIndex(p => p.id === keepId));
+        this.mention = {start: at, end: caret, matches, index};
+        this.renderMentions();
+    }
+
+    renderMentions() {
+        const {matches, index} = this.mention;
+        const list = this.mentionList;
+        list.replaceChildren(...matches.map((player, i) => {
+            const item = document.createElement('li');
+            item.className = 'tt-mention';
+            item.id = `tt-mention-${i}`;
+            item.setAttribute('role', 'option');
+            item.style.setProperty('--tt-mention-color', player.color);
+            // textContent only: the alias comes from the server.
+            const dot = document.createElement('span');
+            dot.className = 'tt-mention-dot';
+            const name = document.createElement('span');
+            name.textContent = player.alias;
+            item.append(dot, name);
+            // pointerdown + preventDefault keeps focus in the box, so the phone keyboard stays up.
+            item.addEventListener('pointerdown', e => {
+                e.preventDefault();
+                this.pickMention(player);
+            });
+            item.addEventListener('pointerenter', () => this.highlightMention(i));
+            return item;
+        }));
+        list.hidden = false;
+        this.inputEl.setAttribute('aria-expanded', 'true');
+        this.highlightMention(index);
+    }
+
+    highlightMention(index) {
+        this.mention.index = index;
+        [...this.mentionList.children].forEach((item, i) => item.setAttribute('aria-selected', String(i === index)));
+        this.mentionList.children[index]?.scrollIntoView?.({block: 'nearest'});
+        this.inputEl.setAttribute('aria-activedescendant', `tt-mention-${index}`);
+    }
+
+    closeMentions() {
+        this.mention = null;
+        if (!this.mentionList) return;
+        this.mentionList.hidden = true;
+        this.mentionList.replaceChildren();
+        this.inputEl.setAttribute('aria-expanded', 'false');
+        this.inputEl.removeAttribute('aria-activedescendant');
+    }
+
+    /** Swaps the typed "@pur" for "@Purple Mango ". */
+    pickMention(player) {
+        const {start, end} = this.mention;
+        const input = this.inputEl;
+        input.setRangeText(`@${player.alias} `, start, end, 'end');
         input.focus();
+        this.closeMentions();
+        this.reportTyping();
     }
 
     /** Someone @mentioned you: say so, and buzz the phone if it can. */
@@ -110,7 +263,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
     /** Tells the room while there is text in the box. Repeats every few seconds, so a stuck flag is refreshed or expires. */
     reportTyping(forceStop = false) {
-        const typing = !forceStop && this.chatInput.node.value.trim().length > 0;
+        const typing = !forceStop && this.inputEl.value.trim().length > 0;
         const now = Date.now();
         if (typing && this.typingReported && now - this.typingSentAt < 4000) return;
         if (!typing && !this.typingReported) return;
@@ -120,9 +273,10 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
     }
 
     async send() {
-        const input = this.chatInput.node;
+        const input = this.inputEl;
         const text = input.value.trim();
         if (!text || this.sending) return;
+        this.closeMentions();
 
         this.sending = true;
         try {
@@ -142,27 +296,27 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         const feedTop = m.top + 150 * m.s;
         const inputTop = m.bottom - 90 * m.s;
 
-        // The mention chips sit in two columns just above the chat box.
-        // Chips are at least 44px tall so they are easy to tap.
-        const chipS = Math.max(m.s, 44 / CHIP_H);
-        const chipGap = 8 * m.s;
-        const chipW = (m.panelW - 2 * pad - chipGap) / 2;
-        const chipRows = Math.ceil(this.chips.length / 2);
-        const chipsTop = inputTop - 14 * m.s - chipRows * (CHIP_H * chipS + chipGap);
-        this.chips.forEach((chip, i) => {
-            const col = i % 2;
-            const row = Math.floor(i / 2);
-            chip.setScale(chipW / CHIP_W, chipS);
-            chip.setPosition(
-                m.left + pad + chipW / 2 + col * (chipW + chipGap),
-                chipsTop + CHIP_H * chipS / 2 + row * (CHIP_H * chipS + chipGap),
-            );
-        });
-        const feedBottom = (this.chips.length > 0 ? chipsTop : inputTop - 14 * m.s) - 8 * m.s;
+        // The @mention popup floats over the feed, so the feed can use all the room down to the chat box.
+        const feedBottom = inputTop - 22 * m.s;
 
         this.title.setPosition(m.left + pad, m.top + 120 * m.s).setFontSize(m.fs(34, 22));
         this.buzzBtn?.setPosition(m.right - pad - 55, m.top + 120 * m.s);
+        // Left of the buzz button, or in its place where there is none.
+        this.answersBtn?.setPosition(m.right - pad - (this.buzzBtn ? 110 + 12 + 60 : 60), m.top + 120 * m.s);
+        // On a narrow phone, shrink the title so it never runs under the buttons.
+        const buttonsLeft = this.answersBtn ? this.answersBtn.x - 60 : this.buzzBtn ? this.buzzBtn.x - 55 : m.right;
+        this.fitText(this.title, m.fs(34, 22), buttonsLeft - 10 - (m.left + pad));
         this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
+
+        if (this.answersPanel) {
+            // Covers the chat feed; the chat box stays usable below it.
+            this.answersPanel.setPosition(m.left + pad, feedTop);
+            const style = this.answersPanel.node.style;
+            style.width = `${m.panelW - 2 * pad}px`;
+            style.height = `${Math.max(120, feedBottom - feedTop)}px`;
+            style.fontSize = `${Math.max(15, 20 * m.s)}px`;
+            this.answersPanel.updateSize();
+        }
 
         this.feed.resize({
             x: m.left + pad, y: feedTop + 36 * m.s, width: m.panelW - 2 * pad, height: feedBottom - feedTop - 36 * m.s,
@@ -174,7 +328,9 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             const inputWidth = m.panelW - 3 * pad - sendWidth;
             this.chatInput.setPosition(m.left + pad + inputWidth / 2, inputTop + 30 * m.s);
             this.chatInput.node.style.width = `${inputWidth}px`;
-            this.chatInput.node.style.fontSize = `${Math.max(16, 24 * m.s)}px`;
+            this.inputEl.style.fontSize = `${Math.max(16, 24 * m.s)}px`;
+            // The popup can grow up to the top of the feed, then scrolls.
+            this.mentionList.style.maxHeight = `${Math.max(120, feedBottom - feedTop)}px`;
             this.chatInput.updateSize();
             this.sendBtn.setPosition(m.right - pad - sendWidth / 2, inputTop + 30 * m.s).setScale(Math.max(m.s, 0.8));
         }

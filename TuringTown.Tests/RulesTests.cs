@@ -139,7 +139,7 @@ public class RulesTests
     }
 
     [Fact]
-    public async Task Onboarding_answers_are_checked_and_stay_private()
+    public async Task Onboarding_answers_are_checked_and_stay_private_during_the_form()
     {
         Harness h = new(humans: 2);
         Assert.Null(h.Engine.TutorialDone());

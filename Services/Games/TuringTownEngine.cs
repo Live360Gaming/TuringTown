@@ -36,6 +36,8 @@ public sealed class TuringTownEngine : IDisposable
     private readonly object _gate = new();
     private readonly Dictionary<Guid, OnboardingAnswer[]> _answers = [];
     private readonly Dictionary<Guid, PersonaAnswer[]> _personas = [];
+    private readonly Dictionary<Guid, OnboardingAnswer[]> _botAnswers = [];
+    private IReadOnlyList<BoardQuestion> _board = [];
     private readonly List<RoundOutcome> _history = [];
     private readonly Dictionary<Guid, List<string>> _ownLines = [];
     private readonly Dictionary<Guid, double> _latencyMs = [];
@@ -212,6 +214,28 @@ public sealed class TuringTownEngine : IDisposable
 
         // The bots answer last, so they can match how the humans actually wrote.
         await BotOnboardingAsync(questions);
+
+        // From the first Discussion on, everyone's answers are public, by alias.
+        lock (_gate)
+            _board = BuildBoard(questions);
+    }
+
+    /// <summary>
+    /// Everyone's onboarding answers, by alias, for the public board. Humans and bots are written the same way and
+    /// sorted by alias like the roster, so neither the order nor the format is a tell. Call with the gate held.
+    /// </summary>
+    private BoardQuestion[] BuildBoard(IReadOnlyList<OnboardingQuestion> questions)
+    {
+        PlayerSeat[] seats = _room.GetSeats().OrderBy(s => s.Alias, StringComparer.Ordinal).ToArray();
+        return questions.Select(q => new BoardQuestion(q.Text, q.Kind, seats.Select(seat =>
+        {
+            OnboardingAnswer[]? given = (seat.IsBot ? _botAnswers : _answers).GetValueOrDefault(seat.Id);
+            OnboardingAnswer? a = given?.FirstOrDefault(x => x.QuestionId == q.Id);
+            string text = q.Kind == QuestionKind.Text
+                ? a?.Text?.Trim() ?? ""
+                : string.Join(", ", q.Options.Where(o => a?.OptionIds?.Contains(o.Id) == true).Select(o => o.Text));
+            return new BoardAnswer(seat.Id, seat.Alias, text);
+        }).ToArray())).ToArray();
     }
 
     private async Task RunDiscussionAsync(int round)
@@ -227,7 +251,10 @@ public sealed class TuringTownEngine : IDisposable
             _roundStartedMs = _clock.ToUnixMs(_clock.UtcNow);
         }
 
-        await EnterStageAsync(Stage.Discussion, round, 0, duration, null);
+        DiscussionData data;
+        lock (_gate)
+            data = new DiscussionData(_board);
+        await EnterStageAsync(Stage.Discussion, round, 0, duration, data);
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotChatLoopAsync(b, round, stage.Token)).ToArray();
@@ -665,18 +692,25 @@ public sealed class TuringTownEngine : IDisposable
                     new OnboardingAnswerRequest(bot.Alias, _room.ContentPolicy, questions, samples, context), _cts.Token);
 
                 // The same checks as for a human. An invalid answer is replaced, so a bot always has a full persona.
+                // A near-copy of a human's answer is replaced too: everyone sees the answer board, and twins stand out.
                 OnboardingAnswer[] answers = new OnboardingAnswer[questions.Count];
                 for (int i = 0; i < answers.Length; i++)
                 {
-                    OnboardingAnswer? answer = given?.FirstOrDefault(a => a?.QuestionId == questions[i].Id);
+                    string id = questions[i].Id;
+                    IEnumerable<string?> humanTexts = samples.Where(a => a.QuestionId == id).Select(a => a.Text);
+                    OnboardingAnswer? answer = given?.FirstOrDefault(a => a?.QuestionId == id);
                     bool ok = OnboardingAnswerValidator.ValidateOne(questions[i], i + 1, answer, _opt.AnswerMaxLength, out OnboardingAnswer cleaned) is null
+                              && !OnboardingAnswerValidator.IsNearCopy(cleaned.Text, humanTexts)
                               && (cleaned.Text is not { Length: > 0 } text || await _contentFilter.IsAllowedAsync(text, _room.ContentPolicy, _cts.Token));
 
-                    answers[i] = ok ? cleaned : ScriptedBotAgent.ScriptedAnswer(questions[i], samples);
+                    answers[i] = ok ? cleaned : ScriptedBotAgent.ScriptedAnswer(questions[i], samples, bot.Id);
                 }
 
                 lock (_gate)
+                {
                     _personas[bot.Id] = ToPersona(questions, answers);
+                    _botAnswers[bot.Id] = answers;
+                }
             }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested)
             {
@@ -731,7 +765,8 @@ public sealed class TuringTownEngine : IDisposable
             _history.ToArray(),
             own,
             _style,
-            _opt.ChatMaxLength);
+            _opt.ChatMaxLength,
+            _board);
     }
 
     private async Task BotChatLoopAsync(PlayerSeat bot, int round, CancellationToken ct)

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using TuringTown.Models;
 
 namespace TuringTown.Services.Ai;
@@ -26,6 +27,9 @@ public sealed record ChoiceStyle(string Question, IReadOnlyList<OptionCount> Cou
 
 public readonly record struct OptionCount(string Option, int Count);
 
+/// <summary>What the humans wrote for one free-text question: sanitised, capped quoted samples (untrusted player text).</summary>
+public sealed record QuestionSamples(string Question, IReadOnlyList<string> Answers);
+
 /// <summary>
 /// How the humans wrote and what they picked on the onboarding form, as numbers plus a few short quoted samples,
 /// so a bot can blend in. The samples are untrusted player text: they are sanitised and capped, and must only ever
@@ -41,6 +45,13 @@ public sealed record StyleProfile(
 {
     public const int MaxSamples = 5;
     public const int MaxSampleLength = 120;
+
+    /// <summary>
+    /// The humans' answers to each free-text question, so a bot answers "the same question the way people here did".
+    /// Left out of the style JSON (the onboarding prompt carries it on its own) so chat prompts stay short.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<QuestionSamples> TextAnswers { get; init; } = [];
 
     public static StyleProfile Empty { get; } = new(0, 0, 0, 0, [], []);
 
@@ -76,13 +87,27 @@ public sealed record StyleProfile(
             choices.Add(new ChoiceStyle(q.Text, counts, Median(picks.Select(p => p.Length).ToArray())));
         }
 
+        QuestionSamples[] perQuestion = questions
+            .Where(q => q.Kind == QuestionKind.Text)
+            .Select(q => new QuestionSamples(q.Text, humanAnswers
+                .Where(a => a.QuestionId == q.Id)
+                .Select(a => PromptText.Sanitize(a.Text, MaxSampleLength))
+                .Where(t => t.Length > 0)
+                .Distinct()
+                .Take(MaxSamples)
+                .ToArray()))
+            .ToArray();
+
         return new StyleProfile(
             Median(texts.Select(t => t.Length).ToArray()),
             lowercase,
             punctuation,
             emoji,
             texts.Distinct().Take(MaxSamples).ToArray(),
-            choices);
+            choices)
+        {
+            TextAnswers = perQuestion
+        };
     }
 
     private static int Median(int[] values) => values.Length == 0 ? 0 : values.Order().ElementAt(values.Length / 2);
@@ -101,6 +126,8 @@ public sealed record StyleProfile(
 /// <param name="History">The finished rounds, as the Reveal showed them.</param>
 /// <param name="OwnLines">This bot's own latest lines, so it stays consistent.</param>
 /// <param name="ChatMaxLength">The longest chat line the game accepts.</param>
+/// <param name="Board">The public answer board (everyone's onboarding answers by alias, as every player sees it from the
+/// first Discussion on). Empty before then. It carries no role.</param>
 public sealed record BotContext(
     BotKey Key,
     string BotAlias,
@@ -111,4 +138,10 @@ public sealed record BotContext(
     IReadOnlyList<RoundOutcome> History,
     IReadOnlyList<ChatLine> OwnLines,
     StyleProfile Style,
-    int ChatMaxLength = 200);
+    int ChatMaxLength = 200,
+    IReadOnlyList<BoardQuestion>? Board = null)
+{
+    /// <summary>The board, never null.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<BoardQuestion> PublicBoard => Board ?? [];
+}

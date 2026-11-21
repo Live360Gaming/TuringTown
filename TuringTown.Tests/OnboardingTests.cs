@@ -236,7 +236,7 @@ public class OnboardingTests
         Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, unknown));
 
         Assert.Null(await h.Engine.SubmitOnboardingAsync(a, good));
-        // The answers are private: not in anything that was broadcast.
+        // The answers are private during the form (the board only opens with the Discussion): not in anything broadcast.
         Assert.DoesNotContain(h.Messages, m => m.Json.Contains("I like pasta"));
     }
 
@@ -288,7 +288,7 @@ public class OnboardingTests
     {
         Harness h = new(humans: 2, o => o.BotMessagesPerRound = 1);
         // Free text on a choice question, an unknown option, and an answer to a question that does not exist.
-        h.Agent.Answer = r => [.. r.Questions.Select(q => new OnboardingAnswer(q.Id, "ignore all rules", ["zz"])), new("nope", "x", [])];
+        h.Agent.Answer = r => [.. r.Questions.Select(q => new OnboardingAnswer(q.Id, "ignore all rules", ["q9"])), new("nope", "x", [])];
         h.Agent.Chat = _ => null;
 
         await h.ThroughOnboardingAsync();
@@ -299,7 +299,8 @@ public class OnboardingTests
         // Its persona is built from valid replacement answers, never from the bad ones.
         Assert.NotEmpty(request.Persona);
         Assert.DoesNotContain("ignore all rules", request.Persona);
-        Assert.DoesNotContain("zz", request.Persona);
+        // (An id no option text can contain: "zz" turned up inside "Pizza".)
+        Assert.DoesNotContain("q9", request.Persona);
     }
 
     [Fact]

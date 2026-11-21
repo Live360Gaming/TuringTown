@@ -57,6 +57,7 @@ export class Preloader extends Scene
         this.load.audio('message_sfx1', 'shared/sfx/message_sfx1.mp3');
         this.load.audio('message_sfx2', 'shared/sfx/message_sfx2.mp3');
         this.load.audio('message_sfx3', 'shared/sfx/message_sfx3.mp3');
+        this.load.audio('message_sfx4', 'shared/sfx/message_sfx4.mp3');
     }
 
     create ()

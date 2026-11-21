@@ -187,3 +187,121 @@ html, body {
 .tt-submit:hover {
     filter: brightness(1.1);
 }
+
+/* Phone chat box with the @mention popup that opens above it. */
+.tt-chatbox {
+    position: relative;
+}
+
+.tt-mention-list {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    overflow-y: auto;
+    border: 1px solid var(--tt-border);
+    border-radius: 12px;
+    background: var(--tt-surface-raised);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.tt-mention-list[hidden] {
+    display: none;
+}
+
+.tt-mention {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 8px;
+    color: var(--tt-text);
+    font: 700 16px/1.2 var(--tt-font-ui);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.tt-mention[aria-selected="true"] {
+    background: var(--tt-blue);
+}
+
+.tt-mention-dot {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--tt-mention-color, var(--tt-cyan));
+    box-shadow: 0 0 0 2px var(--tt-bg);
+}
+
+/* The answer board on a phone's Discussion screen: everyone's form answers, by alias, over the chat feed. */
+.tt-answers {
+    box-sizing: border-box;
+    overflow-y: auto;
+    padding: 12px 14px;
+    border: 1px solid var(--tt-border);
+    border-radius: 14px;
+    background: var(--tt-bg-deep);
+    color: var(--tt-text);
+    font-family: var(--tt-font-ui);
+    -webkit-overflow-scrolling: touch;
+}
+
+.tt-answers[hidden] {
+    display: none;
+}
+
+.tt-answers section + section {
+    margin-top: 14px;
+}
+
+.tt-answers h3 {
+    margin: 0 0 6px;
+    color: var(--tt-pink);
+    font: 700 0.9em/1.3 var(--tt-font-mono);
+}
+
+.tt-answers ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tt-answers li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--tt-surface-raised);
+}
+
+.tt-answer-name {
+    flex: none;
+    font-weight: 800;
+}
+
+.tt-answer-text {
+    flex: 1 1 12em;
+    overflow-wrap: anywhere;
+    color: var(--tt-text-muted);
+}
+
+.tt-answer-empty {
+    color: var(--tt-text-dim);
+    font-style: italic;
+}
+
+.tt-answer-you .tt-answer-name::after {
+    content: " (you)";
+    color: var(--tt-text-dim);
+    font-weight: 700;
+}
+
+.tt-answer-out {
+    opacity: 0.45;
+}

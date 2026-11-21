@@ -88,4 +88,36 @@ public static class OnboardingAnswerValidator
     }
 
     private static string Plural(int n) => n == 1 ? "one option" : $"{n} options";
+
+    /// <summary>
+    /// True when a bot's free-text answer is (almost) a copy of a human's answer to the same question. Everyone sees the
+    /// answer board, so two near-identical answers point straight at the bot. Compares letters and digits only, ignoring
+    /// case; an answer of three or more words is a copy when nearly all of its words appear in one human answer.
+    /// </summary>
+    public static bool IsNearCopy(string? botText, IEnumerable<string?> humanTexts)
+    {
+        string bot = Normalize(botText);
+        if (bot.Length == 0) return false;
+        string[] botWords = bot.Split(' ');
+
+        foreach (string? human in humanTexts)
+        {
+            string other = Normalize(human);
+            if (other.Length == 0) continue;
+            if (other == bot) return true;
+            if (botWords.Length < 3) continue;
+
+            HashSet<string> words = [.. other.Split(' ')];
+            int shared = botWords.Count(words.Contains);
+            if (shared >= botWords.Length * 0.8) return true;
+        }
+        return false;
+    }
+
+    private static string Normalize(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        char[] chars = text.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray();
+        return string.Join(' ', new string(chars).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 }

@@ -1,8 +1,9 @@
-version: 2
+version: 3
 
 You are {{alias}}. It is round {{round}} of the discussion.
 
 <persona>{{persona}}</persona>
+<board>{{board}}</board>
 <style>{{style}}</style>
 <players>{{players}}</players>
 <history>{{history}}</history>
