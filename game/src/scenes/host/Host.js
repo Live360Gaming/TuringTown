@@ -15,11 +15,15 @@ import {getMusic} from "../../core/music.js";
 // Overlay scenes launched on top of the lobby (see scenes/host/overlays).
 const OVERLAYS = ['HostSettings', 'QuitConfirm'];
 
-// The marquee plate runs along the top of the screen, leaving room on the right for the Settings button.
+// The marquee plate runs along the top of the screen; Start and Settings sit at its right end.
 const MARQUEE_Y = 20;
 const MARQUEE_H = 80;
 const MARQUEE_LEFT = 24;
-const MARQUEE_RIGHT = HOST_WIDTH - 200;
+const MARQUEE_RIGHT = HOST_WIDTH - 24;
+const SETTINGS_W = 160;
+const START_W = 250;
+const SETTINGS_X = MARQUEE_RIGHT - 28 - SETTINGS_W / 2;
+const START_X = SETTINGS_X - SETTINGS_W / 2 - 16 - START_W / 2;
 
 // The host's lobby. It creates the room once, then keeps the GameSession for the whole visit: when a game ends the
 // director brings the host back here and the same room is reused (see core/director.js).
@@ -58,13 +62,13 @@ export class Host extends Scene {
         // Buttons first so they show even while the room is being created.
         // Disabled until enough players have joined (see applyState).
         this.buildMarquee();
-        this.startBtn = createTextButton(this, MARQUEE_RIGHT - 153, MARQUEE_Y + MARQUEE_H / 2, 'Start Game', () => this.startGame(),
-            {width: 250, height: 60, fontSize: '26px', variant: 'primary'});
+        this.startBtn = createTextButton(this, START_X, MARQUEE_Y + MARQUEE_H / 2, 'Start Game', () => this.startGame(),
+            {width: START_W, height: 60, fontSize: '26px', variant: 'primary'});
         this.startBtn.setEnabled(false);
         // Errors (room could not be created, game could not start) show just under the marquee.
         this.statusText = this.add.text(HOST_CENTER_X, MARQUEE_Y + MARQUEE_H + 14, '',
             textStyle('bodyOnArt', {fontSize: '20px', color: COLORS.pink})).setOrigin(0.5);
-        createTextButton(this, HOST_WIDTH - 100, MARQUEE_Y + MARQUEE_H / 2, 'Settings', () => this.openOverlay('HostSettings'), {width: 160, height: 50, fontSize: '24px'});
+        createTextButton(this, SETTINGS_X, MARQUEE_Y + MARQUEE_H / 2, 'Settings', () => this.openOverlay('HostSettings'), {width: SETTINGS_W, height: 60, fontSize: '24px'});
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});
@@ -142,7 +146,7 @@ export class Host extends Scene {
 
     /**
      * The dark plate along the top of the screen: join code on the left, how many have joined in the middle, and
-     * (set up in create) the Start button on the right. Settings sits just to its right.
+     * (set up in create) the Start and Settings buttons on the right.
      */
     buildMarquee() {
         const left = MARQUEE_LEFT;

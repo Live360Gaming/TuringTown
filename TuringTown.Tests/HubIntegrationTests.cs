@@ -255,8 +255,10 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         foreach (JsonElement player in roster.EnumerateArray())
             Assert.Equal(["alias", "alive", "characterId", "color", "connected", "id", "leader", "ready"], player.EnumerateObject().Select(p => p.Name).Order().ToArray());
 
-        // --- onboarding: questions arrive in the state, answers are checked
-        await host.Connection.InvokeAsync("TutorialDone");
+        // --- onboarding: the leader skips the tutorial from their phone (nobody else can), questions arrive in the state
+        await Assert.ThrowsAnyAsync<HubException>(() => p2.Connection.InvokeAsync("TutorialDone"));
+        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("TutorialStep", 1));
+        await p1.Connection.InvokeAsync("TutorialDone");
         JsonElement onboarding = await p1.WaitForStageAsync("Onboarding");
         JsonElement questions = onboarding.GetProperty("data").GetProperty("questions");
         Assert.Equal(3, questions.GetArrayLength());

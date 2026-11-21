@@ -23,7 +23,11 @@ public enum Stage
 /// <param name="Round">Discussion/vote round, starting at 1. 0 before the first round.</param>
 /// <param name="Step">Free-form step within a stage (e.g. the tutorial step).</param>
 /// <param name="EndsAtUtcMs">Unix milliseconds when the stage ends, or null if it has no deadline.</param>
-public sealed record GameState(string GameId, Stage Stage, int Round, int Step, long? EndsAtUtcMs, object? Data)
+/// <param name="PausedAtUtcMs">
+/// Unix milliseconds when the host paused the game, or null while it runs. While paused the time left is
+/// <c>EndsAtUtcMs - PausedAtUtcMs</c>; on resume the server pushes <paramref name="EndsAtUtcMs"/> back by the pause.
+/// </param>
+public sealed record GameState(string GameId, Stage Stage, int Round, int Step, long? EndsAtUtcMs, object? Data, long? PausedAtUtcMs = null)
 {
     public static GameState InLobby(string gameId) => new(gameId, Stage.Lobby, 0, 0, null, null);
 }

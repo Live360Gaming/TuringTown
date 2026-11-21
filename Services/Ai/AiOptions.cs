@@ -30,7 +30,9 @@ public sealed class AiCalls
     public AiCallOptions Chat { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 400, TimeoutMs = 6000 };
     public AiCallOptions Vote { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 300, TimeoutMs = 8000 };
     public AiCallOptions Onboarding { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
-    public AiCallOptions Questions { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 2500, TimeoutMs = 20000 };
+    // Medium: the form is written with no context from earlier games, so the extra reasoning buys variety. It runs during
+    // the tutorial, so the latency is hidden.
+    public AiCallOptions Questions { get; set; } = new() { ReasoningEffort = "medium", MaxOutputTokens = 5000, TimeoutMs = 30000 };
     public AiCallOptions RoundNotes { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
 
     public IEnumerable<(string Name, AiCallOptions Options)> All =>

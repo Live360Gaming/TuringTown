@@ -74,7 +74,7 @@ builder.Services.AddSingleton(sp =>
         new AgentTimeouts(Wait(ai.Calls.Chat), Wait(ai.Calls.Vote), Wait(ai.Calls.Onboarding), Wait(ai.Calls.RoundNotes)));
     IQuestionGenerator questions = new FallbackQuestionGenerator(
         new FoundryQuestionGenerator(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
-        scripted.Questions, Wait(ai.Calls.Questions));
+        scripted.Questions, Wait(ai.Calls.Questions), logs.CreateLogger<FallbackQuestionGenerator>());
 
     return new AgentSelector(scripted, new AgentSet(bot, questions, UsesAi: true), budget);
 });

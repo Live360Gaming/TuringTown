@@ -34,6 +34,10 @@ public sealed class TuringTownEngine : IDisposable
     private readonly Action<TuringTownEngine>? _onFinished;
     private readonly CancellationTokenSource _cts = new();
 
+    // Held while a new stage or a pause/resume is written to the room and broadcast, so the two can never be sent out
+    // of order (a client must never see a stage that hides the pause, or the reverse).
+    private readonly SemaphoreSlim _stateSend = new(1, 1);
+
     // Everything below is guarded by _gate.
     private readonly object _gate = new();
     private readonly Dictionary<Guid, OnboardingAnswer[]> _answers = [];
@@ -396,9 +400,25 @@ public sealed class TuringTownEngine : IDisposable
 
     private async Task EnterStageAsync(Stage stage, int round, int step, TimeSpan? duration, object? data)
     {
-        long? endsAt = duration is { } d ? _clock.EndsAt(d) : null;
-        GameState state = _room.SetState(new GameState(Room.GameId, stage, round, step, endsAt, data));
-        await _broadcaster.StateChanged(_room, state);
+        // A paused game does not move on: the next stage starts once the host resumes.
+        while (true)
+        {
+            await _clock.WhenRunning(_cts.Token);
+            await _stateSend.WaitAsync(_cts.Token);
+            try
+            {
+                if (_clock.IsPaused) continue;
+
+                long? endsAt = duration is { } d ? _clock.EndsAt(d) : null;
+                GameState state = _room.SetState(new GameState(Room.GameId, stage, round, step, endsAt, data));
+                await _broadcaster.StateChanged(_room, state);
+                return;
+            }
+            finally
+            {
+                _stateSend.Release();
+            }
+        }
     }
 
     private Task CurrentSignal()
@@ -474,6 +494,45 @@ public sealed class TuringTownEngine : IDisposable
             return _unmasked.ToArray();
     }
 
+    /// <summary>
+    /// The host pauses (or resumes) the game. While paused the stage clock stands still, the bots stay quiet and
+    /// players cannot chat or vote. The state carries <see cref="GameState.PausedAtUtcMs"/> so every screen can show it,
+    /// and on resume the deadline moves back by however long the pause lasted.
+    /// </summary>
+    public async Task<string?> SetPausedAsync(bool paused)
+    {
+        await _stateSend.WaitAsync(_cts.Token);
+        try
+        {
+            Stage stage = _room.State.Stage;
+            if (stage == Stage.Lobby) return "The game is not running.";
+
+            long now = _clock.ToUnixMs(_clock.UtcNow);
+            GameState state;
+            if (paused)
+            {
+                if (!_clock.Pause()) return null;
+                _room.TryUpdateState(stage, s => s with { PausedAtUtcMs = now }, out state);
+            }
+            else
+            {
+                if (!_clock.Resume()) return null;
+                _room.TryUpdateState(stage, s => s.PausedAtUtcMs is { } at
+                    ? s with { PausedAtUtcMs = null, EndsAtUtcMs = s.EndsAtUtcMs + (now - at) }
+                    : s, out state);
+            }
+
+            await _broadcaster.StateChanged(_room, state);
+            return null;
+        }
+        finally
+        {
+            _stateSend.Release();
+        }
+    }
+
+    public bool IsPaused => _clock.IsPaused;
+
     public async Task<string?> TutorialStepAsync(int step)
     {
         if (step is < 0 or > 100) return "That tutorial step does not exist.";
@@ -535,6 +594,7 @@ public sealed class TuringTownEngine : IDisposable
         if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot) return "Unknown player.";
         if (!seat.Alive) return "You have been voted out. You can only watch now.";
         if (_room.State.Stage != Stage.Discussion) return "Chat is closed right now.";
+        if (_clock.IsPaused) return "The game is paused.";
 
         if (!_chat.TryTakeTurn(playerId, _clock.UtcNow)) return "Slow down a little.";
 
@@ -545,7 +605,7 @@ public sealed class TuringTownEngine : IDisposable
     public async Task SetTypingAsync(Guid playerId, bool typing)
     {
         if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot || !seat.Alive) return;
-        if (_room.State.Stage != Stage.Discussion) return;
+        if (_room.State.Stage != Stage.Discussion || (typing && _clock.IsPaused)) return;
         await _broadcaster.Typing(_room, playerId, typing);
     }
 
@@ -553,6 +613,7 @@ public sealed class TuringTownEngine : IDisposable
     {
         if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot) return "Unknown player.";
         if (!seat.Alive) return "You have been voted out. You can only watch now.";
+        if (_clock.IsPaused) return "The game is paused.";
 
         lock (_gate)
         {
@@ -570,6 +631,8 @@ public sealed class TuringTownEngine : IDisposable
 
     private async Task<string?> PostChatAsync(PlayerSeat sender, string? text, CancellationToken ct)
     {
+        // A bot whose answer arrives during a pause holds it until the game resumes.
+        if (sender.IsBot) await _clock.WhenRunning(ct);
         if (sender.IsBot && text is not null) text = PromptText.NormalizeDashes(text);
         ChatCheck check = ChatFilter.Check(text, _opt.ChatMaxLength, out string cleaned);
         if (check != ChatCheck.Ok) return ChatFilter.Describe(check);
@@ -622,8 +685,12 @@ public sealed class TuringTownEngine : IDisposable
             IReadOnlyList<OnboardingQuestion> questions =
                 await _questionGenerator.GenerateAsync(new QuestionRequest(policy, _opt.Mix), _cts.Token);
 
-            if (QuestionValidator.IsValid(questions, policy, _opt.Mix) && await QuestionsAllowedAsync(questions, policy, _cts.Token))
+            string? problem = QuestionValidator.Problem(questions, policy, _opt.Mix);
+            if (problem is null && !await QuestionsAllowedAsync(questions, policy, _cts.Token))
+                problem = "blocked by the content filter";
+            if (problem is null)
             {
+                problem = "a mature room got no mature question and no built-in replacement passed";
                 if (policy.FamilyFriendly || questions.Count == 0 || questions.Any(q => q.Mature))
                     return questions;
 
@@ -648,7 +715,7 @@ public sealed class TuringTownEngine : IDisposable
                 catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { }
             }
             AiMetrics.QuestionFailures.Add(1, new KeyValuePair<string, object?>("reason", "validation"));
-            _logger.LogWarning("Room {Room}: the generated onboarding questions failed validation, using the built-in ones", _room.Code);
+            _logger.LogWarning("Room {Room}: the generated onboarding questions failed validation ({Problem}), using the built-in ones", _room.Code, problem);
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
         {
@@ -1081,6 +1148,7 @@ public sealed class TuringTownEngine : IDisposable
 
             Guid? choice = await _agent.CastVoteAsync(request, ct);
             if (choice is { } id && request.Candidates.All(c => c.Id != id)) choice = null;
+            await _clock.WhenRunning(ct);
 
             lock (_gate)
             {

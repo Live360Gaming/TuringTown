@@ -18,7 +18,7 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 | Stage | What happens | Ends when | `data` |
 |---|---|---|---|
 | Lobby | Players join and ready up; host changes settings | host, or the leader (first player to join), calls `StartGame` (needs `MinPlayers`, and every player ready) | none |
-| Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` (or the safety limit) | none |
+| Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` when it ends or is skipped, or the leader skips it from their phone (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
 | Discussion | Anonymous chat. Form answers are never shown. | timer | none |
 | Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
@@ -83,7 +83,8 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `JoinAsHost(roomCode, hostToken)` / `JoinAsPlayer(roomCode, playerId, playerToken)` | host / player | any time. Returns `{state, roster, you, transcript, serverTimeUtcMs, unmasked}` |
 | `StartGame()` | host, or the leader player (first human to join) | Lobby. Refused until `MinPlayers` have joined and all are ready |
 | `SetReady(bool ready)` | player | Lobby. Shown on the TV as a green ring and badge |
-| `TutorialStep(step)` / `TutorialDone()` | host | Tutorial |
+| `TutorialStep(step)` | host | Tutorial |
+| `TutorialDone()` | host, or the leader player (to skip the intro) | Tutorial |
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
 | `SendChat(text)` | living player | Discussion |
 | `SetTyping(bool typing)` | living player | Discussion. Sent while the chat box has text, repeated every 4 s, and `false` on send |
@@ -213,9 +214,9 @@ brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprit
 - `core/stage/HostStage.js` and `PlayerStage.js`: base screens (fixed 16:9 TV, and the phone card). Subclasses implement `build()`
   and, on phones, `layout(m)`.
 - `core/tutorial/TutorialPlayer.js`: plays an ordered list of steps on the TV. A step is plain data:
-  `{id, type: 'animation' | 'slide' | 'video', caption, durationMs, narration?, animation?, image?, video?}`. Animations are
+  `{id, type: 'animation' | 'slide' | 'video', title?, caption, durationMs, narration?, animation?, image?, video?}`. Animations are
   named (`core/tutorial/animations.js`) so the data holds no code. A `video` step ends when the video does. The host reports
-  each step with `TutorialStep` so phones show the same caption.
+  each step with `TutorialStep` so phones show the same title and caption. The leader's phone has a "Skip intro" button.
 
 ### Add a stage or a game
 

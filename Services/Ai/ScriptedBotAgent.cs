@@ -37,6 +37,18 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             ["stubbing my toe", "When the wifi drops", "wet socks", "forgetting my headphones", "slow walkers", "a song getting cut off"]),
         new("What do you think is the most useless invention?", false,
             ["self checkout lol", "Those tiny drink umbrellas", "smart fridges", "auto play videos", "selfie sticks", "white sneakers"]),
+        new("What is a snack combo that sounds weird but is actually great?", false,
+            ["fries dipped in a milkshake", "Apples and peanut butter", "popcorn with chocolate chips", "pickles and chips", "cheese on apple pie", "pretzels in ice cream"]),
+        new("What would you do with a completely free Saturday?", false,
+            ["sleep in and then nap", "Long walk and a big breakfast", "binge a whole season", "clean everything then do nothing", "go to the library", "road trip somewhere random"]),
+        new("What is a skill you wish you could learn instantly?", false,
+            ["playing piano", "Speaking every language", "cooking without a recipe", "drawing", "juggling honestly", "fixing my own car"]),
+        new("What is the best smell in the world?", false,
+            ["fresh bread", "Rain on hot pavement", "coffee in the morning", "a new book", "cookies baking", "laundry out of the dryer"]),
+        new("Which fictional place would you want to live in?", false,
+            ["somewhere with dragons but safe", "A cozy village from a cartoon", "anywhere with talking animals", "a giant candy land", "a space station", "a treehouse city"]),
+        new("What is something you were weirdly proud of as a kid?", false,
+            ["my rock collection", "Tying my shoes first in class", "a perfect spelling test", "my bike skills", "staying up til midnight once", "my sticker book"]),
     ];
 
     private static readonly TextTemplate[] MatureText =
@@ -49,6 +61,10 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             ["meetings that could be emails", "people spoiling the ending", "loud chewing", "slow internet", "the snooze button"]),
         new("What is a ridiculous thing you would ban if you had the power?", true,
             ["reply all emails", "voice notes longer than a minute", "tiny restaurant portions", "slow walkers", "monday mornings"]),
+        new("What is the most pointless thing you have rage-quit?", true,
+            ["a board game against my family", "assembling flat pack furniture", "a crossword", "a phone game level", "untangling headphones"]),
+        new("What overhyped trend is honestly a load of crap?", true,
+            ["fancy water bottles", "gender reveal parties", "influencer restaurants", "ten step skincare", "waking up at 5am"]),
     ];
 
     /// <summary>For a question the bot has no list for (a generated one): opinion-shaped, so it fits most questions.</summary>
@@ -69,12 +85,21 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         new("Cereal first or milk first?", false, ["Cereal first", "Milk first", "No milk at all", "Who even cares"], 1),
         new("The best season is...", false, ["Summer", "Autumn", "Winter", "Spring"], 1),
         new("Socks with sandals?", false, ["Never", "Comfy so yes", "Only at home", "Fashion icon"], 1),
+        new("The best pet is...", false, ["Dog", "Cat", "Fish", "Something weird like a lizard"], 1),
+        new("Beach or mountains?", false, ["Beach", "Mountains", "Neither, stay home", "Both in one trip"], 1),
+        new("Early bird or night owl?", false, ["Early bird", "Night owl", "Tired all day", "Depends on snacks"], 1),
+        new("How do you eat a cookie?", false, ["In one bite", "Nibble the edges", "Dunk it", "Crumble it on ice cream"], 1),
+        new("The best way to travel is...", false, ["Plane", "Train", "Road trip", "Teleport please"], 1),
+        new("Pancakes or waffles?", false, ["Pancakes", "Waffles", "French toast", "Cereal is fine"], 1),
+        new("If you could have one superpower?", false, ["Flying", "Invisibility", "Super speed", "Talking to animals", "Never needing sleep"], 1),
     ];
 
     private static readonly ChoiceTemplate[] MatureSingle =
     [
         new("Which petty annoyance deserves a swear jar?", true, ["Reply-all emails", "Loud chewing", "Spoilers", "Slow walkers"], 1),
         new("Your lazy-ass dinner of choice?", true, ["Cereal", "Cold pizza", "Toast", "Leftovers"], 1),
+        new("Which damn noise annoys you most?", true, ["Car alarms", "Loud chewing", "Pen clicking", "Leaf blowers"], 1),
+        new("Worst crap to step on barefoot?", true, ["A toy brick", "Something wet", "A cereal flake", "A cat toy"], 1),
     ];
 
     private static readonly ChoiceTemplate[] FamilyMulti =
@@ -82,12 +107,25 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         new("Which of these are overrated? Pick up to 3.", false, ["Brunch", "Camping", "Theme parks", "Avocado toast", "Road trips", "Fancy coffee"], 3),
         new("Which of these are secretly great? Pick up to 3.", false, ["Cold pizza", "Rainy days", "Board games", "Naps", "Grocery shopping", "Early mornings"], 3),
         new("Which snacks belong at movie night? Pick up to 3.", false, ["Popcorn", "Nachos", "Candy", "Pizza", "Ice cream"], 3),
+        new("Which pizza toppings are the best? Pick up to 3.", false, ["Pepperoni", "Mushrooms", "Pineapple", "Extra cheese", "Olives", "Peppers"], 3),
+        new("Which would you bring to a desert island? Pick up to 2.", false, ["A good book", "Sunscreen", "A hammock", "Snacks", "A guitar", "A best friend"], 2),
+        new("Which chores do you not mind doing? Pick up to 3.", false, ["Dishes", "Laundry", "Vacuuming", "Cooking", "Yard work", "Grocery runs"], 3),
+        new("Which of these are perfect on a lazy Sunday? Pick up to 3.", false, ["Pancakes", "Naps", "Long walks", "Puzzles", "Movies", "Video games"], 3),
+        new("Which animals would make the best roommates? Pick up to 2.", false, ["Penguin", "Golden retriever", "Sloth", "Owl", "Raccoon", "Cat"], 2),
+        new("Which dessert would you never turn down? Pick up to 3.", false, ["Ice cream", "Brownies", "Cheesecake", "Cookies", "Apple pie", "Donuts"], 3),
+        new("Which classes did you actually enjoy as a kid? Pick up to 3.", false, ["Math", "Art", "Science", "History", "Music", "Gym"], 3),
+        new("Which holidays are the most fun? Pick up to 3.", false, ["Halloween", "New Year", "Birthdays", "Summer break", "Thanksgiving", "Winter holidays"], 3),
+        new("Which sounds are the most relaxing? Pick up to 3.", false, ["Rain", "Ocean waves", "A crackling fire", "Birds", "Wind chimes", "A cat purring"], 3),
+        new("Which superpowers would be most useful? Pick up to 2.", false, ["Flying", "Teleporting", "Mind reading", "Super strength", "Freezing time", "Healing"], 2),
     ];
 
     private static readonly ChoiceTemplate[] MatureMulti =
     [
         new("Which petty things piss you off? Pick up to 3.", true, ["Loud chewing", "Spoilers", "Slow walkers", "Reply-all emails", "Wet socks"], 3),
         new("Which lazy-ass choices do you defend? Pick up to 3.", true, ["Cereal for dinner", "Cold pizza", "Ignoring chores", "Midnight snacks", "Snoozing alarms"], 3),
+        new("Which damn things ruin a road trip? Pick up to 3.", true, ["Traffic", "No snacks", "Bad music", "Wrong turns", "Car sickness", "Backseat drivers"], 3),
+        new("Which crappy jobs would you hate most? Pick up to 2.", true, ["Cleaning gutters", "Telemarketing", "Mall Santa", "Dog walking in rain", "Toll booth", "Theme park mascot"], 2),
+        new("Which petty crimes against food piss you off? Pick up to 3.", true, ["Soggy fries", "Cold coffee", "Burnt toast", "Too much ice", "Stale chips", "Tiny portions"], 3),
     ];
 
     /// <summary>

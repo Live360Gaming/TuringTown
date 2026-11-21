@@ -78,6 +78,13 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
             if (room.State.Stage == Stage.Lobby)
                 _ = ClearFromLobbyAfterGraceAsync(room, playerId, room.GetDisconnectCount(playerId));
         }
+        else if (Context.Items.TryGetValue(RoleKey, out object? role) && role as string == "host"
+                 && Context.Items.TryGetValue(RoomKey, out object? hr) && hr is Room hostRoom
+                 && games.TryGetEngine(hostRoom, out TuringTownEngine? engine) && engine is { IsPaused: true })
+        {
+            // Only the host can resume, so a game it paused must not stay frozen after the host is gone.
+            await engine.SetPausedAsync(false);
+        }
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -146,13 +153,16 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         games.StopGame(room);
     }
 
+    /// <summary>The host pauses (true) or resumes (false) the game: the stage clock stops and nobody can chat or vote.</summary>
+    public async Task SetPaused(bool paused) => Throw(await RequireEngine(RequireHost()).SetPausedAsync(paused));
+
     /// <summary>Host reports which tutorial step is showing, so phones can follow along.</summary>
     public async Task TutorialStep(int step) => Throw(await RequireEngine(RequireHost()).TutorialStepAsync(step));
 
-    /// <summary>Host says the tutorial is over (or skipped).</summary>
+    /// <summary>The tutorial is over: the host says it finished (or skipped it), or the leader (the first player) skipped it.</summary>
     public Task TutorialDone()
     {
-        Throw(RequireEngine(RequireHost()).TutorialDone());
+        Throw(RequireEngine(RequireHostOrLeader()).TutorialDone());
         return Task.CompletedTask;
     }
 
@@ -228,7 +238,7 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
             && Context.Items.TryGetValue(RoomKey, out object? r) && r is Room room
             && Context.Items.TryGetValue(PlayerKey, out object? p) && p is Guid playerId)
         {
-            return room.IsLeader(playerId) ? room : throw new HubException("Only the host or the first player can start the game.");
+            return room.IsLeader(playerId) ? room : throw new HubException("Only the host or the first player can do that.");
         }
         return RequireHost();
     }

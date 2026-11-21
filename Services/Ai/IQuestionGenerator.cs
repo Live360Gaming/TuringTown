@@ -23,10 +23,13 @@ public sealed class BuiltInQuestionGenerator : IQuestionGenerator
 
 /// <summary>
 /// Runs the real generator but never lets it stall the game: on a timeout or any error the call is answered by the
-/// fallback. Cancellation by the caller still propagates.
+/// fallback. Cancellation by the caller still propagates. Every fallback is logged as a warning with the reason.
 /// </summary>
-public sealed class FallbackQuestionGenerator(IQuestionGenerator primary, IQuestionGenerator fallback, TimeSpan timeout) : IQuestionGenerator
+public sealed class FallbackQuestionGenerator(
+    IQuestionGenerator primary, IQuestionGenerator fallback, TimeSpan timeout, ILogger<FallbackQuestionGenerator>? logger = null) : IQuestionGenerator
 {
+    private readonly ILogger _logger = logger ?? (ILogger)Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
     public async Task<IReadOnlyList<OnboardingQuestion>> GenerateAsync(QuestionRequest request, CancellationToken ct)
     {
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -35,9 +38,17 @@ public sealed class FallbackQuestionGenerator(IQuestionGenerator primary, IQuest
         {
             return await primary.GenerateAsync(request, limit.Token);
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
             AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "questions"));
+            _logger.LogWarning(ex, "Onboarding question generation timed out after {Timeout}s, using the built-in questions", timeout.TotalSeconds);
+            return await fallback.GenerateAsync(request, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "questions"));
+            _logger.LogWarning(ex, "Onboarding question generation failed ({Error}: {Message}), using the built-in questions",
+                ex.GetType().Name, ex.Message);
             return await fallback.GenerateAsync(request, ct);
         }
     }
