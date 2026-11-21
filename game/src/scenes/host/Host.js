@@ -15,9 +15,11 @@ import {getMusic} from "../../core/music.js";
 // Overlay scenes launched on top of the lobby (see scenes/host/overlays).
 const OVERLAYS = ['HostSettings', 'QuitConfirm'];
 
-// The marquee plate sits on the plain wood wall under the windows (the checkered trim is above it).
-const MARQUEE_Y = 374;
+// The marquee plate runs along the top of the screen, leaving room on the right for the Settings button.
+const MARQUEE_Y = 20;
 const MARQUEE_H = 80;
+const MARQUEE_LEFT = 24;
+const MARQUEE_RIGHT = HOST_WIDTH - 200;
 
 // The host's lobby. It creates the room once, then keeps the GameSession for the whole visit: when a game ends the
 // director brings the host back here and the same room is reused (see core/director.js).
@@ -56,13 +58,13 @@ export class Host extends Scene {
         // Buttons first so they show even while the room is being created.
         // Disabled until enough players have joined (see applyState).
         this.buildMarquee();
-        this.startBtn = createTextButton(this, 1050, MARQUEE_Y + MARQUEE_H / 2, 'Start Game', () => this.startGame(),
+        this.startBtn = createTextButton(this, MARQUEE_RIGHT - 153, MARQUEE_Y + MARQUEE_H / 2, 'Start Game', () => this.startGame(),
             {width: 250, height: 60, fontSize: '26px', variant: 'primary'});
         this.startBtn.setEnabled(false);
         // Errors (room could not be created, game could not start) show just under the marquee.
         this.statusText = this.add.text(HOST_CENTER_X, MARQUEE_Y + MARQUEE_H + 14, '',
             textStyle('bodyOnArt', {fontSize: '20px', color: COLORS.pink})).setOrigin(0.5);
-        createTextButton(this, HOST_WIDTH - 100, 50, 'Settings', () => this.openOverlay('HostSettings'), {width: 160, height: 50, fontSize: '24px'});
+        createTextButton(this, HOST_WIDTH - 100, MARQUEE_Y + MARQUEE_H / 2, 'Settings', () => this.openOverlay('HostSettings'), {width: 160, height: 50, fontSize: '24px'});
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});
@@ -139,12 +141,12 @@ export class Host extends Scene {
     }
 
     /**
-     * The dark plate on the plain wainscot below the windows: join code on the left, how many have joined in the
-     * middle, and (set up in create) the Start button on the right. It stays clear of the sign and the windows.
+     * The dark plate along the top of the screen: join code on the left, how many have joined in the middle, and
+     * (set up in create) the Start button on the right. Settings sits just to its right.
      */
     buildMarquee() {
-        const left = 90;
-        const width = HOST_WIDTH - 180;
+        const left = MARQUEE_LEFT;
+        const width = MARQUEE_RIGHT - MARQUEE_LEFT;
         this.add.graphics()
             .lineStyle(10, HEX.cyan, 0.1).strokeRoundedRect(left, MARQUEE_Y, width, MARQUEE_H, 18)
             .fillStyle(HEX.bgDeep, 0.88).fillRoundedRect(left, MARQUEE_Y, width, MARQUEE_H, 18)
@@ -153,7 +155,7 @@ export class Host extends Scene {
         this.add.text(left + 28, MARQUEE_Y + 18, 'JOIN CODE', textStyle('meta', {fontSize: '16px'})).setOrigin(0, 0.5);
         this.codeText = this.add.text(left + 28, MARQUEE_Y + 52, '- - - -', textStyle('code', {fontSize: '44px'})).setOrigin(0, 0.5);
 
-        this.needText = this.add.text(650, MARQUEE_Y + MARQUEE_H / 2, '', textStyle('instruction', {fontSize: '26px', stroke: undefined, strokeThickness: 0})).setOrigin(0.5);
+        this.needText = this.add.text(560, MARQUEE_Y + MARQUEE_H / 2, '', textStyle('instruction', {fontSize: '26px', stroke: undefined, strokeThickness: 0})).setOrigin(0.5);
 
         // Players X/MAX in the bottom-right corner of the screen.
         const bx = HOST_WIDTH - 24;
