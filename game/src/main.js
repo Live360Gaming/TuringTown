@@ -10,6 +10,7 @@ import {PlayerLobby} from "./scenes/player/PlayerLobby.js";
 import {TURING_TOWN_SCENES} from "./minigames/turing-town/index.js";
 import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
 import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
+import {PresenceToast} from "./scenes/host/overlays/PresenceToast.js";
 import {installTextDefaults} from "./core/theme.js";
 import {loadSeason} from "./core/season.js";
 
@@ -41,6 +42,8 @@ const config = {
         // Overlays come after Host so they draw on top of it.
         HostSettings,
         QuitConfirm,
+        // Last, so the disconnect banners draw above every host screen and overlay.
+        PresenceToast,
     ]
 };
 

@@ -87,7 +87,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 with it, so every screen shows the same time even if a device clock is wrong (`GameSession.msLeft`).
 
 Because the state is a snapshot, a phone that refreshes mid-game just joins again and renders the current stage. The
-client keeps the player's credentials in `sessionStorage` for this. The seat stays reserved while disconnected.
+client keeps the player's credentials in `sessionStorage` for this. The seat stays reserved while disconnected. In the lobby only, a player who is still offline after `Game:LobbyDisconnectGraceSeconds` (default 15) is cleared, their seat is freed and the next player becomes leader. The host TV shows a banner for every drop, return and clear (`PresenceToast`).
 
 ## What a bot knows
 

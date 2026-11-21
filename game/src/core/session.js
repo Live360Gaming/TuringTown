@@ -11,7 +11,9 @@ export const MENU_NOTICE_KEY = 'menuNotice';
  * One player's or the host's live connection to a room, and everything the server has told them about it.
  * It outlives scenes: scenes read it and listen to it, but never create or stop the connection.
  *
- * Events: 'state' (state), 'roster' (roster), 'chat' (message), 'progress' ({done, total}).
+ * Events: 'state' (state), 'roster' (roster), 'chat' (message), 'progress' ({done, total}), and
+ * 'presence' ({player, status}) with status 'disconnected' | 'reconnected' | 'removed' when someone drops, comes
+ * back, or is cleared from the lobby.
  *
  * The server is the only source of truth. The state is always a full snapshot, so a screen can render from
  * `session.state` alone, whether it was open when the stage began or opened late (a refreshed phone).
@@ -90,6 +92,8 @@ export class GameSession extends Phaser.Events.EventEmitter {
         this.director?.stop();
         this.director = new GameDirector(this.game, this, this.lobbyKey);
         this.director.start();
+        // The TV shows a banner whenever someone drops, on every screen (see scenes/host/overlays/PresenceToast).
+        if (this.role === 'host') this.game.scene.run('PresenceToast');
     }
 
     applyJoin(result) {
@@ -156,10 +160,23 @@ export class GameSession extends Phaser.Events.EventEmitter {
     }
 
     setRoster(roster) {
+        const previous = this.roster;
         this.roster = roster;
         // The player's own entry carries whether they are still in the game.
         if (this.you) this.you = roster.find(p => p.id === this.you.id) ?? this.you;
         this.emit('roster', roster);
+        this.emitPresence(previous, roster);
+    }
+
+    /** Tells listeners who dropped, came back, or was cleared between two rosters. */
+    emitPresence(previous, roster) {
+        const now = new Map(roster.map(p => [p.id, p]));
+        for (const before of previous) {
+            const after = now.get(before.id);
+            if (!after) this.emit('presence', {player: before, status: 'removed'});
+            else if (before.connected && !after.connected) this.emit('presence', {player: after, status: 'disconnected'});
+            else if (!before.connected && after.connected) this.emit('presence', {player: after, status: 'reconnected'});
+        }
     }
 
     /** Calls a hub method. Rejects with the server's message if it refuses (see hubErrorMessage). */
@@ -188,6 +205,7 @@ export class GameSession extends Phaser.Events.EventEmitter {
         if (this.closed) return;
         this.closed = true;
         this.director?.stop();
+        if (this.role === 'host') this.game.scene.stop('PresenceToast');
         const connection = this.connection;
         this.connection = null;
         connection?.stop();

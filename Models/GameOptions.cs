@@ -21,6 +21,13 @@ public sealed class GameOptions : IValidatableObject
     [Range(1, 1000)]
     public int MinPlayers { get; set; } = 2;
 
+    /// <summary>
+    /// How long a player who drops out of the lobby keeps their seat. A page refresh or a brief signal loss
+    /// comes back within this time; after it, the seat is freed. Only applies in the lobby.
+    /// </summary>
+    [Range(1, 3600)]
+    public int LobbyDisconnectGraceSeconds { get; set; } = 15;
+
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
         if (MaxPlayers < MinPlayers)
