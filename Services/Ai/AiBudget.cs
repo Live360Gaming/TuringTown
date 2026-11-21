@@ -244,7 +244,10 @@ public sealed class GuardedLlmClient(ILlmClient inner, AiBudget budget, ILogger<
         {
             budget.RecordFailure();
             Outcome(call, "error");
-            logger.LogWarning("AI {Kind} call failed: {Type}", call.Kind, ex.GetType().Name);
+            // The type, and the message only when it is one of ours (they say things like "MaxOutputTokens ran out" and never
+            // hold a prompt, a reply or a secret). A service error's message is left out.
+            logger.LogWarning("AI {Kind} call failed: {Type} {Reason}", call.Kind, ex.GetType().Name,
+                ex is InvalidOperationException or TimeoutException ? ex.Message : "");
             throw;
         }
     }

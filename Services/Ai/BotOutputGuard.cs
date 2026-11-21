@@ -108,7 +108,11 @@ public static partial class BotOutputGuard
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
 
-        string text = CodeFence.Replace(raw, " ").Replace("**", "").Replace("`", "");
+        // Models like typographic quotes and long dashes, which people on a phone rarely type. Straighten them first, so that
+        // "I\u2019m a bot" is checked as "I'm a bot" like every other check below.
+        string text = CodeFence.Replace(raw, " ").Replace("**", "").Replace("`", "")
+            .Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u201C', '"').Replace('\u201D', '"')
+            .Replace(" \u2014 ", ", ").Replace("\u2014", ", ").Replace(" \u2013 ", ", ").Replace("\u2013", ", ");
         text = Whitespace.Replace(text, " ").Trim();
 
         // Models sometimes lead with their own name or wrap the line in quotes.

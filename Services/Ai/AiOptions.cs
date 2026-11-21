@@ -27,11 +27,11 @@ public sealed class AiCallOptions
 
 public sealed class AiCalls
 {
-    public AiCallOptions Chat { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 300, TimeoutMs = 6000 };
-    public AiCallOptions Vote { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 250, TimeoutMs = 8000 };
-    public AiCallOptions Onboarding { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 900, TimeoutMs = 15000 };
-    public AiCallOptions Questions { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 20000 };
-    public AiCallOptions RoundNotes { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 500, TimeoutMs = 15000 };
+    public AiCallOptions Chat { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 400, TimeoutMs = 6000 };
+    public AiCallOptions Vote { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 300, TimeoutMs = 8000 };
+    public AiCallOptions Onboarding { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
+    public AiCallOptions Questions { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 2500, TimeoutMs = 20000 };
+    public AiCallOptions RoundNotes { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
 
     public IEnumerable<(string Name, AiCallOptions Options)> All =>
     [

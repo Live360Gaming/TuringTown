@@ -38,6 +38,7 @@ public sealed class FoundryBotAgent(
         values["chat"] = PromptJson.Lines(request.Recent);
         values["mentions"] = PromptJson.Lines(request.Mentions);
         values["max_length"] = ctx.ChatMaxLength.ToString();
+        values["target_length"] = TargetLength(request.Recent, ctx).ToString();
         values["mood"] = BotPrompts.RandomMood();
         string user = prompts.Render("chat-task", values);
 
@@ -234,6 +235,17 @@ public sealed class FoundryBotAgent(
         ["notes"] = notes is null ? "null" : PromptJson.Serialize(new { notes.Summary, notes.Suspicions, notes.Claims }),
         ["own_lines"] = PromptJson.Serialize(ctx.OwnLines.Select(l => l.Text))
     };
+
+    /// <summary>
+    /// How long a line should be: about twice the typical human line in the recent chat (or in the onboarding form, before
+    /// anyone has talked), never over the game's limit. A bot that writes 140 characters among people writing 25 is a tell.
+    /// </summary>
+    internal static int TargetLength(IReadOnlyList<ChatLine> recent, BotContext ctx)
+    {
+        int[] humans = recent.Where(l => !l.Alias.Equals(ctx.BotAlias, StringComparison.OrdinalIgnoreCase)).Select(l => l.Text.Length).Order().ToArray();
+        int typical = humans.Length >= 3 ? humans[humans.Length / 2] : ctx.Style.MedianLength;
+        return typical <= 0 ? ctx.ChatMaxLength : Math.Clamp(typical * 2, 40, ctx.ChatMaxLength);
+    }
 
     private static string Scope(BotContext ctx) => ctx.Key.GameId.ToString("N");
 

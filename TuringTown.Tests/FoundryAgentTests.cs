@@ -119,7 +119,24 @@ public class FoundryAgentTests
         Assert.Contains("salty popcorn", user);
         Assert.Contains("[\"Blue Kiwi\",\"Green Pear\"]", user);
         Assert.Contains("{\"from\":\"Blue Kiwi\",\"text\":\"who is the bot here?\"}", user);
-        Assert.Contains("at most 200 characters", user);
+        Assert.Contains("never more than 200", user);
+    }
+
+    [Fact]
+    public void A_line_should_be_about_as_long_as_the_humans_write()
+    {
+        BotContext ctx = AiKit.Ctx() with { ChatMaxLength = 200 };
+        ChatLine Line(string alias, int length) => new(alias, new string('x', length));
+
+        // Three or more human lines: twice their median, between 40 and the game's limit.
+        Assert.Equal(46, FoundryBotAgent.TargetLength([Line("Blue Kiwi", 20), Line("Green Pear", 23), Line("Blue Kiwi", 30)], ctx));
+        Assert.Equal(40, FoundryBotAgent.TargetLength([Line("Blue Kiwi", 3), Line("Green Pear", 4), Line("Blue Kiwi", 5)], ctx));
+        Assert.Equal(200, FoundryBotAgent.TargetLength([Line("Blue Kiwi", 150), Line("Green Pear", 160), Line("Blue Kiwi", 190)], ctx));
+        // The bot's own lines do not count.
+        Assert.Equal(46, FoundryBotAgent.TargetLength([Line("Blue Kiwi", 23), Line("Green Pear", 23), Line("Blue Kiwi", 23), Line("Red Apple", 190), Line("Red Apple", 190)], ctx));
+        // Before anyone has talked, the form answers set it; with neither, the game's limit.
+        Assert.Equal(60, FoundryBotAgent.TargetLength([], ctx with { Style = StyleProfile.Empty with { MedianLength = 30 } }));
+        Assert.Equal(200, FoundryBotAgent.TargetLength([], ctx));
     }
 
     [Fact]

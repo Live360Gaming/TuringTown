@@ -46,6 +46,19 @@ public class GuardAndInjectionTests
         Assert.Null(result.Rejected);
     }
 
+    [Theory]
+    [InlineData("I\u2019m a bot lol")]
+    [InlineData("as an AI I\u2019d say no")]
+    [InlineData("I\u2019m just a chatbot")]
+    public void Typographic_apostrophes_do_not_hide_an_admission(string line) =>
+        Assert.Equal("admission", BotOutputGuard.CheckChat(line, Input()).Rejected);
+
+    [Theory]
+    [InlineData("honestly \u2014 no clue", "honestly, no clue")]
+    [InlineData("it\u2019s fine \u2013 really", "it's fine, really")]
+    [InlineData("\u201Chi\u201D there", "\"hi\" there")]
+    public void Typographic_dashes_and_quotes_are_straightened(string raw, string expected) => Assert.Equal(expected, Say(raw));
+
     [Fact]
     public void An_empty_line_is_rejected()
     {

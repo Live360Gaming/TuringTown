@@ -59,7 +59,7 @@ public class BotEvalTests(ITestOutputHelper output)
         }
     }
 
-    private sealed record Real(FoundryBotAgent Bot, FoundryQuestionGenerator Questions, RecordingLlm Llm, AiBudget Budget, AiOptions Ai);
+    private sealed record Real(FoundryBotAgent Bot, FoundryQuestionGenerator Questions, RecordingLlm Llm, AiBudget Budget, AiOptions Ai, InMemoryBotMemoryStore Store);
 
     private static Real BuildReal()
     {
@@ -81,10 +81,11 @@ public class BotEvalTests(ITestOutputHelper output)
         GuardedLlmClient guarded = new(llm, budget, NullLogger<GuardedLlmClient>.Instance);
 
         BotPrompts prompts = new();
+        InMemoryBotMemoryStore store = new();
         return new Real(
-            new FoundryBotAgent(guarded, new InMemoryBotMemoryStore(), prompts, Options.Create(ai), NullLogger<FoundryBotAgent>.Instance),
+            new FoundryBotAgent(guarded, store, prompts, Options.Create(ai), NullLogger<FoundryBotAgent>.Instance),
             new FoundryQuestionGenerator(guarded, prompts, Options.Create(ai)),
-            llm, budget, ai);
+            llm, budget, ai, store);
     }
 
     /// <summary>Adds up the counters the AI code reports, so a run can say how often it fell back or threw a line away.</summary>
@@ -153,6 +154,49 @@ public class BotEvalTests(ITestOutputHelper output)
 
         output.WriteLine($"Deployment: {f.Deployment.Length} characters, plain name (letters, digits, dot, dash, underscore only): {System.Text.RegularExpressions.Regex.IsMatch(f.Deployment, "^[A-Za-z0-9._-]+$")}.");
         output.WriteLine($"The client will call: {{endpoint}}{(f.Endpoint.TrimEnd('/').EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase) ? "" : "/openai/v1")}/chat/completions with model = the deployment.");
+    }
+
+    /// <summary>
+    /// Each kind of call against the real model on its own, printing the error message (never a prompt or a secret) when one
+    /// fails. A call that works in CI on a fake but fails here usually has a token limit that reasoning uses up.
+    /// </summary>
+    [EvalFact]
+    public async Task Every_kind_of_call_against_the_real_model_reports_what_goes_wrong()
+    {
+        Real real = BuildReal();
+        BotContext ctx = AiKit.Ctx();
+        ChatLine[] lines = [new("Blue Kiwi", "who is the bot here"), new("Green Pear", "no clue lol"), new("Blue Kiwi", "you have been quiet red apple")];
+        OnboardingQuestion[] form = [.. ScriptedBotAgent.BuiltInQuestions(AiKit.Family, new QuestionMix(1, 1, 1))];
+        List<string> failures = [];
+
+        async Task Try(string name, Func<Task> call)
+        {
+            try
+            {
+                await call();
+                output.WriteLine($"{name}: ok");
+            }
+            catch (Exception ex)
+            {
+                failures.Add(name);
+                output.WriteLine($"{name}: {ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+                string raw = real.Llm.Replies.LastOrDefault().Text ?? "";
+                output.WriteLine($"    last raw reply ({raw.Length} chars): {(raw.Length > 300 ? raw[..300] + "..." : raw)}");
+            }
+        }
+
+        await Try("Chat", () => real.Bot.NextChatMessageAsync(AiKit.Chat(ctx, recent: lines), default));
+        await Try("Vote", () => real.Bot.CastVoteAsync(AiKit.Vote(ctx), default));
+        await Try("Onboarding", () => real.Bot.AnswerOnboardingAsync(new OnboardingAnswerRequest(ctx.BotAlias, AiKit.Family, form, [], ctx), default));
+        await Try("Questions", () => real.Questions.GenerateAsync(new QuestionRequest(AiKit.Family, new QuestionMix(1, 1, 1)), default));
+        await Try("RoundNotes", async () =>
+        {
+            await real.Bot.EndRoundAsync(new RoundEndRequest(ctx, AiKit.Family, lines), default);
+            BotMemory saved = (await real.Store.LoadAsync(ctx.Key, default))!;
+            output.WriteLine($"    saved: {saved.Summary.Length} chars of summary, {saved.Suspicions.Count} suspicion(s), {saved.Claims.Count} claim(s)");
+        });
+
+        Assert.Empty(failures);
     }
 
     // ---------------------------------------------------------------- simulated games
