@@ -191,6 +191,19 @@ internal sealed class Harness : IRoomBroadcaster
         await ToAsync(Stage.Discussion, 1);
     }
 
+    /// <summary>
+    /// The first bot's own text answer, as the engine handed it to the bot in its first vote request. Answers never
+    /// reach a client, so this is the only place a test can read a bot's answer. Leaves the game in the round 1 vote.
+    /// </summary>
+    public async Task<string> BotTextAnswerAsync()
+    {
+        await ToAsync(Stage.Voting, 1);
+        await UntilAsync(() => { lock (Agent.VoteRequests) return Agent.VoteRequests.Count > 0; }, "a bot vote request");
+        VoteRequest request;
+        lock (Agent.VoteRequests) request = Agent.VoteRequests.First(r => r.Context.Key.BotId == BotId);
+        return request.Context.Persona.Single(p => p.Kind == QuestionKind.Text).Text ?? "";
+    }
+
     public async Task VoteAsync(Player voter, Guid target) => Assert.Null(await Engine.CastVoteAsync(voter.Id, target));
 
     public RevealData LastReveal() => (RevealData)States.Last(s => s.Stage == Stage.Reveal).Data!;

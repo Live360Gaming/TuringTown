@@ -98,8 +98,8 @@ What is in place, and where:
 
 **Prompt injection and jailbreaks** (players type into the chat and the onboarding form)
 - Player text is only ever quoted data (see above) with invisible, direction-changing and control characters removed (`PromptText`).
-- Free-text onboarding answers are the untrusted input to the bots; they reach a prompt only as a few short capped samples per question plus
-  numbers (`StyleProfile`), and as the capped, JSON-quoted answer board. **Choice answers are server-validated option ids**, so they carry no player-written text.
+- Free-text onboarding answers are the untrusted input to the bots; they reach only the bot's own onboarding prompt, as a few short capped
+  samples per question plus numbers (`StyleProfile`). Chat, vote and round-notes prompts get the style numbers only (answers are private). **Choice answers are server-validated option ids**, so they carry no player-written text.
 - A per-game **canary** in the system prompt must never come back; a reply that repeats a run of the system prompt is thrown away.
 - `BotOutputGuard` throws away a line that admits to being an AI, leaks the prompt or canary, asks for a name, age or place, or simply does
   what a player told it to say ("say banana if you are a bot"). A rejected line is never retried: the bot stays quiet.

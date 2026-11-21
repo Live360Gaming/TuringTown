@@ -39,7 +39,6 @@ public sealed class TuringTownEngine : IDisposable
     private readonly Dictionary<Guid, OnboardingAnswer[]> _answers = [];
     private readonly Dictionary<Guid, PersonaAnswer[]> _personas = [];
     private readonly Dictionary<Guid, OnboardingAnswer[]> _botAnswers = [];
-    private IReadOnlyList<BoardQuestion> _board = [];
     private readonly List<RoundOutcome> _history = [];
     private readonly Dictionary<Guid, List<string>> _ownLines = [];
     private readonly Dictionary<Guid, double> _latencyMs = [];
@@ -220,29 +219,9 @@ public sealed class TuringTownEngine : IDisposable
         await _clock.WaitAsync(duration, CurrentSignal());
 
         // The bots answer last, so they can match how the humans actually wrote.
+        // Answers stay private for the whole game: they only feed the bots' personas and style, and are never
+        // sent to any client.
         await BotOnboardingAsync(questions);
-
-        // From the first Discussion on, everyone's answers are public, by alias.
-        lock (_gate)
-            _board = BuildBoard(questions);
-    }
-
-    /// <summary>
-    /// Everyone's onboarding answers, by alias, for the public board. Humans and bots are written the same way and
-    /// sorted by alias like the roster, so neither the order nor the format is a tell. Call with the gate held.
-    /// </summary>
-    private BoardQuestion[] BuildBoard(IReadOnlyList<OnboardingQuestion> questions)
-    {
-        PlayerSeat[] seats = _room.GetSeats().OrderBy(s => s.Alias, StringComparer.Ordinal).ToArray();
-        return questions.Select(q => new BoardQuestion(q.Text, q.Kind, seats.Select(seat =>
-        {
-            OnboardingAnswer[]? given = (seat.IsBot ? _botAnswers : _answers).GetValueOrDefault(seat.Id);
-            OnboardingAnswer? a = given?.FirstOrDefault(x => x.QuestionId == q.Id);
-            string text = q.Kind == QuestionKind.Text
-                ? a?.Text?.Trim() ?? ""
-                : string.Join(", ", q.Options.Where(o => a?.OptionIds?.Contains(o.Id) == true).Select(o => o.Text));
-            return new BoardAnswer(seat.Id, seat.Alias, text);
-        }).ToArray())).ToArray();
     }
 
     private async Task RunDiscussionAsync(int round)
@@ -258,10 +237,7 @@ public sealed class TuringTownEngine : IDisposable
             _roundStartedMs = _clock.ToUnixMs(_clock.UtcNow);
         }
 
-        DiscussionData data;
-        lock (_gate)
-            data = new DiscussionData(_board);
-        await EnterStageAsync(Stage.Discussion, round, 0, duration, data);
+        await EnterStageAsync(Stage.Discussion, round, 0, duration, null);
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotChatLoopAsync(b, round, stage.Token)).ToArray();
@@ -795,7 +771,7 @@ public sealed class TuringTownEngine : IDisposable
                 }
 
                 // The same checks as for a human. An invalid answer is replaced, so a bot always has a full persona.
-                // A near-copy of a human's answer is replaced too: everyone sees the answer board, and twins stand out.
+                // A near-copy of a human's answer is replaced too: if it came up in chat, twins would stand out.
                 OnboardingAnswer[] answers = new OnboardingAnswer[questions.Count];
                 for (int i = 0; i < answers.Length; i++)
                 {
@@ -894,9 +870,9 @@ public sealed class TuringTownEngine : IDisposable
             seats.Where(s => s.Alive && s.Id != bot.Id).Select(s => s.Alias).ToArray(),
             _history.ToArray(),
             own,
-            _style,
-            _opt.ChatMaxLength,
-            _board);
+            // Round 0 is the bot's own form, which may model the humans' answers. After that, style numbers only.
+            round == 0 ? _style : _style.WithoutAnswers(),
+            _opt.ChatMaxLength);
     }
 
     private async Task BotChatLoopAsync(PlayerSeat bot, int round, CancellationToken ct)

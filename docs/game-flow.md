@@ -20,7 +20,7 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 | Lobby | Players join and ready up; host changes settings | host, or the leader (first player to join), calls `StartGame` (needs `MinPlayers`, and every player ready) | none |
 | Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
-| Discussion | Anonymous chat, with everyone's form answers on the answer board (TV strip, phone "Answers" list) | timer | `{board: [{question, kind, answers: [{playerId, alias, answer}]}]}` |
+| Discussion | Anonymous chat. Form answers are never shown. | timer | none |
 | Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
 | Reveal | Who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally}` |
 | Results | Winner and every role | host or leader calls `ReturnToLobby`, or timer | `{winner, roles}` |
@@ -37,13 +37,13 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
   A game asks a fixed mix, one of each by default (`TextQuestions`, `SingleChoiceQuestions`, `MultiChoiceQuestions`).
   Option ids are `a`..`f`, assigned by the server. There is **never a correct answer**: they are private preference
   questions.
-- **Onboarding answers are private during the form, then public.** Nothing broadcast during the Onboarding carries an
-  answer. After the bots have answered, the engine builds the **answer board** (`DiscussionData.board`): for each question,
-  every seated player's answer (the text, or the chosen option texts joined with ", "; empty if they skipped), sorted by
-  alias like the roster and with no role, so a bot's answer looks like anyone's. Every Discussion carries the same board.
-  The humans' answers also go to the bot agent (written text per question, and the option ids the humans picked, with no
-  tokens or player ids) so the bots can answer in the room's voice. A bot's text answer that is a near-copy of a human's
-  (`OnboardingAnswerValidator.IsNearCopy`) is replaced, since twins on the board give a bot away.
+- **Onboarding answers are private for the whole game.** No state, roster or chat message ever carries a player's
+  answers, so nobody (TV or phone) sees what anyone else answered (`AnswerPrivacyTests`). Players may of course say their
+  own answers in the chat. The humans' answers go to the bot agent **only for the bot's own form** (written text per
+  question, and the option ids the humans picked, with no tokens or player ids) so the bots can answer in the room's voice.
+  From the first Discussion on, a bot gets only the style numbers (`StyleProfile.WithoutAnswers`), so it can never quote
+  or count another player's answers. A bot's text answer that is a near-copy of a human's
+  (`OnboardingAnswerValidator.IsNearCopy`) is still replaced, since twins would stand out if both came up in chat.
 - **Waiting is bounded.** A player who disconnects is not waited for. A bot whose agent call fails abstains.
 
 ## The secret
@@ -99,16 +99,17 @@ client keeps the player's credentials in `sessionStorage` for this. The seat sta
 ## What a bot knows
 
 A bot knows that **it** is a bot, the rules, **how many** bots are in the room (1 or 2), and everything a human seat
-sees: the roster by alias, the chat, the Reveal outcomes and tallies, the answer board, and the humans' onboarding
-answers as style samples. It is **never told which other player is human or a bot**, and with two bots neither knows which player is its
+sees: the roster by alias, the chat, and the Reveal outcomes and tallies. While answering its own form it also gets the
+humans' onboarding answers as anonymous style samples; after that, only style numbers. It is **never told which other player is human or a bot**, and with two bots neither knows which player is its
 teammate. So a bot may accuse or vote for its own teammate without knowing it, and that is intended. Bot requests never
 carry an `IsBot` flag for anyone (`BotKnowledgeTests`). Each bot's memory and context are its own: no shared state.
 
 Every request carries a `BotContext` (`Services/Ai/BotContext.cs`): the bot's `BotKey` (a storage key, never put in a
 prompt), the bot count, its own persona (its onboarding answers) and latest lines, the other living players by alias, the
 finished rounds as the Reveal showed them (`RoundOutcome`, which includes the role of a player who was already voted out,
-as every player saw), the public answer board (`Board`, empty before the first Discussion), and a `StyleProfile` of how the
-humans wrote and what they picked (with `TextAnswers`, their answers per text question). Free text in the style samples is
+as every player saw), and a `StyleProfile` of how the humans wrote. For the bot's own form (round 0) the profile also holds
+what they picked and short samples of what they wrote (with `TextAnswers`, their answers per text question); from the first
+Discussion on it is `WithoutAnswers()`, numbers only. Free text in the style samples is
 untrusted player input: `PromptText.Sanitize` strips invisible and direction-changing characters and caps it, and it must
 only ever reach a model as quoted data.
 
@@ -148,7 +149,7 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
   answers every kind validly, picking from what the humans picked. It is built not to be predictable: each bot has its
   own `BotVoice` (casing, punctuation, pet fillers, the odd typo or emoji, how chatty it is, leaning towards how the room
   wrote), chooses what to say by intent from large pools (react, answer, accuse with a reason, defend, joke), brings up
-  answers from the board, never repeats one of its recent lines, and votes weighted towards whoever the room (or an
+  its own form answers (never anyone else's), never repeats one of its recent lines, and votes weighted towards whoever the room (or an
   accuser of its own) has been pointing at.
 - `FallbackBotAgent` and `FallbackQuestionGenerator` wrap a real one and answer with a safe fallback on a timeout or
   error, so a game never stalls. Each kind of call has its own timeout (`AgentTimeouts`). A failed **vote** or **onboarding

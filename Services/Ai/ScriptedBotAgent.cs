@@ -9,7 +9,7 @@ namespace TuringTown.Services.Ai;
 /// real AI times out or fails, so a game can never stall waiting for it.
 ///
 /// It tries hard not to be predictable: every bot has its own <see cref="BotVoice"/>, picks what to say by intent
-/// (react, ask, accuse with a reason, defend, joke) from large pools, brings up the public answer board, never repeats
+/// (react, ask, accuse with a reason, defend, joke) from large pools, brings up its own form answers, never repeats
 /// one of its recent lines, and votes the way a person tends to (with the room, against whoever accused it).
 /// </summary>
 public sealed partial class ScriptedBotAgent : IBotAgent
@@ -224,7 +224,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         string[] forThis = humanAnswers.Where(a => a.QuestionId == question.Id).Select(a => a.Text ?? "").Where(t => t.Trim().Length > 0).ToArray();
 
         string[] pool = FamilyText.Concat(MatureText).FirstOrDefault(t => t.Text == question.Text)?.Answers ?? GenericAnswers;
-        // Never the same words as a human: the answers are all on the board.
+        // Never the same words as a human: if both came up in chat, the twin would stand out.
         string[] fresh = pool.Where(p => !Games.OnboardingAnswerValidator.IsNearCopy(p, forThis)).ToArray();
         if (fresh.Length > 0) pool = fresh;
 
@@ -256,12 +256,12 @@ public sealed partial class ScriptedBotAgent : IBotAgent
     private static readonly string[] FamilyChat =
     [
         "ok this is harder than I thought", "I genuinely have no idea who it is", "everyone sounds normal so far which is scary",
-        "someone here is way too calm", "this round feels different", "i keep changing my mind", "the answers board is lowkey useful",
+        "someone here is way too calm", "this round feels different", "i keep changing my mind", "someone is typing way too fast",
         "can we all agree to not vote me", "I need more chat before I decide", "nobody is acting weird yet and I hate it",
-        "this is the most suspicious group ever", "whoever it is is good", "i was so sure last round", "we should look at the answers again",
+        "this is the most suspicious group ever", "whoever it is is good", "i was so sure last round", "ask people about their answers",
         "alright who is being too perfect", "my brain is not braining today", "I trust like two people here", "the quiet ones worry me a bit",
         "this is fun but stressful", "someone said something earlier that stuck with me", "I feel like we are missing something obvious",
-        "ok im paying attention now", "too many normal answers", "hmm",
+        "ok im paying attention now", "everyone is too normal", "hmm",
     ];
 
     private static readonly string[] MatureChat =
@@ -279,7 +279,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
     [
         "me? I literally just got here", "nope wrong person", "why me lol", "I have been typing like a normal person",
         "thats a reach", "if I was the bot I would be quieter", "ok but what about you", "I said that because I meant it",
-        "you are deflecting", "bold accusation with zero proof", "check my answers, they are so me",
+        "you are deflecting", "bold accusation with zero proof", "ask me anything, I will prove it",
     ];
 
     private static readonly string[] MentionReplies =
@@ -294,19 +294,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         "youre getting accused a lot, anything to say",
     ];
 
-    private static readonly string[] BoardAboutOthers =
-    [
-        "{0}? really?", "explain {0} please", "{0} is a wild answer", "ok {0} is actually valid", "{0} is such a human answer tbh",
-        "I respect {0}", "{0} feels made up", "nobody actually thinks {0}",
-    ];
-
-    private static readonly string[] BoardAnonymous =
-    [
-        "whoever said {0} needs to explain", "who put {0} lol", "{0} is the most suspicious answer on there",
-        "the {0} answer has me thinking", "{0}?? who did that",
-    ];
-
-    private static readonly string[] BoardOwn =
+    private static readonly string[] OwnAnswerLines =
     [
         "I put {0} and I stand by it", "yes I said {0}, fight me", "{0} was my answer and its correct",
         "people are sleeping on {0}", "for the record I said {0}",
@@ -374,7 +362,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             {
                 PersonaAnswer p = matching[rng.Next(matching.Length)];
                 string? mine = p.Kind == QuestionKind.Text ? p.Text : p.ChosenOptions.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(mine)) return (said.Alias, string.Format(Pick(BoardOwn, rng), Quote(mine, p.Kind, rng)));
+                if (!string.IsNullOrWhiteSpace(mine)) return (said.Alias, string.Format(Pick(OwnAnswerLines, rng), Quote(mine, p.Kind, rng)));
             }
             return (said.Alias, Pick(MentionReplies, rng));
         }
@@ -401,11 +389,11 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
         int roll = rng.Next(100);
 
-        // Talk about the answer board.
-        if (roll < 30 && ctx.PublicBoard.Count > 0)
+        // Bring up its own form answer. Answers are private, so a bot can only ever talk about its own.
+        if (roll < 15)
         {
-            (string? mention, string? body) = BoardLine(request, voice, rng);
-            if (body is not null) return (mention, body);
+            string? mine = OwnAnswer(ctx, rng);
+            if (mine is not null) return (null, string.Format(Pick(OwnAnswerLines, rng), mine));
         }
 
         // React to the last thing someone said.
@@ -423,30 +411,6 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         return (null, Pick(pool, rng));
     }
 
-    private static (string? Mention, string? Body) BoardLine(ChatRequest request, BotVoice voice, Random rng)
-    {
-        BotContext ctx = request.Context;
-        BoardQuestion question = ctx.PublicBoard[rng.Next(ctx.PublicBoard.Count)];
-
-        if (rng.Next(100) < 25)
-        {
-            string? mine = OwnAnswer(ctx, rng, question);
-            if (mine is not null) return (null, string.Format(Pick(BoardOwn, rng), mine));
-        }
-
-        BoardAnswer[] others = question.Answers
-            .Where(a => a.Answer.Length > 0 && request.OtherPlayers.Contains(a.Alias))
-            .ToArray();
-        if (others.Length == 0) return (null, null);
-
-        BoardAnswer target = others[rng.Next(others.Length)];
-        string quoted = Quote(target.Answer, question.Kind, rng);
-
-        return rng.Next(100) < voice.MentionPercent * 2
-            ? (target.Alias, string.Format(Pick(BoardAboutOthers, rng), quoted))
-            : (null, string.Format(Pick(BoardAnonymous, rng), quoted));
-    }
-
     /// <summary>A short piece of an answer to quote: one picked option, or the first few words of a text answer.</summary>
     private static string Quote(string answer, QuestionKind kind, Random rng)
     {
@@ -460,10 +424,9 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         return string.Join(' ', words.Take(5)).TrimEnd('.', ',', '!').ToLowerInvariant();
     }
 
-    private static string? OwnAnswer(BotContext ctx, Random rng, BoardQuestion? question = null)
+    private static string? OwnAnswer(BotContext ctx, Random rng)
     {
         PersonaAnswer[] mine = ctx.Persona
-            .Where(p => question is null || p.Question == question.Question)
             .Where(p => p.Kind == QuestionKind.Text ? !string.IsNullOrWhiteSpace(p.Text) : p.ChosenOptions.Count > 0)
             .ToArray();
         if (mine.Length == 0) return null;

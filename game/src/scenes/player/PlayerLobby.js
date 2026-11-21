@@ -219,7 +219,7 @@ export class PlayerLobby extends Scene {
         this.titleText.setPosition(cx, cy - 150 * v).setFontSize(fontPx(34, s, 18));
 
         // The character picker: two rows of three, each tile big enough to tap.
-        const cell = Math.min(110, (panelW - 40) / 3);
+        const cell = Math.min(110, (panelW - 40) / 3, availH * 0.14);
         const tileScale = (cell - 10) / PICK_SIZE;
         const row1 = cy - 60 * v;
         this.pickerTiles.forEach((tile, i) => {

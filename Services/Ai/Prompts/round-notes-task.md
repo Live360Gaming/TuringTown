@@ -1,9 +1,8 @@
-version: 2
+version: 3
 
 You are {{alias}}. Round {{round}} just ended. Update your private notes for yourself.
 
 <persona>{{persona}}</persona>
-<board>{{board}}</board>
 <players>{{players}}</players>
 <history>{{history}}</history>
 <notes>{{notes}}</notes>

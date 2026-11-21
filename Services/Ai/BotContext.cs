@@ -56,6 +56,12 @@ public sealed record StyleProfile(
     public static StyleProfile Empty { get; } = new(0, 0, 0, 0, [], []);
 
     /// <summary>
+    /// The writing-style numbers only: no human text and no picks. Answers are private, so this is all a bot gets once
+    /// the form is over, and it can never quote or count anyone else's answers in the chat.
+    /// </summary>
+    public StyleProfile WithoutAnswers() => this with { Samples = [], Choices = [], TextAnswers = [] };
+
+    /// <summary>
     /// Summarises the humans' answers. Carries no ids and no names.
     /// </summary>
     public static StyleProfile From(IReadOnlyList<OnboardingQuestion> questions, IReadOnlyList<OnboardingAnswer> humanAnswers)
@@ -126,8 +132,6 @@ public sealed record StyleProfile(
 /// <param name="History">The finished rounds, as the Reveal showed them.</param>
 /// <param name="OwnLines">This bot's own latest lines, so it stays consistent.</param>
 /// <param name="ChatMaxLength">The longest chat line the game accepts.</param>
-/// <param name="Board">The public answer board (everyone's onboarding answers by alias, as every player sees it from the
-/// first Discussion on). Empty before then. It carries no role.</param>
 public sealed record BotContext(
     BotKey Key,
     string BotAlias,
@@ -138,10 +142,4 @@ public sealed record BotContext(
     IReadOnlyList<RoundOutcome> History,
     IReadOnlyList<ChatLine> OwnLines,
     StyleProfile Style,
-    int ChatMaxLength = 200,
-    IReadOnlyList<BoardQuestion>? Board = null)
-{
-    /// <summary>The board, never null.</summary>
-    [JsonIgnore]
-    public IReadOnlyList<BoardQuestion> PublicBoard => Board ?? [];
-}
+    int ChatMaxLength = 200);

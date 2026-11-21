@@ -272,11 +272,11 @@ public class BotPlumbingTests
         Assert.Null(await h.Engine.SendChatAsync(h.Humans[0].Id, "human \u2014 chat"));
         await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.PlayerId == h.BotId), "bot chat");
 
-        BoardQuestion board = ((DiscussionData)h.Room.State.Data!).Board.Single(q => q.Kind == QuestionKind.Text);
-        Assert.Equal("human \u2014 answer", board.Answers.Single(a => a.PlayerId == h.Humans[0].Id).Answer);
-        Assert.Equal("bot, answer", board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
         Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "human \u2014 chat");
         Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "hello, there");
+        lock (h.Agent.OnboardingRequests)
+            Assert.Contains(h.Agent.OnboardingRequests.Single().HumanAnswers, a => a.Text == "human \u2014 answer");
+        Assert.Equal("bot, answer", await h.BotTextAnswerAsync());
     }
 
     [Fact]

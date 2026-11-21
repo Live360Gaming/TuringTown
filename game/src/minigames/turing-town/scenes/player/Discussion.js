@@ -26,19 +26,6 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
                 if (on) buzz(40);
             }, {width: 110, height: 44, fontSize: '18px', variant: 'ghost'});
         }
-        // Everyone's form answers, by alias: a list that opens over the chat.
-        this.board = this.session.state?.data?.board ?? [];
-        this.answersBtn = null;
-        this.answersPanel = null;
-        if (this.board.length > 0) {
-            this.answersBtn = createTextButton(this, 0, 0, 'Answers', () => this.toggleAnswers(),
-                {width: 120, height: 44, fontSize: '18px', variant: 'ghost'});
-            this.answersPanel = this.add.dom(0, 0, 'div').setOrigin(0, 0).setDepth(10);
-            this.answersPanel.node.className = 'tt-answers';
-            this.answersPanel.node.hidden = true;
-            this.fillAnswers();
-            this.listen(this.session, 'roster', () => this.fillAnswers());
-        }
 
         this.statusText = this.addText(this.canWrite ? '' : 'You were voted out. You can only watch now.', {align: 'center'});
 
@@ -101,45 +88,6 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
             this.sendBtn = createTextButton(this, 0, 0, 'Send', () => this.send(), {width: 110, height: 56, fontSize: '26px'});
         }
-    }
-
-    /**
-     * The answer board as HTML. Answers are player text, so only textContent is used. Someone voted out is dimmed.
-     * Bots' answers look exactly like everyone else's: the server sends them sorted by alias, with no roles.
-     */
-    fillAnswers() {
-        const panel = this.answersPanel.node;
-        const sections = this.board.map(question => {
-            const section = document.createElement('section');
-            const heading = document.createElement('h3');
-            heading.textContent = question.question;
-            const list = document.createElement('ul');
-            for (const entry of question.answers ?? []) {
-                const player = this.session.roster.find(p => p.id === entry.playerId);
-                const item = document.createElement('li');
-                if (player && !player.alive) item.classList.add('tt-answer-out');
-                if (entry.playerId === this.session.you?.id) item.classList.add('tt-answer-you');
-                const name = document.createElement('span');
-                name.className = 'tt-answer-name';
-                name.style.color = player?.color ?? '';
-                name.textContent = entry.alias;
-                const text = document.createElement('span');
-                text.className = entry.answer ? 'tt-answer-text' : 'tt-answer-text tt-answer-empty';
-                text.textContent = entry.answer || '(no answer)';
-                item.append(name, text);
-                list.append(item);
-            }
-            section.append(heading, list);
-            return section;
-        });
-        panel.replaceChildren(...sections);
-    }
-
-    toggleAnswers() {
-        const panel = this.answersPanel.node;
-        panel.hidden = !panel.hidden;
-        this.answersBtn.setLabel(panel.hidden ? 'Answers' : 'Chat');
-        if (!panel.hidden) panel.scrollTop = 0;
     }
 
     onKeyDown(e) {
@@ -301,22 +249,10 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
         this.title.setPosition(m.left + pad, m.top + 120 * m.s).setFontSize(m.fs(34, 22));
         this.buzzBtn?.setPosition(m.right - pad - 55, m.top + 120 * m.s);
-        // Left of the buzz button, or in its place where there is none.
-        this.answersBtn?.setPosition(m.right - pad - (this.buzzBtn ? 110 + 12 + 60 : 60), m.top + 120 * m.s);
-        // On a narrow phone, shrink the title so it never runs under the buttons.
-        const buttonsLeft = this.answersBtn ? this.answersBtn.x - 60 : this.buzzBtn ? this.buzzBtn.x - 55 : m.right;
+        // On a narrow phone, shrink the title so it never runs under the button.
+        const buttonsLeft = this.buzzBtn ? this.buzzBtn.x - 55 : m.right;
         this.fitText(this.title, m.fs(34, 22), buttonsLeft - 10 - (m.left + pad));
         this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
-
-        if (this.answersPanel) {
-            // Covers the chat feed; the chat box stays usable below it.
-            this.answersPanel.setPosition(m.left + pad, feedTop);
-            const style = this.answersPanel.node.style;
-            style.width = `${m.panelW - 2 * pad}px`;
-            style.height = `${Math.max(120, feedBottom - feedTop)}px`;
-            style.fontSize = `${Math.max(15, 20 * m.s)}px`;
-            this.answersPanel.updateSize();
-        }
 
         this.feed.resize({
             x: m.left + pad, y: feedTop + 36 * m.s, width: m.panelW - 2 * pad, height: feedBottom - feedTop - 36 * m.s,

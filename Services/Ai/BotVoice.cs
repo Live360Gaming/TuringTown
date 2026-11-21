@@ -41,7 +41,7 @@ public sealed class BotVoice
 
     /// <summary>The voice of one bot in one game. The same bot always gets the same voice.</summary>
     public static BotVoice For(Guid botId, StyleProfile style) =>
-        new(new Random(Seed(botId)), style.LowercaseShare, style.PunctuationRate, style.EmojiShare, style.Samples.Count > 0);
+        new(new Random(Seed(botId)), style.LowercaseShare, style.PunctuationRate, style.EmojiShare, style.MedianLength > 0);
 
     /// <summary>A voice for answering the form, from the humans' raw text answers.</summary>
     public static BotVoice For(Guid botId, IReadOnlyList<string> humanTexts)

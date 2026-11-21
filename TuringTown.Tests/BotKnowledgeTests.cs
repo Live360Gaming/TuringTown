@@ -201,17 +201,12 @@ public class BotKnowledgeTests
         {
             PlayerSeat other = bots.Single(b => b.Id != bot.Id);
             BotContext context = requests.Single(r => r.BotAlias == bot.Alias).Context;
-            // The public answer board shows everyone's answers (the other bot's too, as to every human), so leave it out.
-            string text = JsonSerializer.Serialize(context with { Board = null }, Json);
+            string text = JsonSerializer.Serialize(context, Json);
 
             // Its own persona, never the other bot's.
             Assert.Contains($"marker of {bot.Alias}", text);
             Assert.DoesNotContain($"marker of {other.Alias}", text);
             Assert.Equal(bot.Id, context.Key.BotId);
-
-            // On the board the other bot's answer is just one more player's answer, under its alias, with no role.
-            BoardAnswer theirs = context.PublicBoard.Single(q => q.Kind == QuestionKind.Text).Answers.Single(a => a.Alias == other.Alias);
-            Assert.Equal($"marker of {other.Alias}", theirs.Answer);
         }
     }
 

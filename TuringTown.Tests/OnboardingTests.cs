@@ -229,10 +229,9 @@ public class OnboardingTests
         Assert.Null(h.Engine.TutorialDone());
         await h.ToAsync(Stage.Onboarding);
         foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers("ok")));
-        await h.ToAsync(Stage.Discussion);
-        BoardQuestion board = ((DiscussionData)h.Room.State.Data!).Board.Single(q => q.Kind == QuestionKind.Text);
-        Assert.NotEqual(rejected, board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
-        Assert.NotEmpty(board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
+        string botAnswer = await h.BotTextAnswerAsync();
+        Assert.NotEqual(rejected, botAnswer);
+        Assert.NotEmpty(botAnswer);
     }
 
     // ---------------------------------------------------------------- answer validation, per kind
@@ -330,7 +329,7 @@ public class OnboardingTests
         Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, unknown));
 
         Assert.Null(await h.Engine.SubmitOnboardingAsync(a, good));
-        // The answers are private during the form (the board only opens with the Discussion): not in anything broadcast.
+        // The answers are private: not in anything broadcast.
         Assert.DoesNotContain(h.Messages, m => m.Json.Contains("I like pasta"));
     }
 
