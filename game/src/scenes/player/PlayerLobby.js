@@ -1,8 +1,9 @@
 import * as Phaser from "phaser";
 import {Scene} from "phaser";
-import {enterFullWindow} from "../../core/scaling.js";
+import {enterFullWindow, safeInsets} from "../../core/scaling.js";
 import {createTextButton} from "../../core/ui/Button.js";
 import {drawPanel} from "../../core/ui/Panel.js";
+import {COLORS, fontPx, HEX, readableOn} from "../../core/theme.js";
 import {hubErrorMessage} from "../../core/gameHub.js";
 import {createAvatar} from "../../core/characters.js";
 import {CHARACTER_KEYS} from "../../constants.js";
@@ -35,7 +36,7 @@ export class PlayerLobby extends Scene {
         this.nameText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.titleText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.statusText = this.add.text(0, 0, 'Connecting...', {color: '#ffffff', align: 'center'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
-        this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px'});
+        this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px', variant: 'ghost'});
 
         this.input.keyboard.on('keydown-ESC', () => this.quit());
 
@@ -85,7 +86,7 @@ export class PlayerLobby extends Scene {
 
         this.avatar?.destroy();
         this.avatar = createAvatar(this, 0, 0, 200, you);
-        this.nameText.setText(you.alias).setColor(you.color);
+        this.nameText.setText(you.alias).setColor(readableOn(you.color));
         this.titleText.setText(`You're in ${this.session.roomCode}`);
         this.statusText.setText('Waiting for the host to start...');
         this.buildPicker();
@@ -105,7 +106,7 @@ export class PlayerLobby extends Scene {
             const taken = takenByOthers.has(key);
             const img = this.add.image(0, 0, key).setDisplaySize(PICK_SIZE, PICK_SIZE);
             const ring = this.add.graphics()
-                .lineStyle(mine ? 5 : 2, mine ? 0xffffff : 0x888888, 1)
+                .lineStyle(mine ? 5 : 2, mine ? HEX.cyan : HEX.border, 1)
                 .strokeRoundedRect(-PICK_SIZE / 2, -PICK_SIZE / 2, PICK_SIZE, PICK_SIZE, 10);
             const tile = this.add.container(0, 0, [img, ring]).setSize(PICK_SIZE, PICK_SIZE);
             tile.setAlpha(taken ? 0.3 : 1);
@@ -134,27 +135,36 @@ export class PlayerLobby extends Scene {
 
     layout() {
         const {width, height} = this.scale;
+        const safe = safeInsets();
         const cx = width / 2;
-        const cy = height / 2;
-        const s = Phaser.Math.Clamp(Math.min(width, height) / 720, 0.5, 1.5);
+        const availH = height - 32 - safe.top - safe.bottom;
+        const cy = safe.top + 16 + availH / 2;
+        // Sizes follow the card's width; vertical spacing also uses spare screen height on tall phones.
+        const s = Phaser.Math.Clamp(Math.min((width - 32 - safe.left - safe.right) / 560, availH / 840), 0.5, 1.5);
+        const v = Phaser.Math.Clamp(Math.max(s, availH / 840), s, 1.4);
 
-        this.background.setPosition(cx, cy)
+        this.background.setPosition(width / 2, height / 2)
             .setScale(Math.max(width / this.background.width, height / this.background.height));
 
         const panelW = 560 * s;
-        const panelH = 840 * s;
+        const panelH = 840 * v;
         drawPanel(this.panel, cx - panelW / 2, cy - panelH / 2, panelW, panelH, s);
 
-        this.avatar?.setPosition(cx, cy - 280 * s).setScale(s * 1.1);
-        this.nameText.setPosition(cx, cy - 130 * s).setFontSize(38 * s);
-        this.titleText.setPosition(cx, cy - 70 * s).setFontSize(34 * s);
+        this.avatar?.setPosition(cx, cy - 300 * v).setScale(s * 1.1);
+        this.nameText.setPosition(cx, cy - 190 * v).setFontSize(fontPx(38, s, 22));
+        this.titleText.setPosition(cx, cy - 150 * v).setFontSize(fontPx(34, s, 18));
 
-        const step = PICK_SIZE + PICK_GAP;
-        const rowStart = cx - (step * (this.pickerTiles.length - 1) / 2) * s;
-        this.pickerTiles.forEach((tile, i) => tile.setPosition(rowStart + i * step * s, cy + 10 * s).setScale(s));
+        // The character picker: two rows of three, each tile big enough to tap.
+        const cell = Math.min(110, (panelW - 40) / 3);
+        const tileScale = (cell - 10) / PICK_SIZE;
+        const row1 = cy - 60 * v;
+        this.pickerTiles.forEach((tile, i) => {
+            tile.setPosition(cx + ((i % 3) - 1) * cell, row1 + Math.floor(i / 3) * cell).setScale(tileScale);
+        });
 
-        this.statusText.setPosition(cx, cy + 120 * s).setFontSize(28 * s).setWordWrapWidth(panelW - 60 * s);
-        this.quitBtn.setPosition(cx, cy + 300 * s).setScale(s);
+        this.statusText.setPosition(cx, row1 + cell * 1.5 + 36 * s)
+            .setFontSize(fontPx(28, s, 16)).setWordWrapWidth(panelW - 60 * s);
+        this.quitBtn.setPosition(cx, cy + panelH / 2 - 60 * s).setScale(Math.max(s, 0.6));
     }
 
     /** Leave the room for good and go back to the main menu. */

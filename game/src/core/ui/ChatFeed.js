@@ -1,4 +1,5 @@
 import {createAvatar} from '../characters.js';
+import {COLORS, readableOn} from '../theme.js';
 
 /**
  * A chat log drawn from the bottom of a rectangle upwards, newest at the bottom. Older lines that no longer
@@ -47,7 +48,7 @@ export class ChatFeed {
         for (let i = this.messages.length - 1; i >= 0; i--) {
             const message = this.messages[i];
 
-            const alias = this.scene.add.text(textX, 0, message.alias, {fontSize: `${fontSize}px`, fontStyle: 'bold', color: message.color})
+            const alias = this.scene.add.text(textX, 0, message.alias, {fontSize: `${fontSize}px`, fontStyle: 'bold', color: readableOn(message.color, COLORS.surface)})
                 .setResolution(window.devicePixelRatio);
             const toMe = this.highlightPlayerId != null && message.mentions?.includes(this.highlightPlayerId);
             const body = this.scene.add.text(textX, 0, message.text, {

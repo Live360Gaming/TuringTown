@@ -1,13 +1,189 @@
+/* Fonts: all SIL OFL 1.1 (see fonts/OFL.txt). Latin subsets, self-hosted so a room works offline. */
+@font-face {
+    font-family: "Bungee";
+    src: url("fonts/bungee-400.woff2") format("woff2");
+    font-weight: 400;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Nunito Sans";
+    src: url("fonts/nunito-sans-var.woff2") format("woff2");
+    font-weight: 600 800;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Space Mono";
+    src: url("fonts/space-mono-700.woff2") format("woff2");
+    font-weight: 700;
+    font-display: swap;
+}
+
+/* Keep in step with src/core/theme.js. */
+:root {
+    --tt-bg: #15172B;
+    --tt-bg-deep: #0B0D1A;
+    --tt-surface: #242342;
+    --tt-surface-raised: #2F2D55;
+    --tt-border: #4A4E7A;
+    --tt-text: #F8F8FF;
+    --tt-text-muted: #C8CEE1;
+    --tt-text-dim: #8E96B8;
+    --tt-cyan: #54F5E6;
+    --tt-pink: #FF65BD;
+    --tt-gold: #FFD476;
+    --tt-blue: #405FC2;
+    --tt-danger: #FF5C6C;
+    --tt-font-display: "Bungee", "Arial Black", Impact, sans-serif;
+    --tt-font-ui: "Nunito Sans", "Segoe UI", Roboto, Arial, sans-serif;
+    --tt-font-mono: "Space Mono", Consolas, Menlo, "Courier New", monospace;
+}
+
 html, body {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: black;
+    background: #15172B;
 }
 
 #game-container {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
+}
+
+/* ---- Phone forms (onboarding questions, chat box, room code). Inputs are 16px so iOS does not zoom on focus. ---- */
+.tt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-sizing: border-box;
+    padding: 2px 2px 10px;
+    color: var(--tt-text);
+    font-family: var(--tt-font-ui);
+    font-size: 16px;
+    text-align: left;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tt-q {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+    padding: 14px;
+    border: 1px solid var(--tt-border);
+    border-radius: 12px;
+    background: var(--tt-surface-raised);
+}
+
+.tt-q legend {
+    float: left;
+    width: 100%;
+    margin: 0 0 8px;
+    padding: 0;
+}
+
+.tt-q legend + * {
+    clear: both;
+}
+
+.tt-eyebrow {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--tt-cyan);
+    font: 700 12px/1.2 var(--tt-font-mono);
+    letter-spacing: 0.08em;
+}
+
+.tt-q-text {
+    display: block;
+    font-weight: 800;
+    font-size: 18px;
+    line-height: 1.35;
+}
+
+.tt-hint {
+    color: var(--tt-text-muted);
+    font-size: 14px;
+}
+
+.tt-input {
+    box-sizing: border-box;
+    width: 100%;
+    resize: none;
+    padding: 12px;
+    border: 1px solid var(--tt-border);
+    border-radius: 12px;
+    background: var(--tt-bg);
+    color: var(--tt-text);
+    font: 600 16px/1.4 var(--tt-font-ui);
+}
+
+.tt-input::placeholder {
+    color: var(--tt-text-dim);
+}
+
+.tt-input:focus,
+.tt-choice:focus-within,
+.tt-submit:focus-visible {
+    outline: 2px solid var(--tt-cyan);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 4px rgba(84, 245, 230, 0.25);
+}
+
+.tt-choice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--tt-border);
+    border-radius: 12px;
+    background: var(--tt-bg);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.tt-choice input {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    accent-color: var(--tt-cyan);
+}
+
+.tt-choice.on {
+    border-color: var(--tt-cyan);
+    background: var(--tt-blue);
+}
+
+.tt-choice.off {
+    opacity: 0.5;
+}
+
+.tt-submit {
+    position: sticky;
+    bottom: 0;
+    flex: none;
+    min-height: 52px;
+    border: 2px solid #fff;
+    border-radius: 14px;
+    background: var(--tt-pink);
+    box-shadow: 0 0 0 8px var(--tt-surface);
+    color: var(--tt-bg-deep);
+    font: 400 18px/1 var(--tt-font-display);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+}
+
+.tt-submit:hover {
+    filter: brightness(1.1);
 }

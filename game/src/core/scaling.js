@@ -17,6 +17,26 @@ export function fitImageToScreen(scene, key) {
     return image;
 }
 
+// The notch / home-indicator margins in px ({top, right, bottom, left}, all 0 on screens without them).
+export function safeInsets() {
+    const none = {top: 0, right: 0, bottom: 0, left: 0};
+    try {
+        const probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;' +
+            'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+        document.body.appendChild(probe);
+        const style = getComputedStyle(probe);
+        const insets = {
+            top: parseFloat(style.paddingTop) || 0, right: parseFloat(style.paddingRight) || 0,
+            bottom: parseFloat(style.paddingBottom) || 0, left: parseFloat(style.paddingLeft) || 0,
+        };
+        probe.remove();
+        return insets;
+    } catch {
+        return none;
+    }
+}
+
 // Make the canvas fill the whole browser window (no letterboxing).
 export function enterFullWindow(scale) {
     scale.scaleMode = Phaser.Scale.RESIZE;

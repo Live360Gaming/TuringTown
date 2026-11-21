@@ -1,3 +1,4 @@
+import {readableOn} from '../../../../core/theme.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 import {addHoverFill, BTN, createTextButton} from '../../../../core/ui/Button.js';
 import * as Phaser from 'phaser';
@@ -33,14 +34,10 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
         if (this.canWrite) {
             // A real HTML input so phones bring up their keyboard.
-            this.chatInput = this.add.dom(0, 0, 'input', {
-                boxSizing: 'border-box',
-                padding: '0.3em',
-                borderRadius: '12px',
-                border: 'none',
-            });
+            this.chatInput = this.add.dom(0, 0, 'input');
             const input = this.chatInput.node;
             input.placeholder = 'Say something...';
+            input.className = 'tt-input';
             input.maxLength = 200;
             input.autocomplete = 'off';
             input.addEventListener('keydown', e => {
@@ -60,7 +57,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         const bg = this.add.rectangle(0, 0, CHIP_W, CHIP_H, BTN)
             .setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(player.color).color)
             .setInteractive({useHandCursor: true});
-        const label = this.add.text(0, 0, `@${player.alias}`, {fontSize: '18px', color: player.color}).setOrigin(0.5);
+        const label = this.add.text(0, 0, `@${player.alias}`, {fontSize: '18px', color: readableOn(player.color, '#405FC2')}).setOrigin(0.5);
         const chip = this.add.container(0, 0, [bg, label]);
 
         addHoverFill(bg);
@@ -111,27 +108,29 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         const inputTop = m.bottom - 90 * m.s;
 
         // The mention chips sit in two columns just above the chat box.
+        // Chips are at least 44px tall so they are easy to tap.
+        const chipS = Math.max(m.s, 44 / CHIP_H);
         const chipGap = 8 * m.s;
         const chipW = (m.panelW - 2 * pad - chipGap) / 2;
         const chipRows = Math.ceil(this.chips.length / 2);
-        const chipsTop = inputTop - 14 * m.s - chipRows * (CHIP_H * m.s + chipGap);
+        const chipsTop = inputTop - 14 * m.s - chipRows * (CHIP_H * chipS + chipGap);
         this.chips.forEach((chip, i) => {
             const col = i % 2;
             const row = Math.floor(i / 2);
-            chip.setScale(chipW / CHIP_W, m.s);
+            chip.setScale(chipW / CHIP_W, chipS);
             chip.setPosition(
                 m.left + pad + chipW / 2 + col * (chipW + chipGap),
-                chipsTop + CHIP_H * m.s / 2 + row * (CHIP_H * m.s + chipGap),
+                chipsTop + CHIP_H * chipS / 2 + row * (CHIP_H * chipS + chipGap),
             );
         });
         const feedBottom = (this.chips.length > 0 ? chipsTop : inputTop - 14 * m.s) - 8 * m.s;
 
-        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(34 * m.s);
-        this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(22 * m.s).setWordWrapWidth(m.panelW - 2 * pad);
+        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(m.fs(34, 22));
+        this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
 
         this.feed.resize({
             x: m.left + pad, y: feedTop + 36 * m.s, width: m.panelW - 2 * pad, height: feedBottom - feedTop - 36 * m.s,
-            fontSize: 20 * m.s, avatarSize: 40 * m.s,
+            fontSize: m.fs(20, 15), avatarSize: Math.max(32, 40 * m.s),
         });
 
         if (this.canWrite && this.chatInput.active) {
@@ -139,9 +138,9 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             const inputWidth = m.panelW - 3 * pad - sendWidth;
             this.chatInput.setPosition(m.left + pad + inputWidth / 2, inputTop + 30 * m.s);
             this.chatInput.node.style.width = `${inputWidth}px`;
-            this.chatInput.node.style.fontSize = `${24 * m.s}px`;
+            this.chatInput.node.style.fontSize = `${Math.max(16, 24 * m.s)}px`;
             this.chatInput.updateSize();
-            this.sendBtn.setPosition(m.right - pad - sendWidth / 2, inputTop + 30 * m.s).setScale(m.s);
+            this.sendBtn.setPosition(m.right - pad - sendWidth / 2, inputTop + 30 * m.s).setScale(Math.max(m.s, 0.8));
         }
     }
 }

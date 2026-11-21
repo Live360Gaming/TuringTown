@@ -1,5 +1,6 @@
 import { Scene } from 'phaser';
 import { fitImageToScreen } from '../../core/scaling.js';
+import { assetPath } from '../../core/season.js';
 
 // This scene is a preloader for the preloader, think of it like a loading screen for the initial loading screen.
 // Similar to how a BIOS actually boots the OS which needs to boot itself.
@@ -14,7 +15,7 @@ export class Boot extends Scene
     {
         // Preload the loading screen image.
         // TODO: Placeholder AI slop preloader image.
-        this.load.image('preloader', 'assets/preloader.png');
+        this.load.image('preloader', `assets/${assetPath('preloader', 'preloader.png')}`);
     }
 
     create ()

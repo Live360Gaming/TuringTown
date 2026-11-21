@@ -26,7 +26,7 @@ export class HostSettings extends Scene {
 
         // Full-screen dim that also blocks clicks on the lobby underneath.
         this.add.rectangle(cx, HOST_CENTER_Y, HOST_WIDTH, HOST_HEIGHT, 0x000000, 0.6).setInteractive();
-        this.add.rectangle(cx, HOST_CENTER_Y, 760, 560, PANEL).setStrokeStyle(3, 0xffffff);
+        this.add.rectangle(cx, HOST_CENTER_Y, 760, 560, PANEL).setStrokeStyle(3, 0x54f5e6);
         this.add.text(cx, 130, 'Settings', {fontSize: '40px', color: '#ffffff'}).setOrigin(0.5);
 
         const label = (y, text) => this.add.text(left, y, text, {fontSize: '30px', color: '#ffffff'}).setOrigin(0, 0.5);

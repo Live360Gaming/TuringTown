@@ -518,15 +518,35 @@ public class AiInfrastructureTests
             Client(handler).CompleteAsync(new LlmCall("Vote", "s", "u", new LlmJsonSchema("vote", "{\"type\":\"object\"}"), "low", 50, TimeSpan.FromSeconds(5)), default));
     }
 
+    [Theory]
+    [InlineData(401, "{\"error\":{\"code\":\"401\",\"message\":\"Access denied due to invalid subscription key.\"}}", "invalid subscription key")]
+    [InlineData(403, "{\"error\":{\"code\":\"PermissionDenied\",\"message\":\"The principal lacks the required data action.\"}}", "lacks the required data action")]
+    [InlineData(404, "{\"error\":{\"code\":\"DeploymentNotFound\",\"message\":\"The API deployment for this resource does not exist.\"}}", "deployment for this resource does not exist")]
+    [InlineData(400, "{\"error\":{\"code\":\"unsupported_value\",\"message\":\"Unsupported value: reasoning_effort does not support minimal.\"}}", "reasoning_effort does not support minimal")]
+    public async Task A_service_error_reports_its_status_and_its_own_explanation_but_no_credential(int status, string body, string expected)
+    {
+        CaptureHandler handler = new(_ => Json((HttpStatusCode)status, body));
+
+        LlmServiceException ex = await Assert.ThrowsAsync<LlmServiceException>(() =>
+            Client(handler, apiKey: "very-secret-key").CompleteAsync(new LlmCall("Chat", "s", "u", null, "low", 50, TimeSpan.FromSeconds(5)), default));
+
+        Assert.Equal(status, ex.Status);
+        Assert.Contains(expected, ex.Message);
+        Assert.DoesNotContain("very-secret-key", ex.Message);
+        Assert.True(ex.Message.Length < 600);
+    }
+
     [Fact]
     public async Task A_rate_limited_call_fails_at_once_without_retrying()
     {
         CaptureHandler handler = new(_ => Json(HttpStatusCode.TooManyRequests, "{\"error\":{\"code\":\"429\",\"message\":\"slow down\"}}"));
 
-        ClientResultException ex = await Assert.ThrowsAsync<ClientResultException>(() =>
+        LlmServiceException ex = await Assert.ThrowsAsync<LlmServiceException>(() =>
             Client(handler).CompleteAsync(new LlmCall("Chat", "s", "u", null, "low", 50, TimeSpan.FromSeconds(5)), default));
 
         Assert.Equal(429, ex.Status);
+        Assert.IsType<ClientResultException>(ex.InnerException);
+        Assert.Contains("slow down", ex.Message);
         Assert.Single(handler.Seen);
     }
 

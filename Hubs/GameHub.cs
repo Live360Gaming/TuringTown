@@ -101,6 +101,15 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         return error is null ? Task.CompletedTask : throw new HubException(error);
     }
 
+    /// <summary>The host quits: everyone is told the room is closed, the game stops and the code stops working.</summary>
+    public async Task CloseRoom()
+    {
+        Room room = RequireHost();
+        await Clients.Group(room.Code.ToString()).SendAsync("RoomClosed");
+        roomManager.Remove(room.Code);
+        games.StopGame(room);
+    }
+
     /// <summary>Host reports which tutorial step is showing, so phones can follow along.</summary>
     public async Task TutorialStep(int step) => Throw(await RequireEngine(RequireHost()).TutorialStepAsync(step));
 

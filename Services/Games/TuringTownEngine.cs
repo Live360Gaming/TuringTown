@@ -102,6 +102,21 @@ public sealed class TuringTownEngine : IDisposable
     /// </summary>
     public void Start() => _loop = Task.Run(RunAsync);
 
+    /// <summary>
+    /// Stops the game early (the host closed the room). The loop winds down and calls <c>onFinished</c>, which disposes the engine.
+    /// </summary>
+    public void Cancel()
+    {
+        try
+        {
+            _cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already finished.
+        }
+    }
+
     public void Dispose()
     {
         _cts.Cancel();

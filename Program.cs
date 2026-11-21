@@ -25,6 +25,10 @@ builder.Services.AddSingleton<RoomManager>();
 
 // Turing Town: the game engine, its timings, and the AI behind the bots.
 builder.Services.AddSingleton(TimeProvider.System);
+
+// Which seasonal art the clients show (Christmas in December, or forced by Season:Mode).
+builder.Services.Configure<SeasonOptions>(builder.Configuration.GetSection(SeasonOptions.SectionName));
+builder.Services.AddSingleton<SeasonProvider>();
 builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
 
 // The AI. The tunables are in the "Ai" section of appsettings.json. Where the model lives (Endpoint, Deployment, ApiKey) is the
@@ -119,6 +123,18 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 });
 
 var app = builder.Build();
+
+// Say which AI is running and how it signs in (never a value), so a wrong environment or a missing key is obvious in the log.
+{
+    AiOptions ai = app.Services.GetRequiredService<IOptions<AiOptions>>().Value;
+    bool hasKey = !string.IsNullOrWhiteSpace(app.Services.GetRequiredService<IOptions<FoundryOptions>>().Value.ApiKey);
+    app.Logger.LogInformation("AI: {Provider}{Auth}. Environment: {Environment}.",
+        ai.Provider,
+        ai.Provider != AiProvider.Foundry ? " (offline scripted bots and built-in questions)"
+            : hasKey ? ", signing in with the API key"
+            : ", signing in with Entra ID (DefaultAzureCredential): no Foundry:ApiKey was found, so your identity or the app's managed identity needs the Cognitive Services OpenAI User role",
+        app.Environment.EnvironmentName);
+}
 
 app.UseForwardedHeaders();
 

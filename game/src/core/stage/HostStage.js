@@ -5,6 +5,8 @@ import {getSession, leaveToMenu} from '../session.js';
 import {attachCountdown} from '../countdown.js';
 import {createAvatar} from '../characters.js';
 import {listen} from './listen.js';
+import {COLORS, HEX, textStyle} from '../theme.js';
+import {addNameplate} from '../ui/Nameplate.js';
 
 /**
  * Base for a screen on the TV during a game: the fixed 16:9 canvas, background, a title, the stage countdown,
@@ -21,9 +23,18 @@ export class HostStage extends Scene {
         }
 
         fitImageToScreen(this, 'background_tv');
-        this.title = this.add.text(HOST_CENTER_X, 48, '', {fontSize: '44px', color: '#ffffff'}).setOrigin(0.5);
-        this.timerText = this.add.text(HOST_WIDTH - 40, 48, '', {fontSize: '40px', color: '#ffffff'}).setOrigin(1, 0.5);
+        this.header = this.add.graphics();
+        this.title = this.add.text(HOST_CENTER_X, 48, '', textStyle('title', {fontSize: '44px'})).setOrigin(0.5);
+        this.timerText = this.add.text(HOST_WIDTH - 40, 48, '', textStyle('timer', {fontSize: '40px'})).setOrigin(1, 0.5);
+        // Optional extras inside the header plate; they stay hidden unless a scene uses them.
+        this.instructionText = this.add.text(HOST_CENTER_X, 100, '', textStyle('instruction')).setOrigin(0.5);
+        this.headerProgressText = this.add.text(72, 34, '', textStyle('meta')).setOrigin(0, 0.5).setVisible(false);
+        this.headerProgressBar = this.add.graphics();
+        this.headerProgress = null;
+        this.drawHeader();
+
         attachCountdown(this, this.session, this.timerText);
+        this.time.addEvent({delay: 250, loop: true, callback: () => this.tintTimer()});
 
         this.input.keyboard.on('keydown-ESC', () => leaveToMenu(this));
 
@@ -37,6 +48,43 @@ export class HostStage extends Scene {
         this.title.setText(text);
     }
 
+    /** A line under the title telling the room what to do, e.g. "Answer the questions on your phone". */
+    setInstruction(text) {
+        this.instructionText.setText(text);
+        this.drawHeader();
+    }
+
+    /** "3 of 5 done" with a bar, in the header. Pass total 0 to hide it. */
+    setProgress(done, total) {
+        this.headerProgress = total > 0 ? {done, total} : null;
+        this.headerProgressText.setVisible(this.headerProgress !== null).setText(this.headerProgress ? `${done} / ${total}` : '');
+        this.drawHeader();
+    }
+
+    /** The dark plate behind the title, timer and instruction. It stays in the ceiling band, above the sign. */
+    drawHeader() {
+        const height = this.instructionText.text ? 120 : 76;
+        this.header.clear()
+            .fillStyle(HEX.bgDeep, 0.82).fillRoundedRect(40, 10, HOST_WIDTH - 80, height, 20)
+            .lineStyle(2, HEX.cyan, 0.7).strokeRoundedRect(40, 10, HOST_WIDTH - 80, height, 20);
+        this.instructionText.setVisible(this.instructionText.text !== '');
+
+        this.headerProgressBar.clear();
+        if (this.headerProgress) {
+            const {done, total} = this.headerProgress;
+            this.headerProgressBar
+                .fillStyle(HEX.surfaceRaised, 1).fillRoundedRect(72, 54, 200, 10, 5)
+                .fillStyle(HEX.green, 1).fillRoundedRect(72, 54, Math.max(10, 200 * Math.min(1, done / total)), 10, 5);
+        }
+    }
+
+    /** The timer turns gold with 30s left and pink with 10s left. */
+    tintTimer() {
+        const ms = this.session.msLeft();
+        const color = ms === null || ms > 30000 ? COLORS.text : ms > 10000 ? COLORS.gold : COLORS.pink;
+        this.timerText.setColor(color);
+    }
+
     /** Subscribe to an emitter for as long as this scene is running. */
     listen(emitter, event, handler) {
         listen(this, emitter, event, handler);
@@ -46,7 +94,7 @@ export class HostStage extends Scene {
      * A row of everyone's avatar and alias, kept up to date as players come, go or are voted out.
      * Returns a function that redraws it.
      */
-    createRosterRow(y, {size = 84, filter = () => true} = {}) {
+    createRosterRow(y, {size = null, filter = () => true} = {}) {
         let items = [];
         const draw = () => {
             items.forEach(item => item.destroy());
@@ -56,11 +104,11 @@ export class HostStage extends Scene {
             const gap = Math.min(170, (HOST_WIDTH - 120) / Math.max(players.length, 1));
             const startX = HOST_CENTER_X - ((players.length - 1) * gap) / 2;
 
+            const avatarSize = size ?? Math.min(150, gap * 0.9);
             players.forEach((player, i) => {
                 const x = startX + i * gap;
-                items.push(createAvatar(this, x, y, size, player, {dim: !player.alive}));
-                items.push(this.add.text(x, y + size / 2 + 16, player.alias, {fontSize: '20px', color: player.color})
-                    .setOrigin(0.5)
+                items.push(createAvatar(this, x, y, avatarSize, player, {dim: !player.alive}));
+                items.push(addNameplate(this, x, y + avatarSize / 2 + 22, player, {maxWidth: gap - 8, fontSize: 20})
                     .setAlpha(player.alive ? 1 : 0.4));
             });
         };

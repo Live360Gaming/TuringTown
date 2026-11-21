@@ -83,6 +83,10 @@ served under a sub-path).
   and `startPolling(name, path, ms)` emits `poll` events. Host polls `/api/room/<code>` every second.
 - Boot loads only the preloader image. Preloader loads all other assets (hard-coded in `Preloader.js`), shows
   `core/ui/LoadingIndicator`, and offers retry when a file fails.
+- Look and feel: `core/theme.js` holds the colors, font stacks and text styles (`textStyle`, `readableOn`); the same values are
+  `--tt-*` variables in `game/public/style.css`, which also styles the HTML form inputs. Fonts (Bungee, Nunito Sans, Space
+  Mono; SIL OFL) are self-hosted in `game/public/fonts/` and waited for by the Preloader. `installTextDefaults()` (called in
+  `main.js`) makes every `add.text` use the UI font. Player names on the TV use `core/ui/Nameplate.js`.
 - `core/hostSettings.js` stores the host volume in `localStorage` and applies it as Phaser's global sound volume.
 
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,

@@ -59,6 +59,13 @@ public sealed class FoundryLlmClient : ILlmClient
             : new ChatClient(foundry.Deployment, new ApiKeyCredential(foundry.ApiKey), options);
     }
 
+    /// <summary>The service's error text on one line and bounded, so it can be logged to find a misconfiguration.</summary>
+    internal static string Detail(string message)
+    {
+        string oneLine = string.Join(' ', message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length > 400 ? oneLine[..400] + "..." : oneLine;
+    }
+
     public async Task<LlmResult> CompleteAsync(LlmCall call, CancellationToken ct)
     {
         ChatCompletionOptions options = new() { MaxOutputTokenCount = call.MaxOutputTokens };
@@ -78,6 +85,10 @@ public sealed class FoundryLlmClient : ILlmClient
         {
             // Azure's own filters (including Prompt Shields) refused the request. The bot stays quiet.
             throw new LlmBlockedException("The model's content filter refused the request.");
+        }
+        catch (ClientResultException ex)
+        {
+            throw new LlmServiceException(ex.Status, Detail(ex.Message), ex);
         }
 
         if (completion.FinishReason == ChatFinishReason.ContentFilter)

@@ -3,6 +3,8 @@ import { Scene } from 'phaser';
 import { fitImageToScreen } from '../../core/scaling.js';
 import { LoadingIndicator } from '../../core/ui/LoadingIndicator.js';
 import { CHARACTER_KEYS, ROBOT_KEYS } from '../../constants.js';
+import { loadFonts } from '../../core/theme.js';
+import { assetPath } from '../../core/season.js';
 
 // Loading screen to download all the assets before starting the game.
 export class Preloader extends Scene
@@ -34,12 +36,15 @@ export class Preloader extends Scene
         this.load.on('progress', this.onProgress);
         this.load.on('loaderror', this.onLoadError);
 
+        // Start fetching the fonts now; they are waited for (at most 3s in total) before the menu opens.
+        this.fontsReady = loadFonts(3000);
+
         this.load.setPath('assets');
 
-        this.load.image('join_phone_btn', 'join_phone_btn.jpg');
-        this.load.image('start_tv_btn', 'start_tv_btn.jpg');
-        this.load.image('background', 'background.jpg');
-        this.load.image('background_tv', 'background_tv.jpg');
+        this.load.image('join_phone_btn', assetPath('join_phone_btn', 'join_phone_btn.jpg'));
+        this.load.image('start_tv_btn', assetPath('start_tv_btn', 'start_tv_btn.jpg'));
+        this.load.image('background', assetPath('background', 'background.jpg'));
+        this.load.image('background_tv', assetPath('background_tv', 'background_tv.jpg'));
         this.load.image('table', 'table.png');
 
         // The characters, and the robots that are only shown once a bot has been found (see core/session.js).
@@ -62,7 +67,9 @@ export class Preloader extends Scene
         this.indicator.complete().then(() => {
             const delay = Phaser.Math.Between(3000, 5000);
             this.time.delayedCall(delay, () => {
-                if (this.scene.isActive()) this.scene.start('MainMenu');
+                this.fontsReady.then(() => {
+                    if (this.scene.isActive()) this.scene.start('MainMenu');
+                });
             });
         });
     }

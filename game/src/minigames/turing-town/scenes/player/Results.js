@@ -18,8 +18,8 @@ export class TuringTownPlayerResults extends PlayerStage {
 
     layout(m) {
         const wrap = m.panelW - 60 * m.s;
-        this.title.setPosition(m.cx, m.cy - 80 * m.s).setFontSize(48 * m.s).setWordWrapWidth(wrap);
-        this.subText.setPosition(m.cx, m.cy + 20 * m.s).setFontSize(28 * m.s).setWordWrapWidth(wrap);
-        this.hintText.setPosition(m.cx, m.cy + 120 * m.s).setFontSize(24 * m.s).setWordWrapWidth(wrap);
+        this.title.setPosition(m.cx, m.cy - 80 * m.s).setFontSize(m.fs(48, 22)).setWordWrapWidth(wrap);
+        this.subText.setPosition(m.cx, m.cy + 20 * m.s).setFontSize(m.fs(28, 16)).setWordWrapWidth(wrap);
+        this.hintText.setPosition(m.cx, m.cy + 120 * m.s).setFontSize(m.fs(24, 16)).setWordWrapWidth(wrap);
     }
 }

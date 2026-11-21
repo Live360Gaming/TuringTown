@@ -1,7 +1,9 @@
-export const BTN = 0x3355aa;
-export const BTN_HOVER = 0x4466cc;
-export const BTN_DISABLED = 0x2a2f4d;
-export const PANEL = 0x222244;
+import {COLORS, HEX, textStyle} from '../theme.js';
+
+export const BTN = HEX.blue;
+export const BTN_HOVER = 0x5272d6;
+export const BTN_DISABLED = HEX.surfaceRaised;
+export const PANEL = HEX.surface;
 
 /** Lights up a rectangle while the pointer is over it. For cards and chips that are not full buttons. */
 export function addHoverFill(rect) {
@@ -10,22 +12,48 @@ export function addHoverFill(rect) {
         .on('pointerout', () => rect.setFillStyle(BTN));
 }
 
-/** Simple rectangle + label button. Returns a container (with setEnabled/setLabel) so it can be grouped into panels. */
-export function createTextButton(scene, x, y, label, onClick, {width = 300, height = 70, fontSize = '32px'} = {}) {
+// Fill, hover fill and label color for each button variant.
+const VARIANTS = {
+    primary: {fill: HEX.pink, hover: 0xff86cc, border: 0xffffff, label: COLORS.bgDeep, role: 'button'},
+    secondary: {fill: BTN, hover: BTN_HOVER, border: HEX.cyan, label: COLORS.text, role: 'buttonAlt'},
+    ghost: {fill: null, hover: HEX.surfaceRaised, border: HEX.border, label: COLORS.text, role: 'buttonAlt'},
+};
+
+/**
+ * Rounded label button. Returns a container (with setEnabled/setLabel) so it can be grouped into panels.
+ * `variant` is 'primary' (pink, for the one main action), 'secondary' (blue, the default) or 'ghost'.
+ */
+export function createTextButton(scene, x, y, label, onClick, {width = 300, height = 70, fontSize = '32px', variant = 'secondary'} = {}) {
+    const look = VARIANTS[variant] ?? VARIANTS.secondary;
     let enabled = true;
-    const bg = scene.add.rectangle(0, 0, width, height, BTN)
-        .setStrokeStyle(2, 0xffffff)
+    let hover = false;
+    const radius = Math.min(18, height / 2);
+
+    const gfx = scene.add.graphics();
+    const draw = () => {
+        gfx.clear();
+        const fill = !enabled ? BTN_DISABLED : hover ? look.hover : look.fill;
+        if (fill !== null) gfx.fillStyle(fill, 1).fillRoundedRect(-width / 2, -height / 2, width, height, radius);
+        else if (hover && enabled) gfx.fillStyle(look.hover, 1).fillRoundedRect(-width / 2, -height / 2, width, height, radius);
+        gfx.lineStyle(2, enabled ? look.border : HEX.border, enabled ? 1 : 0.6)
+            .strokeRoundedRect(-width / 2, -height / 2, width, height, radius);
+    };
+
+    // The hit area is a zone, so it stays rectangular and at least as big as the drawn button.
+    const hit = scene.add.zone(0, 0, width, height)
         .setInteractive({useHandCursor: true})
-        .on('pointerover', () => enabled && bg.setFillStyle(BTN_HOVER))
-        .on('pointerout', () => bg.setFillStyle(enabled ? BTN : BTN_DISABLED))
+        .on('pointerover', () => { hover = true; draw(); })
+        .on('pointerout', () => { hover = false; draw(); })
         .on('pointerup', () => enabled && onClick());
-    const text = scene.add.text(0, 0, label, {fontSize, color: '#ffffff'}).setOrigin(0.5);
-    const button = scene.add.container(x, y, [bg, text]);
+    const text = scene.add.text(0, 0, label, textStyle(look.role, {fontSize, color: look.label})).setOrigin(0.5);
+    const button = scene.add.container(x, y, [gfx, hit, text]);
+    draw();
+
     button.setEnabled = on => {
         enabled = on;
-        bg.setFillStyle(on ? BTN : BTN_DISABLED);
-        bg.input.cursor = on ? 'pointer' : 'default';
-        text.setAlpha(on ? 1 : 0.4);
+        hit.input.cursor = on ? 'pointer' : 'default';
+        text.setAlpha(on ? 1 : 0.5).setColor(on ? look.label : COLORS.textDim);
+        draw();
     };
     button.setLabel = value => text.setText(value);
     return button;

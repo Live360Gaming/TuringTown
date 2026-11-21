@@ -10,6 +10,10 @@ import {PlayerLobby} from "./scenes/player/PlayerLobby.js";
 import {TURING_TOWN_SCENES} from "./minigames/turing-town/index.js";
 import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
 import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
+import {installTextDefaults} from "./core/theme.js";
+import {loadSeason} from "./core/season.js";
+
+installTextDefaults();
 
 const config = {
     type: Phaser.AUTO,
@@ -40,4 +44,5 @@ const config = {
     ]
 };
 
-export default new Game(config);
+// The server picks the season before any art is loaded (fast fallback to the normal look if it does not answer).
+export default loadSeason().then(() => new Game(config));

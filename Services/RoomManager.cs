@@ -22,4 +22,9 @@ public class RoomManager(IOptions<GameOptions> options)
     /// Looks up an existing room without creating it.
     /// </summary>
     public bool TryGetRoom(RoomCode roomCode, out Room? room) => _rooms.TryGetValue(roomCode, out room);
+
+    /// <summary>
+    /// Forgets a room (the host closed it), so its code can no longer be joined.
+    /// </summary>
+    public bool Remove(RoomCode roomCode) => _rooms.TryRemove(roomCode, out _);
 }

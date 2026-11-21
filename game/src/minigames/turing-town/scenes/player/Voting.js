@@ -1,6 +1,7 @@
 import {addHoverFill, BTN} from '../../../../core/ui/Button.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
+import {readableOn} from '../../../../core/theme.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 
 const CARD_W = 240;
@@ -35,7 +36,7 @@ export class TuringTownPlayerVoting extends PlayerStage {
             .setStrokeStyle(3, 0xffffff)
             .setInteractive({useHandCursor: true});
         const avatar = createAvatar(this, -CARD_W / 2 + 50, 0, 64, player);
-        const label = this.add.text(-CARD_W / 2 + 96, 0, player.alias, {fontSize: '22px', color: player.color, wordWrap: {width: CARD_W - 110}})
+        const label = this.add.text(-CARD_W / 2 + 96, 0, player.alias, {fontSize: '22px', color: readableOn(player.color, '#405FC2'), wordWrap: {width: CARD_W - 110}})
             .setOrigin(0, 0.5);
         const container = this.add.container(0, 0, [bg, avatar, label]);
 
@@ -57,8 +58,8 @@ export class TuringTownPlayerVoting extends PlayerStage {
     }
 
     layout(m) {
-        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(36 * m.s);
-        this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(22 * m.s).setWordWrapWidth(m.panelW - 50 * m.s);
+        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(m.fs(36, 22));
+        this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 50 * m.s);
 
         // Two columns of cards.
         const colGap = 16 * m.s;

@@ -37,5 +37,16 @@ public sealed class AiUnavailableException(string reason) : Exception($"The AI i
     public string Reason { get; } = reason;
 }
 
+/// <summary>
+/// The model service answered with an HTTP error (401 and 403: credentials or role, 404: endpoint or deployment, 429: quota, 400: a
+/// setting the model rejects, 5xx: the service). The detail is the service's own error text, which names the problem and never
+/// holds a credential.
+/// </summary>
+public sealed class LlmServiceException(int status, string detail, Exception inner)
+    : Exception($"The model service answered HTTP {status}: {detail}", inner)
+{
+    public int Status { get; } = status;
+}
+
 /// <summary>The model's own safety filter stopped the request or the reply.</summary>
 public sealed class LlmBlockedException(string message) : Exception(message);

@@ -22,7 +22,7 @@ export class TuringTownPlayerTutorial extends PlayerStage {
     }
 
     layout(m) {
-        this.title.setPosition(m.cx, m.cy - 100 * m.s).setFontSize(52 * m.s);
-        this.captionText.setPosition(m.cx, m.cy + 50 * m.s).setFontSize(30 * m.s).setWordWrapWidth(m.panelW - 80 * m.s);
+        this.title.setPosition(m.cx, m.cy - 100 * m.s).setFontSize(m.fs(52, 22));
+        this.captionText.setPosition(m.cx, m.cy + 50 * m.s).setFontSize(m.fs(30, 16)).setWordWrapWidth(m.panelW - 80 * m.s);
     }
 }

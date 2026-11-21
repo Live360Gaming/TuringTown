@@ -244,10 +244,10 @@ public sealed class GuardedLlmClient(ILlmClient inner, AiBudget budget, ILogger<
         {
             budget.RecordFailure();
             Outcome(call, "error");
-            // The type, and the message only when it is one of ours (they say things like "MaxOutputTokens ran out" and never
-            // hold a prompt, a reply or a secret). A service error's message is left out.
+            // The type, and the message when it is one of ours or the service's error text (things like "MaxOutputTokens ran
+            // out" or "HTTP 404: deployment not found"). Neither holds a prompt, a reply or a credential.
             logger.LogWarning("AI {Kind} call failed: {Type} {Reason}", call.Kind, ex.GetType().Name,
-                ex is InvalidOperationException or TimeoutException ? ex.Message : "");
+                ex is InvalidOperationException or TimeoutException or LlmServiceException ? ex.Message : "");
             throw;
         }
     }

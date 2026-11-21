@@ -4,6 +4,8 @@ import {GameDirector} from './director.js';
 import {ROBOT_KEYS} from '../constants.js';
 
 const REGISTRY_KEY = 'session';
+/** A message the main menu shows once, e.g. the goodbye when the host closes the room. */
+export const MENU_NOTICE_KEY = 'menuNotice';
 
 /**
  * One player's or the host's live connection to a room, and everything the server has told them about it.
@@ -57,6 +59,7 @@ export class GameSession extends Phaser.Events.EventEmitter {
                     this.transcript.push(message);
                     this.emit('chat', message);
                 },
+                RoomClosed: () => this.onRoomClosed(),
                 Progress: progress => {
                     this.progress = progress;
                     this.emit('progress', progress);
@@ -69,6 +72,17 @@ export class GameSession extends Phaser.Events.EventEmitter {
             return;
         }
         this.connection = connection;
+    }
+
+    /** The host quit. Players are told goodbye on the menu; the host already left on its own. */
+    onRoomClosed() {
+        if (this.role !== 'player' || this.closed) return;
+        const game = this.game;
+        closeSession(game);
+        clearCredentials();
+        game.registry.set(MENU_NOTICE_KEY, 'The host has left, so the game is over.\nThanks for playing. Goodbye!');
+        game.scene.getScenes(true).forEach(scene => game.scene.stop(scene.scene.key));
+        game.scene.start('MainMenu');
     }
 
     /** Starts moving the screen along with the game. Call once, after connect(). */
@@ -230,7 +244,17 @@ export function clearCredentials() {
 
 /** Leave the room for good and go back to the main menu. */
 export function leaveToMenu(scene) {
-    closeSession(scene.game);
-    clearCredentials();
-    scene.scene.start('MainMenu');
+    const game = scene.game;
+    const session = getSession(scene);
+    // A host quitting closes the room, so the players are told goodbye instead of being left hanging.
+    const closing = session?.role === 'host' && session.connection
+        ? Promise.race([session.invoke('CloseRoom').catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))])
+        : Promise.resolve();
+
+    closing.then(() => {
+        closeSession(game);
+        clearCredentials();
+        game.scene.getScenes(true).forEach(s => game.scene.stop(s.scene.key));
+        game.scene.start('MainMenu');
+    });
 }

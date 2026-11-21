@@ -48,6 +48,14 @@ public sealed class GameCoordinator(
 
     public bool TryGetEngine(Room room, out TuringTownEngine? engine) => _engines.TryGetValue(room.Code, out engine);
 
+    /// <summary>
+    /// Stops the room's game, if one is running.
+    /// </summary>
+    public void StopGame(Room room)
+    {
+        if (_engines.TryGetValue(room.Code, out TuringTownEngine? engine)) engine.Cancel();
+    }
+
     private void Finished(Room room, TuringTownEngine engine)
     {
         _engines.TryRemove(new KeyValuePair<RoomCode, TuringTownEngine>(room.Code, engine));

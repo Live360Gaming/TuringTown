@@ -1,6 +1,8 @@
 import * as Phaser from 'phaser';
 import {HOST_CENTER_X, HOST_WIDTH} from '../../../../constants.js';
 import {createAvatar} from '../../../../core/characters.js';
+import {textStyle} from '../../../../core/theme.js';
+import {addNameplate} from '../../../../core/ui/Nameplate.js';
 
 // The TV's game screen: everyone sits in a random order along a long table, and what they say pops up in a
 // speech bubble above their character. Used by the discussion and the vote.
@@ -76,9 +78,8 @@ export function createTable(scene, {drift = false} = {}) {
         // The name cards sit on the polished counter top, clear of the sign on the front of the table.
         players.forEach(player => {
             const {x} = seats.get(player.id);
-            items.push(scene.add.text(x, NAME_Y, player.alias, {
-                fontSize: '22px', fontStyle: 'bold', color: player.color, stroke: '#000000', strokeThickness: 4,
-            }).setOrigin(0.5).setDepth(2).setAlpha(player.alive ? 1 : 0.4));
+            items.push(addNameplate(scene, x, NAME_Y, player, {maxWidth: gap - 6, fontSize: 22})
+                .setDepth(2).setAlpha(player.alive ? 1 : 0.4));
         });
     };
 
@@ -92,9 +93,9 @@ export function createTable(scene, {drift = false} = {}) {
 
         bubbles.get(message.playerId)?.destroy();
 
-        const text = scene.add.text(0, 0, message.text, {
-            fontSize: '22px', color: '#1a1a1a', align: 'center', wordWrap: {width: BUBBLE_WIDTH - 24},
-        }).setOrigin(0.5, 1);
+        const text = scene.add.text(0, 0, message.text, textStyle('bubble', {
+            align: 'center', wordWrap: {width: BUBBLE_WIDTH - 24},
+        })).setOrigin(0.5, 1);
         const height = text.height + 24;
 
         const background = scene.add.graphics();

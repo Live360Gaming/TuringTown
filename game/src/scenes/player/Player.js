@@ -4,6 +4,7 @@ import {NetworkManager} from "../../core/network.js";
 import {enterFullWindow} from "../../core/scaling.js";
 import {createTextButton} from "../../core/ui/Button.js";
 import {drawPanel} from "../../core/ui/Panel.js";
+import {fontPx} from "../../core/theme.js";
 import {loadCredentials, saveCredentials} from "../../core/session.js";
 
 // Players can be on a phone or a laptop, so unlike the Host this scene fills the whole window
@@ -37,14 +38,13 @@ export class Player extends Scene {
 
         // A real HTML input so phones bring up their keyboard.
         this.codeInput = this.add.dom(0, 0, 'input', {
-            boxSizing: 'border-box',
-            padding: '0.3em',
             textAlign: 'center',
             textTransform: 'uppercase',
-            borderRadius: '12px',
-            border: 'none',
+            fontFamily: '"Space Mono", Consolas, Menlo, "Courier New", monospace',
+            fontWeight: '700',
         });
         const input = this.codeInput.node;
+        input.className = 'tt-input';
         input.placeholder = 'AABB-CCDD';
         input.maxLength = 9;
         input.autocomplete = 'off';
@@ -63,8 +63,8 @@ export class Player extends Scene {
             .setOrigin(0.5)
             .setResolution(window.devicePixelRatio);
 
-        this.joinBtn = createTextButton(this, 0, 0, 'Join', () => this.join(), {width: 360, height: 80, fontSize: '40px'});
-        this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px'});
+        this.joinBtn = createTextButton(this, 0, 0, 'Join', () => this.join(), {width: 360, height: 80, fontSize: '40px', variant: 'primary'});
+        this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px', variant: 'ghost'});
 
         this.input.keyboard.on('keydown-ESC', () => this.quit());
 
@@ -80,7 +80,7 @@ export class Player extends Scene {
         const cy = height / 2;
 
         // UI scale: 1 at 720px on the short side, clamped so it stays readable on tiny/huge screens.
-        const s = Phaser.Math.Clamp(Math.min(width, height) / 720, 0.5, 1.5);
+        const s = Phaser.Math.Clamp(Math.min((width - 32) / 560, height / 720), 0.5, 1.5);
 
         // Background covers the whole window (cropping rather than letterboxing).
         this.background.setPosition(cx, cy)
@@ -91,18 +91,18 @@ export class Player extends Scene {
         const panelH = 700 * s;
         drawPanel(this.panel, cx - panelW / 2, cy - panelH / 2, panelW, panelH, s);
 
-        this.titleText.setPosition(cx, cy - 250 * s).setFontSize(44 * s);
-        this.statusText.setPosition(cx, cy - 30 * s).setFontSize(28 * s)
+        this.titleText.setPosition(cx, cy - 250 * s).setFontSize(fontPx(44, s, 24));
+        this.statusText.setPosition(cx, cy - 30 * s).setFontSize(fontPx(28, s, 16))
             .setWordWrapWidth(panelW - 60 * s);
 
         this.codeInput.setPosition(cx, cy - 150 * s);
         this.codeInput.node.style.width = `${420 * s}px`;
-        this.codeInput.node.style.fontSize = `${44 * s}px`;
+        this.codeInput.node.style.fontSize = `${Math.max(20, 44 * s)}px`;
         // Phaser caches the element's size for centring, so re-measure after changing it.
         this.codeInput.updateSize();
 
-        this.joinBtn.setPosition(cx, cy + 100 * s).setScale(s);
-        this.quitBtn.setPosition(cx, cy + 220 * s).setScale(s);
+        this.joinBtn.setPosition(cx, cy + 100 * s).setScale(Math.max(s, 0.6));
+        this.quitBtn.setPosition(cx, cy + 220 * s).setScale(Math.max(s, 0.6));
     }
 
     /** Leave the join screen and go back to the main menu. */

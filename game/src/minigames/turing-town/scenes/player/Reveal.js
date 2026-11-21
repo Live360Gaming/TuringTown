@@ -1,4 +1,5 @@
 import {createAvatar} from '../../../../core/characters.js';
+import {readableOn} from '../../../../core/theme.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 
 // The result of the vote, on the phone.
@@ -13,7 +14,7 @@ export class TuringTownPlayerReveal extends PlayerStage {
 
         if (eliminated) {
             this.avatar = createAvatar(this, 0, 0, 200, eliminated);
-            this.nameText = this.addText(eliminated.alias, {color: eliminated.color});
+            this.nameText = this.addText(eliminated.alias, {color: readableOn(eliminated.color)});
             this.verdictText = this.addText(wasBot ? 'was an AI BOT!' : 'was a human...', {color: wasBot ? '#39ff14' : '#ff4d4d', fontStyle: 'bold'});
             this.meText = this.addText(eliminated.id === this.session.you?.id ? 'That was you.' : '', {align: 'center'});
         } else {
@@ -22,15 +23,15 @@ export class TuringTownPlayerReveal extends PlayerStage {
     }
 
     layout(m) {
-        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(36 * m.s);
+        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(m.fs(36, 22));
 
         if (this.avatar) {
             this.avatar.setPosition(m.cx, m.cy - 60 * m.s).setScale(m.s);
-            this.nameText.setPosition(m.cx, m.cy + 80 * m.s).setFontSize(36 * m.s);
-            this.verdictText.setPosition(m.cx, m.cy + 135 * m.s).setFontSize(34 * m.s);
-            this.meText.setPosition(m.cx, m.cy + 195 * m.s).setFontSize(26 * m.s);
+            this.nameText.setPosition(m.cx, m.cy + 80 * m.s).setFontSize(m.fs(36, 22));
+            this.verdictText.setPosition(m.cx, m.cy + 135 * m.s).setFontSize(m.fs(34, 22));
+            this.meText.setPosition(m.cx, m.cy + 195 * m.s).setFontSize(m.fs(26, 16));
         } else {
-            this.verdictText.setPosition(m.cx, m.cy).setFontSize(40 * m.s).setWordWrapWidth(m.panelW - 60 * m.s);
+            this.verdictText.setPosition(m.cx, m.cy).setFontSize(m.fs(40, 22)).setWordWrapWidth(m.panelW - 60 * m.s);
         }
     }
 }

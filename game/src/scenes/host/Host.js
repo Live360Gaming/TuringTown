@@ -6,10 +6,16 @@ import {applyVolume} from "../../core/hostSettings.js";
 import {createTextButton} from "../../core/ui/Button.js";
 import {hubErrorMessage} from "../../core/gameHub.js";
 import {createAvatar} from "../../core/characters.js";
+import {COLORS, HEX, prefersReducedMotion, textStyle} from "../../core/theme.js";
+import {addNameplate} from "../../core/ui/Nameplate.js";
 import {GameSession, getSession, leaveToMenu, setSession} from "../../core/session.js";
 
 // Overlay scenes launched on top of the lobby (see scenes/host/overlays).
 const OVERLAYS = ['HostSettings', 'QuitConfirm'];
+
+// The marquee plate sits on the plain wood wall under the windows (the checkered trim is above it).
+const MARQUEE_Y = 374;
+const MARQUEE_H = 80;
 
 // The host's lobby. It creates the room once, then keeps the GameSession for the whole visit: when a game ends the
 // director brings the host back here and the same room is reused (see core/director.js).
@@ -29,6 +35,7 @@ export class Host extends Scene {
         this.setInputEnabled(true);
 
         this.closed = false;
+        this.startPulse = null;
         this.starting = false;
         this.rosterItems = [];
         this.events.once('shutdown', () => this.cleanup());
@@ -45,9 +52,13 @@ export class Host extends Scene {
 
         // Buttons first so they show even while the room is being created.
         // Disabled until enough players have joined (see applyState).
-        this.startBtn = createTextButton(this, HOST_CENTER_X, HOST_CENTER_Y + 120, 'Start Game', () => this.startGame());
+        this.buildMarquee();
+        this.startBtn = createTextButton(this, 1050, MARQUEE_Y + MARQUEE_H / 2, 'Start Game', () => this.startGame(),
+            {width: 250, height: 60, fontSize: '26px', variant: 'primary'});
         this.startBtn.setEnabled(false);
-        this.statusText = this.add.text(HOST_CENTER_X, HOST_CENTER_Y + 200, '', {fontSize: '24px', color: '#ffffff'}).setOrigin(0.5);
+        // Errors (room could not be created, game could not start) show just under the marquee.
+        this.statusText = this.add.text(HOST_CENTER_X, MARQUEE_Y + MARQUEE_H + 14, '',
+            textStyle('bodyOnArt', {fontSize: '20px', color: COLORS.pink})).setOrigin(0.5);
         createTextButton(this, HOST_WIDTH - 100, 50, 'Settings', () => this.openOverlay('HostSettings'), {width: 160, height: 50, fontSize: '24px'});
 
         // Initialize the network manager
@@ -79,7 +90,7 @@ export class Host extends Scene {
         this.roomCode = session.roomCode;
         this.network.setHeader('X-Host-Token', session.hostToken);
 
-        this.add.text(HOST_CENTER_X, HOST_CENTER_Y, `Room Code: ${this.roomCode}`, {fontSize: '32px', color: '#ffffff'}).setOrigin(0.5);
+        this.codeText.setText(this.roomCode);
 
         // Keep the player count / settings fresh (limits depend on who has joined).
         this.network.on('poll:room', state => this.applyState(state));
@@ -106,18 +117,90 @@ export class Host extends Scene {
         // The session stays open: it carries the room through the game. Quit closes it (see quit()).
     }
 
-    /** Draws a row of the players who have joined. */
+    /**
+     * The dark plate on the plain wainscot below the windows: join code on the left, how many have joined in the
+     * middle, and (set up in create) the Start button on the right. It stays clear of the sign and the windows.
+     */
+    buildMarquee() {
+        const left = 90;
+        const width = HOST_WIDTH - 180;
+        this.add.graphics()
+            .lineStyle(10, HEX.cyan, 0.1).strokeRoundedRect(left, MARQUEE_Y, width, MARQUEE_H, 18)
+            .fillStyle(HEX.bgDeep, 0.88).fillRoundedRect(left, MARQUEE_Y, width, MARQUEE_H, 18)
+            .lineStyle(2, HEX.cyan, 0.85).strokeRoundedRect(left, MARQUEE_Y, width, MARQUEE_H, 18);
+
+        this.add.text(left + 28, MARQUEE_Y + 18, 'JOIN CODE', textStyle('meta', {fontSize: '16px'})).setOrigin(0, 0.5);
+        this.codeText = this.add.text(left + 28, MARQUEE_Y + 52, '- - - -', textStyle('code', {fontSize: '44px'})).setOrigin(0, 0.5);
+
+        this.joinedText = this.add.text(650, MARQUEE_Y + 26, '', textStyle('instruction', {fontSize: '26px', stroke: undefined, strokeThickness: 0})).setOrigin(0.5);
+        this.needText = this.add.text(650, MARQUEE_Y + 56, '', textStyle('body', {fontSize: '20px'})).setOrigin(0.5);
+    }
+
+    /** A slow pulse on Start while the game can be started. Skipped when the viewer prefers reduced motion. */
+    pulseStart(on) {
+        if (prefersReducedMotion() || !this.startBtn) return;
+        if (on && !this.startPulse) {
+            this.startPulse = this.tweens.add({targets: this.startBtn, scale: 1.05, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'});
+        } else if (!on && this.startPulse) {
+            this.startPulse.remove();
+            this.startPulse = null;
+            this.startBtn.setScale(1);
+        }
+    }
+
+    /** "3 of 4 joined" and whether the game can start yet. */
+    updateLobbyStatus() {
+        if (!this.joinedText) return;
+        const {playerCount, minPlayers, phase, settings} = this.state;
+        this.joinedText.setText(`${playerCount} of ${settings.maxPlayers || '?'} joined`);
+        if (phase !== 'Lobby') this.needText.setText('Game in progress').setColor(COLORS.textMuted);
+        else if (playerCount >= minPlayers) this.needText.setText('Ready to start!').setColor(COLORS.green);
+        else this.needText.setText(`Need ${minPlayers - playerCount} more to start`).setColor(COLORS.gold);
+    }
+
+    /**
+     * Draws the lineup on the floor: one slot for each seat the room allows, filled by the players who have joined.
+     * Seats still open show a dashed circle, so everyone can see how many are expected.
+     */
     drawRoster(roster) {
         this.rosterItems.forEach(item => item.destroy());
         this.rosterItems = [];
 
-        const gap = Math.min(170, (HOST_WIDTH - 120) / Math.max(roster.length, 1));
-        const startX = HOST_CENTER_X - ((roster.length - 1) * gap) / 2;
-        roster.forEach((player, i) => {
+        const slots = Math.max(this.state?.settings?.maxPlayers ?? 0, roster.length, 1);
+        const gap = Math.min(250, (HOST_WIDTH - 180) / slots);
+        const size = Math.min(180, gap * 0.82);
+        const startX = HOST_CENTER_X - ((slots - 1) * gap) / 2;
+        const feet = 640;
+        const y = feet - size / 2;
+
+        for (let i = 0; i < slots; i++) {
             const x = startX + i * gap;
-            this.rosterItems.push(createAvatar(this, x, 200, 84, player, {dim: !player.connected}));
-            this.rosterItems.push(this.add.text(x, 262, player.alias, {fontSize: '20px', color: player.color}).setOrigin(0.5));
-        });
+            const player = roster[i];
+            if (player) {
+                this.rosterItems.push(createAvatar(this, x, y, size, player, {dim: !player.connected}));
+                this.rosterItems.push(addNameplate(this, x, feet + 28, player, {
+                    maxWidth: gap - 6, fontSize: slots > 6 ? 20 : 22, caption: player.connected ? '' : 'Reconnecting…',
+                }));
+            } else {
+                this.rosterItems.push(this.drawEmptySeat(x, y, size));
+            }
+        }
+    }
+
+    /** A dashed circle with "Waiting..." for a seat nobody has taken. */
+    drawEmptySeat(x, y, size) {
+        const radius = size * 0.36;
+        const ring = this.add.graphics().setPosition(x, y);
+        ring.fillStyle(HEX.bgDeep, 0.35).fillCircle(0, 0, radius);
+        ring.lineStyle(3, HEX.cyan, 0.7);
+        const segments = 20;
+        for (let k = 0; k < segments; k += 2) {
+            ring.beginPath();
+            ring.arc(0, 0, radius, (k / segments) * Math.PI * 2, ((k + 1) / segments) * Math.PI * 2);
+            ring.strokePath();
+        }
+        const label = this.add.text(0, 0, 'Waiting…', textStyle('bodyOnArt', {fontSize: '18px'})).setOrigin(0.5);
+        return this.add.container(0, 0, [ring, label]);
     }
 
     /** Runs an overlay scene on top of the lobby and blocks lobby input (pointer and keyboard) until it closes. */
@@ -140,8 +223,13 @@ export class Host extends Scene {
 
     /** Stores the latest server state and tells any open overlay (e.g. HostSettings) about it. */
     applyState(state) {
+        const seatsChanged = this.state?.settings?.maxPlayers !== state.settings?.maxPlayers;
         this.state = state;
         this.startBtn?.setEnabled(state.phase === 'Lobby' && state.playerCount >= state.minPlayers);
+        this.updateLobbyStatus();
+        this.pulseStart(this.startBtn && state.phase === 'Lobby' && state.playerCount >= state.minPlayers);
+        // The lineup shows one seat per allowed player, so it is redrawn when the host changes the limit.
+        if (seatsChanged && this.session) this.drawRoster(this.session.roster);
         this.events.emit('state', state);
     }
 

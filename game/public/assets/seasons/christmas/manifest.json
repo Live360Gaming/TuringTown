@@ -1,0 +1,8 @@
+{
+  "preloader": "preloader.png",
+  "background": "background.png",
+  "background_tv": "background_tv.png",
+  "start_tv_btn": "start_tv_btn.png",
+  "join_phone_btn": "join_phone_btn.png",
+  "favicon": "favicon.png"
+}
