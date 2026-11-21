@@ -87,7 +87,13 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         try
         {
             await Task.Delay(room.LobbyDisconnectGrace, time);
-            if (room.TryRemoveDisconnected(playerId, disconnectCount))
+            bool wasLeader = room.IsLeader(playerId);
+            if (!room.TryRemoveDisconnected(playerId, disconnectCount)) return;
+
+            // The leader dropped out of the lobby for good: the game session ends with them.
+            if (wasLeader)
+                await CloseRoomAsync(room, "leader", exceptConnectionId: null);
+            else
                 await broadcaster.RosterChanged(room);
         }
         catch (Exception)
@@ -121,11 +127,21 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         return error is null ? Task.CompletedTask : throw new HubException(error);
     }
 
-    /// <summary>The host quits: everyone is told the room is closed, the game stops and the code stops working.</summary>
-    public async Task CloseRoom()
+    /// <summary>
+    /// The host or the leader quits: everyone else is told the room is closed, the game stops and the code stops working.
+    /// </summary>
+    public Task CloseRoom()
     {
-        Room room = RequireHost();
-        await Clients.Group(room.Code.ToString()).SendAsync("RoomClosed");
+        Room room = RequireHostOrLeader();
+        string reason = Context.Items.TryGetValue(RoleKey, out object? role) && role as string == "host" ? "host" : "leader";
+        return CloseRoomAsync(room, reason, Context.ConnectionId);
+    }
+
+    private async Task CloseRoomAsync(Room room, string reason, string? exceptConnectionId)
+    {
+        string group = room.Code.ToString();
+        IClientProxy clients = exceptConnectionId is null ? Clients.Group(group) : Clients.GroupExcept(group, exceptConnectionId);
+        await clients.SendAsync("RoomClosed", reason);
         roomManager.Remove(room.Code);
         games.StopGame(room);
     }
@@ -140,10 +156,10 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         return Task.CompletedTask;
     }
 
-    /// <summary>Host leaves the results screen early.</summary>
+    /// <summary>The host, or the leader (the first player), leaves the results screen: everyone goes back to the lobby to play again.</summary>
     public Task ReturnToLobby()
     {
-        Throw(RequireEngine(RequireHost()).ReturnToLobby());
+        Throw(RequireEngine(RequireHostOrLeader()).ReturnToLobby());
         return Task.CompletedTask;
     }
 

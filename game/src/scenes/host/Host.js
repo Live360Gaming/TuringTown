@@ -1,3 +1,4 @@
+import * as Phaser from "phaser";
 import {Scene} from "phaser";
 import {HOST_CENTER_X, HOST_CENTER_Y, HOST_HEIGHT, HOST_WIDTH} from "../../constants.js";
 import {NetworkManager} from "../../core/network.js";
@@ -218,8 +219,10 @@ export class Host extends Scene {
             const x = startX + i * gap;
             const player = roster[i];
             if (player) {
-                if (player.ready) this.rosterItems.push(this.drawReadyRing(x, y, size));
-                this.rosterItems.push(createPlaceholderAvatar(this, x, y, size, this.placeholderIndex(player), {dim: !player.connected}));
+                const avatar = createPlaceholderAvatar(this, x, y, size, this.placeholderIndex(player), {dim: !player.connected});
+                this.rosterItems.push(avatar);
+                // Ready players are covered in green, drawn over the character.
+                if (player.ready) this.rosterItems.push(this.drawReadyOverlay(avatar, x, y, size));
                 this.rosterItems.push(this.drawReadyBadge(x, feet + 28, player.ready));
                 if (!player.connected) {
                     this.rosterItems.push(this.add.text(x, feet + 54, 'Reconnecting…',
@@ -232,12 +235,15 @@ export class Host extends Scene {
         this.updateLobbyStatus();
     }
 
-    /** A green glowing ring behind a ready player. */
-    drawReadyRing(x, y, size) {
+    /** A green wash over the character's shape (same art, tinted and added on top) plus a glowing ring around it. */
+    drawReadyOverlay(avatar, x, y, size) {
+        const wash = this.add.image(0, 0, avatar.list[0].texture.key).setDisplaySize(size, size)
+            .setTintFill(HEX.green).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.4);
         const radius = size * 0.44;
-        return this.add.graphics().setPosition(x, y)
+        const ring = this.add.graphics()
             .lineStyle(12, HEX.green, 0.18).strokeCircle(0, 0, radius)
             .lineStyle(4, HEX.green, 0.95).strokeCircle(0, 0, radius);
+        return this.add.container(x, y, [wash, ring]).setAlpha(avatar.alpha);
     }
 
     /** "READY" in a green pill, or a muted "Not ready". */

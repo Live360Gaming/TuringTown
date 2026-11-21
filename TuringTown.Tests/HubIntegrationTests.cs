@@ -45,6 +45,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public ConcurrentQueue<JsonElement> States { get; } = new();
         public ConcurrentQueue<JsonElement> Chat { get; } = new();
         public ConcurrentQueue<JsonElement> Rosters { get; } = new();
+        public ConcurrentQueue<string?> Closed { get; } = new();
         public JsonElement Joined { get; set; }
 
         public async Task<JsonElement> WaitForStageAsync(string stage, int? round = null)
@@ -76,6 +77,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         connection.On<JsonElement>("StateChanged", s => client.States.Enqueue(s.Clone()));
         connection.On<JsonElement>("ChatMessage", m => client.Chat.Enqueue(m.Clone()));
         connection.On<JsonElement>("RosterChanged", r => client.Rosters.Enqueue(r.Clone()));
+        connection.On<string?>("RoomClosed", reason => client.Closed.Enqueue(reason));
 
         await connection.StartAsync();
         client.Joined = await join(connection);
@@ -83,6 +85,39 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     private record Joined(string RoomCode, Guid PlayerId, string PlayerToken, string CharacterId, string Alias, string Color);
+
+    [Fact]
+    public async Task The_room_closes_when_the_leader_quits()
+    {
+        HttpClient http = _factory.CreateClient();
+        JsonElement room = await (await http.PostAsync("/api/room/create", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string code = room.GetProperty("roomCode").GetString()!;
+        string hostToken = room.GetProperty("hostToken").GetString()!;
+
+        Joined[] joined = new Joined[2];
+        for (int i = 0; i < 2; i++)
+        {
+            JsonElement r = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+            joined[i] = new Joined(r.GetProperty("roomCode").GetString()!, r.GetProperty("playerId").GetGuid(), r.GetProperty("playerToken").GetString()!,
+                r.GetProperty("characterId").GetString()!, r.GetProperty("alias").GetString()!, r.GetProperty("color").GetString()!);
+        }
+
+        await using Client host = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, hostToken));
+        await using Client leader = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[0].PlayerId, joined[0].PlayerToken));
+        await using Client other = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[1].PlayerId, joined[1].PlayerToken));
+
+        // Only the host or the leader can close the room.
+        await Assert.ThrowsAnyAsync<HubException>(() => other.Connection.InvokeAsync("CloseRoom"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await http.GetAsync($"/api/room/{code}")).StatusCode);
+
+        await leader.Connection.InvokeAsync("CloseRoom");
+
+        await WaitUntilAsync(() => !host.Closed.IsEmpty && !other.Closed.IsEmpty);
+        Assert.Equal("leader", Assert.Single(host.Closed));
+        Assert.Equal("leader", Assert.Single(other.Closed));
+        Assert.Empty(leader.Closed); // the one who quit is not told
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await http.GetAsync($"/api/room/{code}")).StatusCode);
+    }
 
     [Fact]
     public async Task A_whole_game_runs_over_real_connections()

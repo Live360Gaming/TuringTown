@@ -1,6 +1,8 @@
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
+import {hubErrorMessage} from '../../../../core/gameHub.js';
+import {createTextButton} from '../../../../core/ui/Button.js';
 
-// The end of the game, on the phone. The host decides when everyone goes back to the lobby.
+// The end of the game, on the phone. The host, or the leader (the first player), decides when everyone goes back to the lobby.
 export class TuringTownPlayerResults extends PlayerStage {
     constructor() {
         super('TuringTownPlayerResults');
@@ -14,6 +16,15 @@ export class TuringTownPlayerResults extends PlayerStage {
         this.title = this.addText(humansWon ? 'The humans win!' : 'The bots win!', {fontStyle: 'bold', align: 'center'});
         this.subText = this.addText(humansWon ? 'Every bot was voted out.' : 'The bots blended in perfectly.', {align: 'center'});
         this.hintText = this.addText('Look at the TV to see who was who.', {align: 'center'});
+
+        // Only the leader (the first player to join) can send everyone back to the lobby for another game.
+        this.errorText = this.addText('', {align: 'center'}).setColor('#ff4d4d');
+        this.againBtn = createTextButton(this, 0, 0, 'Play again', () => this.playAgain(), {width: 300, height: 64, fontSize: '30px', variant: 'primary'});
+        this.againBtn.setVisible(!!this.session.you?.leader);
+    }
+
+    playAgain() {
+        this.session.invoke('ReturnToLobby').catch(err => this.errorText.setText(hubErrorMessage(err)));
     }
 
     layout(m) {
@@ -21,5 +32,7 @@ export class TuringTownPlayerResults extends PlayerStage {
         this.title.setPosition(m.cx, m.cy - 80 * m.s).setFontSize(m.fs(48, 22)).setWordWrapWidth(wrap);
         this.subText.setPosition(m.cx, m.cy + 20 * m.s).setFontSize(m.fs(28, 16)).setWordWrapWidth(wrap);
         this.hintText.setPosition(m.cx, m.cy + 120 * m.s).setFontSize(m.fs(24, 16)).setWordWrapWidth(wrap);
+        this.againBtn.setPosition(m.cx, m.cy + 210 * m.s);
+        this.errorText.setPosition(m.cx, m.cy + 275 * m.s).setFontSize(m.fs(18, 14)).setWordWrapWidth(wrap);
     }
 }

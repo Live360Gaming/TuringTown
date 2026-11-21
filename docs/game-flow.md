@@ -23,7 +23,7 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 | Discussion | Anonymous chat | timer | none |
 | Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
 | Reveal | Who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally}` |
-| Results | Winner and every role | host calls `ReturnToLobby`, or timer | `{winner, roles}` |
+| Results | Winner and every role | host or leader calls `ReturnToLobby`, or timer | `{winner, roles}` |
 
 - **Voting.** Plurality is eliminated. A **tie (or no votes) eliminates nobody.** Eliminated humans stay as read-only
   spectators. Bots vote through the agent and may pick **any living player but themselves** (see
@@ -81,7 +81,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
 | `SendChat(text)` | living player | Discussion |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
-| `ReturnToLobby()` | host | Results |
+| `ReturnToLobby()` | host or leader | Results |
 
 `endsAtUtcMs` is the server's clock. Clients compute `serverTimeUtcMs - Date.now()` from the join result and count down
 with it, so every screen shows the same time even if a device clock is wrong (`GameSession.msLeft`).

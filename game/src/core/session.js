@@ -61,7 +61,7 @@ export class GameSession extends Phaser.Events.EventEmitter {
                     this.transcript.push(message);
                     this.emit('chat', message);
                 },
-                RoomClosed: () => this.onRoomClosed(),
+                RoomClosed: reason => this.onRoomClosed(reason),
                 Progress: progress => {
                     this.progress = progress;
                     this.emit('progress', progress);
@@ -76,13 +76,18 @@ export class GameSession extends Phaser.Events.EventEmitter {
         this.connection = connection;
     }
 
-    /** The host quit. Players are told goodbye on the menu; the host already left on its own. */
-    onRoomClosed() {
-        if (this.role !== 'player' || this.closed) return;
+    /**
+     * The host or the leader (the first player) quit, so the room is gone. Everyone else is told goodbye on the menu;
+     * whoever quit already left on their own.
+     */
+    onRoomClosed(reason) {
+        if (this.closed) return;
         const game = this.game;
         closeSession(game);
         clearCredentials();
-        game.registry.set(MENU_NOTICE_KEY, 'The host has left, so the game is over.\nThanks for playing. Goodbye!');
+        const who = reason === 'leader' ? 'The first player has left' : 'The host has left';
+        game.registry.set(MENU_NOTICE_KEY, `${who}, so the game is over.
+Thanks for playing. Goodbye!`);
         game.scene.getScenes(true).forEach(scene => game.scene.stop(scene.scene.key));
         game.scene.start('MainMenu');
     }
@@ -264,8 +269,9 @@ export function clearCredentials() {
 export function leaveToMenu(scene) {
     const game = scene.game;
     const session = getSession(scene);
-    // A host quitting closes the room, so the players are told goodbye instead of being left hanging.
-    const closing = session?.role === 'host' && session.connection
+    // The host or the leader (the first player) quitting closes the room, so the others are told goodbye instead of
+    // being left hanging. The server ignores the call from anyone else.
+    const closing = (session?.role === 'host' || session?.you?.leader) && session.connection
         ? Promise.race([session.invoke('CloseRoom').catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))])
         : Promise.resolve();
 
