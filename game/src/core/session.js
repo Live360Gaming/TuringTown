@@ -38,6 +38,7 @@ export class GameSession extends Phaser.Events.EventEmitter {
         this.typing = new Map();
         this.you = null;
         this.progress = {done: 0, total: 0};
+        this.gameError = null;
         this.clockOffsetMs = 0;
         // Ids of players who have been revealed as bots. Empty until a bot is found.
         this.unmasked = new Set();
@@ -68,6 +69,10 @@ export class GameSession extends Phaser.Events.EventEmitter {
                     this.emit('chat', message);
                 },
                 RoomClosed: reason => this.onRoomClosed(reason),
+                GameError: message => {
+                    this.gameError = message;
+                    this.emit('gameError', message);
+                },
                 Progress: progress => {
                     this.progress = progress;
                     this.emit('progress', progress);
@@ -121,6 +126,7 @@ Thanks for playing. Goodbye!`);
 
     setState(state) {
         if (this.state?.stage !== state.stage) this.clearTyping();
+        if (state.stage === 'Tutorial') this.gameError = null;
         this.state = state;
         this.progress = {done: 0, total: 0};
 

@@ -88,6 +88,7 @@ export class Host extends Scene {
         }
 
         this.session = session;
+        if (session.gameError) this.statusText.setText(session.gameError);
         this.roomCode = session.roomCode;
         this.network.setHeader('X-Host-Token', session.hostToken);
 
@@ -99,6 +100,7 @@ export class Host extends Scene {
 
         // Who has joined, shown as their avatars and aliases.
         session.on('roster', this.drawRoster, this);
+        session.on('gameError', this.showGameError, this);
 
         // Real-time connection: lets the host start the game and moves every screen along with it.
         if (!session.connection) {
@@ -114,8 +116,13 @@ export class Host extends Scene {
         this.lobbyMusic?.destroy();
         this.network?.destroy();
         this.session?.off('roster', this.drawRoster, this);
+        this.session?.off('gameError', this.showGameError, this);
         this.closed = true;
         // The session stays open: it carries the room through the game. Quit closes it (see quit()).
+    }
+
+    showGameError(message) {
+        this.statusText.setText(message);
     }
 
     /**

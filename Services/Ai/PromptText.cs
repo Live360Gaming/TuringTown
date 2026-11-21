@@ -10,6 +10,10 @@ namespace TuringTown.Services.Ai;
 /// </summary>
 public static class PromptText
 {
+    public static string NormalizeDashes(string text) =>
+        text.Replace(" \u2014 ", ", ").Replace("\u2014", ", ")
+            .Replace(" \u2013 ", ", ").Replace("\u2013", ", ");
+
     public static string Sanitize(string? text, int maxLength)
     {
         if (string.IsNullOrEmpty(text)) return "";

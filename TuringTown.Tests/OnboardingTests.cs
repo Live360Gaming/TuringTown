@@ -12,6 +12,11 @@ namespace TuringTown.Tests;
 /// </summary>
 public class OnboardingTests
 {
+    private sealed class TestFilter(Func<string, bool> allow) : IContentFilter
+    {
+        public Task<bool> IsAllowedAsync(string text, ContentPolicy policy, CancellationToken ct) => Task.FromResult(allow(text));
+    }
+
     private static readonly ContentPolicy Family = new(true);
     private static readonly ContentPolicy Mature = new(false);
     private static readonly QuestionMix Mix = new(1, 1, 1);
@@ -139,6 +144,95 @@ public class OnboardingTests
                 Assert.All(q.Options, o => Assert.False(o.Mature));
             }
         }
+    }
+
+    [Theory]
+    [InlineData(1, 0, 0)]
+    [InlineData(0, 1, 0)]
+    [InlineData(0, 0, 1)]
+    [InlineData(1, 1, 1)]
+    public void Every_nonempty_offline_mature_form_has_a_mature_question(int text, int single, int multi)
+    {
+        QuestionMix mix = new(text, single, multi);
+        for (int i = 0; i < 40; i++)
+        {
+            IReadOnlyList<OnboardingQuestion> form = ScriptedBotAgent.BuiltInQuestions(Mature, mix);
+            Assert.True(QuestionValidator.IsValid(form, Mature, mix));
+            Assert.Contains(form, q => q.Mature);
+        }
+    }
+
+    [Fact]
+    public async Task A_generated_mature_form_without_a_mature_question_gets_a_same_kind_replacement()
+    {
+        OnboardingQuestion[] generated = [Text("g1"), Single("g2"), Multi("g3")];
+        Harness h = new(2, questions: new TestQuestionGenerator(generated), familyFriendly: false);
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+
+        Assert.True(QuestionValidator.IsValid(h.Questions, Mature, Mix));
+        Assert.Contains(h.Questions, q => q.Mature);
+        Assert.Equal(generated.Select(q => q.Id), h.Questions.Select(q => q.Id));
+    }
+
+    [Fact]
+    public async Task Rejected_fallback_questions_are_not_shown()
+    {
+        Harness h = new(2, questions: new TestQuestionGenerator([Text("bad")]),
+            contentFilter: new TestFilter(text => !text.Contains("food", StringComparison.OrdinalIgnoreCase)));
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+
+        Assert.All(h.Questions, q => Assert.DoesNotContain("food", q.Text, StringComparison.OrdinalIgnoreCase));
+        Assert.All(h.Questions.SelectMany(q => q.Options), o => Assert.DoesNotContain("food", o.Text, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Exhausted_questions_return_to_lobby_with_an_error()
+    {
+        Harness h = new(2, contentFilter: new TestFilter(_ => false));
+        Assert.Null(h.Engine.TutorialDone());
+        await h.Engine.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(Stage.Lobby, h.Stage);
+        Assert.Contains(h.Messages, m => m.Kind == "error" && m.Json.Contains("Could not prepare game content"));
+        Assert.DoesNotContain(h.Messages, m => m.StageAtSend == Stage.Onboarding);
+    }
+
+    [Fact]
+    public async Task Rejected_bot_answer_fallback_is_not_published()
+    {
+        OnboardingQuestion[] form = [Text("q1"), Single("q2"), Multi("q3")];
+        HashSet<string> allowed = form.Select(q => q.Text).Concat(form.SelectMany(q => q.Options.Select(o => o.Text))).Append("ok").ToHashSet();
+        Harness h = new(2, questions: new TestQuestionGenerator(form), contentFilter: new TestFilter(allowed.Contains));
+        h.Agent.Answer = r => r.Questions.Select(q => q.Kind == QuestionKind.Text
+            ? new OnboardingAnswer(q.Id, "this answer will be rejected by the filter", [])
+            : ScriptedBotAgent.ScriptedAnswer(q, r.HumanAnswers)).ToArray();
+
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers("ok")));
+        await h.Engine.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(Stage.Lobby, h.Stage);
+        Assert.DoesNotContain(h.States, s => s.Stage == Stage.Discussion);
+        Assert.Contains(h.Messages, m => m.Kind == "error");
+    }
+    [Fact]
+    public async Task A_rejected_bot_answer_is_replaced_only_with_accepted_content()
+    {
+        const string rejected = "this answer is blocked";
+        Harness h = new(2, contentFilter: new TestFilter(text => text != rejected));
+        h.Agent.Answer = r => r.Questions.Select(q => q.Kind == QuestionKind.Text
+            ? new OnboardingAnswer(q.Id, rejected, [])
+            : ScriptedBotAgent.ScriptedAnswer(q, r.HumanAnswers)).ToArray();
+
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers("ok")));
+        await h.ToAsync(Stage.Discussion);
+        BoardQuestion board = ((DiscussionData)h.Room.State.Data!).Board.Single(q => q.Kind == QuestionKind.Text);
+        Assert.NotEqual(rejected, board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
+        Assert.NotEmpty(board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
     }
 
     // ---------------------------------------------------------------- answer validation, per kind

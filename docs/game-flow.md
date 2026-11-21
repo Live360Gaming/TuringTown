@@ -74,6 +74,7 @@ Server to client:
 | `ChatMessage` | `{id, playerId, alias, color, characterId, text, sentAtUtcMs, mentions}` (`mentions` = ids of the players it @mentions) |
 | `Typing` | `{playerId, typing}`: a player started or stopped typing in the Discussion. Humans and bots look identical, and the client drops the flag when that player's message arrives, the stage changes, or 30 s pass |
 | `Progress` | `{done, total}` for the current Onboarding or Voting stage |
+| `GameError` | A generic message when acceptable game content cannot be prepared; the game returns to the lobby |
 
 Client to server (a refused call throws a `HubException` with a readable message):
 
@@ -159,13 +160,16 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
 - **End of round.** After each vote the engine calls `IBotAgent.EndRoundAsync` for every living bot, in the background,
   with the round's public chat, so the agent can condense its notes. It never holds up the Reveal.
 - **Pacing.** The engine shortens a bot's pause by how long its agent usually takes (so a slow model does not make it
-  slower than its pause), adds typing time (`BotTypingMsPerChar`, the agent's own time counts towards it), sometimes
+  slower than its pause), adds length-based typing time at a stable per-bot rate with small variation
+  (`BotTypingMsPerChar`, capped by `BotTypingMaxMs`; the agent's own time counts towards it), sometimes
   leaves an @mention for its next normal turn (`BotMentionIgnorePercent`), and with `BotPaceToHumans` never says much
   more than the humans do.
 - The engine **validates** generated questions (`QuestionValidator`: the mix, option counts, ids and lengths, no
   personal details in a question or an option, nothing mature in a family room) and every answer, human or bot
   (`OnboardingAnswerValidator`). A bad question set is replaced by the built-in one; a bad bot answer is replaced
-  per question.
+  per question. Replacements also pass validation and content filtering. The engine searches built-in question alternatives
+  for at most two passes and ten seconds; if no acceptable form or bot answer can be prepared, it reports an error and returns
+  the room to the lobby.
 - **The real agent and generator** (`FoundryBotAgent`, `FoundryQuestionGenerator`) run on Azure AI Foundry when `Ai:Provider=Foundry`. They are
   off by default. Everything about them (configuration, secrets, prompts, limits, abuse protections, testing) is in [ai-agents.md](ai-agents.md).
 - At the Results stage the engine can hand the finished game (aliases and game text only) to an opt-in `IGameArchive` (`Storage:ArchiveTranscripts`),

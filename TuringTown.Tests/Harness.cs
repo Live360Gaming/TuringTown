@@ -118,7 +118,7 @@ internal sealed class Harness : IRoomBroadcaster
     public List<GameState> States { get; } = [];
     public List<Sent> Messages { get; } = [];
 
-    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null, IGameArchive? archive = null)
+    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null, IGameArchive? archive = null, IContentFilter? contentFilter = null, bool familyFriendly = true)
     {
         configure?.Invoke(Options);
         Room = new Room(RoomCode.CreateRandomRoomCode(), gameOptions ?? new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
@@ -131,8 +131,9 @@ internal sealed class Harness : IRoomBroadcaster
             Assert.Equal(ReadyError.None, Room.TrySetReady(p.Id, true));
         }
 
+        Assert.Equal(RoomSettingsError.None, Room.TryUpdateSettings(null, familyFriendly));
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
-        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
+        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, contentFilter ?? new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
         Engine.Start();
     }
 
@@ -233,6 +234,12 @@ internal sealed class Harness : IRoomBroadcaster
     public Task Progress(Room room, int done, int total)
     {
         Record("progress", new { done, total });
+        return Task.CompletedTask;
+    }
+
+    public Task GameError(Room room, string message)
+    {
+        Record("error", message);
         return Task.CompletedTask;
     }
 }

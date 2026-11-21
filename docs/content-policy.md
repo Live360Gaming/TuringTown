@@ -11,6 +11,10 @@ The host sets **Family Friendly** per session (default ON). The server stores it
   safety protections (hate, harassment of individuals, sexual content involving minors, self-harm, illegal content).
   Those stay enforced at the model/content-safety layer in both modes.
 
+A nonempty OFF-mode onboarding form includes at least one cheekier question marked mature, including when built-in
+questions are used. The configured content filter still checks those questions and their options. If no acceptable form
+can be assembled, the game returns to the lobby with an error rather than showing rejected content.
+
 ## Enforcement strategy for future content systems
 
 A system prompt alone is not sufficient. When AI generation (Azure AI Foundry) or other content is added:
@@ -26,3 +30,4 @@ Status: the setting, `ContentPolicy`, and every item above except the Foundry fi
 generated and player text goes through `IContentFilter`, which is `SeverityContentFilter` (Azure AI Content Safety) when
 `ContentSafety:Provider=Azure`, stricter for Family Friendly, and a mature room relaxes only the Violence category. Setting the filter thresholds
 on the Foundry *deployment* is an Azure setting, not code. See [ai-agents.md](ai-agents.md).
+With the default `ContentSafety:Provider=None`, the filter allows all text; the setting is not a profanity filter.

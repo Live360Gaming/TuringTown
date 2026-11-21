@@ -241,6 +241,40 @@ public class BotPlumbingTests
     }
 
     [Fact]
+    public void Typing_target_scales_with_length_and_varies_with_a_cap()
+    {
+        Guid bot = Guid.NewGuid();
+        int shortLine = TuringTownEngine.TypingTargetMs(bot, 10, 100, 4000, 0.5);
+        int longLine = TuringTownEngine.TypingTargetMs(bot, 20, 100, 4000, 0.5);
+        Assert.InRange(longLine, shortLine * 2 - 1, shortLine * 2 + 1);
+        Assert.True(TuringTownEngine.TypingTargetMs(bot, 20, 100, 4000, 0) < TuringTownEngine.TypingTargetMs(bot, 20, 100, 4000, 1));
+        Assert.Equal(4000, TuringTownEngine.TypingTargetMs(bot, 200, 100, 4000, 1));
+        Assert.Equal(0, TuringTownEngine.TypingTargetMs(bot, 20, 0, 4000, 0.5));
+    }
+
+    [Fact]
+    public async Task Bot_dashes_are_normalized_without_changing_human_chat_or_answers()
+    {
+        Harness h = new(2, o => o.BotMessagesPerRound = 1);
+        h.Agent.Chat = _ => "hello \u2014 there";
+        h.Agent.Answer = r => r.Questions.Select(q => q.Kind == QuestionKind.Text
+            ? new OnboardingAnswer(q.Id, "bot \u2014 answer", [])
+            : ScriptedBotAgent.ScriptedAnswer(q, r.HumanAnswers)).ToArray();
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers("human \u2014 answer")));
+        await h.ToAsync(Stage.Discussion);
+        Assert.Null(await h.Engine.SendChatAsync(h.Humans[0].Id, "human \u2014 chat"));
+        await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.PlayerId == h.BotId), "bot chat");
+
+        BoardQuestion board = ((DiscussionData)h.Room.State.Data!).Board.Single(q => q.Kind == QuestionKind.Text);
+        Assert.Equal("human \u2014 answer", board.Answers.Single(a => a.PlayerId == h.Humans[0].Id).Answer);
+        Assert.Equal("bot, answer", board.Answers.Single(a => a.PlayerId == h.BotId).Answer);
+        Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "human \u2014 chat");
+        Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "hello, there");
+    }
+
+    [Fact]
     public async Task A_bot_that_ignores_a_mention_answers_on_its_next_normal_turn_instead()
     {
         Harness h = new(humans: 2, o =>

@@ -193,4 +193,22 @@ public class AnswerBoardTests
             Assert.False(string.IsNullOrWhiteSpace(line));
         }
     }
+
+    [Fact]
+    public async Task A_scripted_bot_answers_a_matching_question_with_its_own_answer()
+    {
+        ScriptedBotAgent agent = new();
+        BotContext ctx = TestContext.For("Red Apple") with
+        {
+            AlivePlayers = ["Blue Kiwi"],
+            Persona = [new PersonaAnswer("What snack could you eat forever?", QuestionKind.Text, "salty popcorn", [])]
+        };
+        ChatLine question = new("Blue Kiwi", "@Red Apple what snack did you pick?");
+        string? reply = await agent.NextChatMessageAsync(
+            new ChatRequest("Red Apple", "", Family, 1, [question], [question], ctx.AlivePlayers, ctx), default);
+
+        Assert.NotNull(reply);
+        Assert.True(reply.Contains("popcorn", StringComparison.OrdinalIgnoreCase)
+                    || reply.Contains("salty", StringComparison.OrdinalIgnoreCase));
+    }
 }

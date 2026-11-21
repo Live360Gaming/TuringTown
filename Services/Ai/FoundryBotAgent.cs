@@ -132,7 +132,7 @@ public sealed class FoundryBotAgent(
         string canary = Canary(ctx.Key.GameId);
         foreach (JsonElement a in ParseJson(result.Text).GetProperty("answers").EnumerateArray())
         {
-            string text = PromptText.Sanitize(a.GetProperty("text").GetString(), 300);
+            string text = PromptText.NormalizeDashes(PromptText.Sanitize(a.GetProperty("text").GetString(), 300));
             // An answer that admits to being an AI is left out, and the engine gives that question a scripted answer.
             if (BotOutputGuard.IsBad(text, canary, system))
             {

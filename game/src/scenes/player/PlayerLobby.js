@@ -76,6 +76,7 @@ export class PlayerLobby extends Scene {
             this.show();
             // A refresh, or a return after a game, may already be past the lobby; the director has moved us on if so.
             this.session.on('roster', this.show, this);
+            this.session.on('gameError', this.showGameError, this);
         } catch (err) {
             // The room is gone or the seat is no longer ours (e.g. the server restarted): forget it, so the
             // next visit to the join screen asks for a code again.
@@ -130,7 +131,11 @@ export class PlayerLobby extends Scene {
         if (!enough) text = `Waiting for more players (${roster.length}/${this.minPlayers})...`;
         else if (all) text = you.leader ? 'Everyone is ready. Start when you like!' : 'Everyone is ready. Waiting for the host to start...';
         else text = `Waiting for ${waiting} ${waiting === 1 ? 'player' : 'players'} to get ready...`;
-        this.statusText.setText(text);
+        this.statusText.setText(this.session.gameError || text);
+    }
+
+    showGameError(message) {
+        this.statusText.setText(message);
     }
 
     async toggleReady() {
@@ -186,6 +191,7 @@ export class PlayerLobby extends Scene {
         this.closed = true;
         this.scale.off('resize', this.layout, this);
         this.session?.off('roster', this.show, this);
+        this.session?.off('gameError', this.showGameError, this);
         // The session stays open: it carries the player through the game. Quit closes it (see quit()).
     }
 

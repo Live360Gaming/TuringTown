@@ -6,6 +6,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using TuringTown.Models;
+using TuringTown.Services.Games;
 
 namespace TuringTown.Tests;
 
@@ -15,6 +18,11 @@ namespace TuringTown.Tests;
 /// </summary>
 public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private sealed class RejectContent : IContentFilter
+    {
+        public Task<bool> IsAllowedAsync(string text, ContentPolicy policy, CancellationToken ct) => Task.FromResult(false);
+    }
+
     private readonly WebApplicationFactory<Program> _factory;
 
     public HubIntegrationTests(WebApplicationFactory<Program> factory)
@@ -46,6 +54,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public ConcurrentQueue<JsonElement> Chat { get; } = new();
         public ConcurrentQueue<JsonElement> Rosters { get; } = new();
         public ConcurrentQueue<string?> Closed { get; } = new();
+        public ConcurrentQueue<string> Errors { get; } = new();
         public JsonElement Joined { get; set; }
 
         public async Task<JsonElement> WaitForStageAsync(string stage, int? round = null)
@@ -63,12 +72,13 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public ValueTask DisposeAsync() => Connection.DisposeAsync();
     }
 
-    private async Task<Client> ConnectAsync(Func<HubConnection, Task<JsonElement>> join)
+    private async Task<Client> ConnectAsync(Func<HubConnection, Task<JsonElement>> join, WebApplicationFactory<Program>? factory = null)
     {
+        factory ??= _factory;
         HubConnection connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(_factory.Server.BaseAddress, "/hubs/game"), options =>
+            .WithUrl(new Uri(factory.Server.BaseAddress, "/hubs/game"), options =>
             {
-                options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                options.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler();
                 options.Transports = HttpTransportType.LongPolling;
             })
             .Build();
@@ -78,6 +88,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         connection.On<JsonElement>("ChatMessage", m => client.Chat.Enqueue(m.Clone()));
         connection.On<JsonElement>("RosterChanged", r => client.Rosters.Enqueue(r.Clone()));
         connection.On<string?>("RoomClosed", reason => client.Closed.Enqueue(reason));
+        connection.On<string>("GameError", message => client.Errors.Enqueue(message));
 
         await connection.StartAsync();
         client.Joined = await join(connection);
@@ -117,6 +128,62 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("leader", Assert.Single(other.Closed));
         Assert.Empty(leader.Closed); // the one who quit is not told
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await http.GetAsync($"/api/room/{code}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Rejected_questions_notify_the_room_before_returning_to_the_lobby()
+    {
+        await using WebApplicationFactory<Program> factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddSingleton<IContentFilter>(new RejectContent())));
+        HttpClient http = factory.CreateClient();
+        JsonElement room = await (await http.PostAsync("/api/room/create", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string code = room.GetProperty("roomCode").GetString()!;
+        string token = room.GetProperty("hostToken").GetString()!;
+        JsonElement p1Join = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+        JsonElement p2Join = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+        await using Client host = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, token), factory);
+        await using Client p1 = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, p1Join.GetProperty("playerId").GetGuid(), p1Join.GetProperty("playerToken").GetString()), factory);
+        await using Client p2 = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, p2Join.GetProperty("playerId").GetGuid(), p2Join.GetProperty("playerToken").GetString()), factory);
+        await p1.Connection.InvokeAsync("SetReady", true);
+        await p2.Connection.InvokeAsync("SetReady", true);
+        await host.Connection.InvokeAsync("StartGame");
+        await p1.WaitForStageAsync("Tutorial");
+        await host.Connection.InvokeAsync("TutorialDone");
+        await p1.WaitForStageAsync("Lobby");
+        await WaitUntilAsync(() => !host.Errors.IsEmpty && !p1.Errors.IsEmpty && !p2.Errors.IsEmpty);
+        Assert.Equal(Assert.Single(host.Errors), Assert.Single(p1.Errors));
+        Assert.Equal(Assert.Single(host.Errors), Assert.Single(p2.Errors));
+        Assert.DoesNotContain(p1.States, s => s.GetProperty("stage").GetString() == "Onboarding");
+        await host.Connection.InvokeAsync("CloseRoom");
+    }
+
+    [Fact]
+    public async Task Turning_off_family_friendly_reaches_the_onboarding_form()
+    {
+        HttpClient http = _factory.CreateClient();
+        JsonElement room = await (await http.PostAsync("/api/room/create", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string code = room.GetProperty("roomCode").GetString()!;
+        string hostToken = room.GetProperty("hostToken").GetString()!;
+        http.DefaultRequestHeaders.Add("X-Host-Token", hostToken);
+        HttpResponseMessage changed = await http.PutAsJsonAsync($"/api/room/{code}/settings", new { familyFriendly = false });
+        changed.EnsureSuccessStatusCode();
+        JsonElement state = await changed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(state.GetProperty("settings").GetProperty("familyFriendly").GetBoolean());
+
+        JsonElement p1Join = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+        JsonElement p2Join = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+        await using Client host = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, hostToken));
+        await using Client p1 = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, p1Join.GetProperty("playerId").GetGuid(), p1Join.GetProperty("playerToken").GetString()));
+        await using Client p2 = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, p2Join.GetProperty("playerId").GetGuid(), p2Join.GetProperty("playerToken").GetString()));
+
+        await p1.Connection.InvokeAsync("SetReady", true);
+        await p2.Connection.InvokeAsync("SetReady", true);
+        await host.Connection.InvokeAsync("StartGame");
+        await p1.WaitForStageAsync("Tutorial");
+        await host.Connection.InvokeAsync("TutorialDone");
+        JsonElement form = await p1.WaitForStageAsync("Onboarding");
+        Assert.Contains(form.GetProperty("data").GetProperty("questions").EnumerateArray(), q => q.GetProperty("mature").GetBoolean());
+        await host.Connection.InvokeAsync("CloseRoom");
     }
 
     [Fact]

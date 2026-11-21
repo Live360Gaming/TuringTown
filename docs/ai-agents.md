@@ -82,6 +82,8 @@ unused. Family Friendly picks `tone-family.md` or `tone-mature.md`; the safety r
   inside a tagged block, so it can neither close a tag nor start a line of instructions.
 - `questions-system.md` / `questions-task.md` are for the question generator: no bot framing, no game context. It writes
   opinion questions and hot takes, since everyone's answers are shown in the Discussion.
+- An OFF-mode form with at least one question includes a question flagged mature. If the model does not produce one,
+  the engine tries a same-kind built-in replacement, without an extra model call.
 
 ## Abuse and misuse prevention
 
@@ -110,6 +112,8 @@ What is in place, and where:
 
 **Harmful content**
 - Every bot line goes through `ChatFilter` and `IContentFilter` like a human's, and so do onboarding answers and generated questions.
+  Fallback questions and replacement bot answers are checked too. If the engine cannot prepare acceptable content after
+  bounded attempts, it reports an error and returns the room to the lobby.
   `ContentSafety:Provider=Azure` turns on Azure AI Content Safety, stricter when Family Friendly is on. A mature room relaxes only
   Violence; hate, self-harm and sexual content stay at the family threshold in both modes. `FailOpen` decides what happens when the service is down.
 - Generated questions are validated for names, ages, places and identifying categories in the question and every option.
@@ -148,6 +152,9 @@ Counters in the meter `TuringTown.Ai` (read with `dotnet-counters` or an OpenTel
 never a prompt, a reply, a role or a player. Prompt and reply text is not logged at Information; call timings and token counts are logged at Debug.
 Nothing here is sent to a client.
 
+`ai.fallbacks` includes `question_tone`, `question_validation` and `onboarding_validation`; `questions.validation_failures` includes
+`exhausted` when no acceptable fallback form can be assembled.
+
 ## Testing and evaluation
 
 CI runs `dotnet test` with no secrets, so everything uses the scripted agent, a fake model (`FakeLlmClient`), an in-memory store and a fake HTTP handler.
@@ -163,3 +170,6 @@ call the real model and so cost a little:
   It fails if the model ever writes the canary.
 
 Run them before and after a prompt change and compare; a blind read of archived transcripts is the better measure of "did it get caught".
+For a blind evaluation, use consented completed games, remove role labels from copies of their transcripts, randomize
+their order, and have reviewers guess the bots before comparing with the results. Track detection rate alongside
+fallbacks, latency and token counts; do not enable transcript archiving or live-model calls just to run the offline suite.

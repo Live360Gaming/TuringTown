@@ -17,6 +17,8 @@ namespace TuringTown.Services.Games;
 /// </summary>
 public sealed class TuringTownEngine : IDisposable
 {
+    private sealed class ContentUnavailableException : Exception { }
+
     private readonly Room _room;
     private readonly IBotAgent _agent;
     private readonly IQuestionGenerator _questionGenerator;
@@ -154,6 +156,11 @@ public sealed class TuringTownEngine : IDisposable
         catch (OperationCanceledException)
         {
             // The engine was disposed.
+        }
+        catch (ContentUnavailableException)
+        {
+            _logger.LogWarning("Room {Room}: could not prepare acceptable game content", _room.Code);
+            await _broadcaster.GameError(_room, "Could not prepare game content. Please try starting again.");
         }
         catch (Exception ex)
         {
@@ -587,6 +594,7 @@ public sealed class TuringTownEngine : IDisposable
 
     private async Task<string?> PostChatAsync(PlayerSeat sender, string? text, CancellationToken ct)
     {
+        if (sender.IsBot && text is not null) text = PromptText.NormalizeDashes(text);
         ChatCheck check = ChatFilter.Check(text, _opt.ChatMaxLength, out string cleaned);
         if (check != ChatCheck.Ok) return ChatFilter.Describe(check);
         if (!await _contentFilter.IsAllowedAsync(cleaned, _room.ContentPolicy, ct)) return "That message is not allowed.";
@@ -638,8 +646,31 @@ public sealed class TuringTownEngine : IDisposable
             IReadOnlyList<OnboardingQuestion> questions =
                 await _questionGenerator.GenerateAsync(new QuestionRequest(policy, _opt.Mix), _cts.Token);
 
-            if (QuestionValidator.IsValid(questions, policy, _opt.Mix) && await QuestionsAllowedAsync(questions, policy))
-                return questions;
+            if (QuestionValidator.IsValid(questions, policy, _opt.Mix) && await QuestionsAllowedAsync(questions, policy, _cts.Token))
+            {
+                if (policy.FamilyFriendly || questions.Count == 0 || questions.Any(q => q.Mature))
+                    return questions;
+
+                OnboardingQuestion[] adjusted = questions.ToArray();
+                using CancellationTokenSource toneSearch = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                toneSearch.CancelAfter(TimeSpan.FromSeconds(10));
+                try
+                {
+                    Dictionary<string, bool> checkedTexts = [];
+                    for (int i = 0; i < adjusted.Length; i++)
+                    {
+                        foreach (OnboardingQuestion candidate in ScriptedBotAgent.QuestionCandidates(policy, adjusted[i].Kind, matureOnly: true))
+                        {
+                            OnboardingQuestion replacement = candidate with { Id = adjusted[i].Id };
+                            if (!QuestionValidator.IsValid([replacement], policy, 1) || !await QuestionsAllowedAsync([replacement], policy, toneSearch.Token, checkedTexts)) continue;
+                            adjusted[i] = replacement;
+                            AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "question_tone"));
+                            return adjusted;
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { }
+            }
             AiMetrics.QuestionFailures.Add(1, new KeyValuePair<string, object?>("reason", "validation"));
             _logger.LogWarning("Room {Room}: the generated onboarding questions failed validation, using the built-in ones", _room.Code);
         }
@@ -653,19 +684,81 @@ public sealed class TuringTownEngine : IDisposable
             _logger.LogWarning(ex, "Room {Room}: could not get onboarding questions from the agent, using the built-in ones", _room.Code);
         }
 
-        return ScriptedBotAgent.BuiltInQuestions(policy, _opt.Mix);
+        AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "question_validation"));
+        QuestionKind?[] matureKinds = policy.FamilyFriendly || _opt.Mix.Total == 0
+            ? [null]
+            : new[] { (QuestionKind.Text, _opt.Mix.Text), (QuestionKind.SingleChoice, _opt.Mix.SingleChoice), (QuestionKind.MultiChoice, _opt.Mix.MultiChoice) }
+                .Where(x => x.Item2 > 0).Select(x => (QuestionKind?)x.Item1).ToArray();
+        using CancellationTokenSource search = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        search.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                Dictionary<string, bool> checkedTexts = [];
+                foreach (QuestionKind? matureKind in matureKinds)
+                {
+                    IReadOnlyList<OnboardingQuestion>? fallback = await BuiltInFormAsync(policy, matureKind, search.Token, checkedTexts);
+                    if (fallback is not null) return fallback;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!_cts.IsCancellationRequested) { }
+        AiMetrics.QuestionFailures.Add(1, new KeyValuePair<string, object?>("reason", "exhausted"));
+        throw new ContentUnavailableException();
+    }
+
+    private async Task<IReadOnlyList<OnboardingQuestion>?> BuiltInFormAsync(
+        ContentPolicy policy, QuestionKind? matureKind, CancellationToken ct, Dictionary<string, bool> checkedTexts)
+    {
+        List<OnboardingQuestion> result = [];
+        foreach ((QuestionKind kind, int count) in new[]
+                 {
+                     (QuestionKind.Text, _opt.Mix.Text),
+                     (QuestionKind.SingleChoice, _opt.Mix.SingleChoice),
+                     (QuestionKind.MultiChoice, _opt.Mix.MultiChoice)
+                 })
+        {
+            if (count <= 0) continue;
+            List<OnboardingQuestion> accepted = [];
+            IReadOnlyList<OnboardingQuestion> candidates = ScriptedBotAgent.QuestionCandidates(policy, kind, kind == matureKind);
+            foreach (OnboardingQuestion candidate in candidates)
+            {
+                OnboardingQuestion question = candidate with { Id = "candidate" };
+                if (QuestionValidator.IsValid([question], policy, 1) && await QuestionsAllowedAsync([question], policy, ct, checkedTexts))
+                    accepted.Add(question);
+                if (accepted.Count >= count) break;
+            }
+
+            if (accepted.Count == 0) return null;
+            for (int i = 0; i < count; i++) result.Add(accepted[i % accepted.Count]);
+        }
+
+        OnboardingQuestion[] form = result.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
+            .Select((q, i) => q with { Id = $"q{i + 1}" }).ToArray();
+        return QuestionValidator.IsValid(form, policy, _opt.Mix) ? form : null;
     }
 
     /// <summary>
     /// Generated text is shown to every player, so it passes the same content filter as chat.
     /// </summary>
-    private async Task<bool> QuestionsAllowedAsync(IReadOnlyList<OnboardingQuestion> questions, ContentPolicy policy)
+    private async Task<bool> QuestionsAllowedAsync(
+        IReadOnlyList<OnboardingQuestion> questions, ContentPolicy policy, CancellationToken ct, Dictionary<string, bool>? checkedTexts = null)
     {
+        async Task<bool> Allowed(string text)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (checkedTexts is not null && checkedTexts.TryGetValue(text, out bool cached)) return cached;
+            bool allowed = await _contentFilter.IsAllowedAsync(text, policy, ct);
+            if (checkedTexts is not null) checkedTexts[text] = allowed;
+            return allowed;
+        }
+
         foreach (OnboardingQuestion q in questions)
         {
-            if (!await _contentFilter.IsAllowedAsync(q.Text, policy, _cts.Token)) return false;
+            if (!await Allowed(q.Text)) return false;
             foreach (QuestionOption option in q.Options)
-                if (!await _contentFilter.IsAllowedAsync(option.Text, policy, _cts.Token)) return false;
+                if (!await Allowed(option.Text)) return false;
         }
         return true;
     }
@@ -688,8 +781,18 @@ public sealed class TuringTownEngine : IDisposable
                 lock (_gate)
                     context = BuildContext(bot, 0);
 
-                IReadOnlyList<OnboardingAnswer> given = await _agent.AnswerOnboardingAsync(
-                    new OnboardingAnswerRequest(bot.Alias, _room.ContentPolicy, questions, samples, context), _cts.Token);
+                IReadOnlyList<OnboardingAnswer> given;
+                try
+                {
+                    given = await _agent.AnswerOnboardingAsync(
+                        new OnboardingAnswerRequest(bot.Alias, _room.ContentPolicy, questions, samples, context), _cts.Token);
+                }
+                catch (Exception ex) when (!_cts.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "Room {Room}: a bot's onboarding agent failed, using scripted answers", _room.Code);
+                    AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "onboarding"));
+                    given = questions.Select(q => ScriptedBotAgent.ScriptedAnswer(q, samples, bot.Id)).ToArray();
+                }
 
                 // The same checks as for a human. An invalid answer is replaced, so a bot always has a full persona.
                 // A near-copy of a human's answer is replaced too: everyone sees the answer board, and twins stand out.
@@ -699,11 +802,34 @@ public sealed class TuringTownEngine : IDisposable
                     string id = questions[i].Id;
                     IEnumerable<string?> humanTexts = samples.Where(a => a.QuestionId == id).Select(a => a.Text);
                     OnboardingAnswer? answer = given?.FirstOrDefault(a => a?.QuestionId == id);
+                    if (answer?.Text is { } authored)
+                        answer = answer with { Text = PromptText.NormalizeDashes(authored) };
                     bool ok = OnboardingAnswerValidator.ValidateOne(questions[i], i + 1, answer, _opt.AnswerMaxLength, out OnboardingAnswer cleaned) is null
                               && !OnboardingAnswerValidator.IsNearCopy(cleaned.Text, humanTexts)
                               && (cleaned.Text is not { Length: > 0 } text || await _contentFilter.IsAllowedAsync(text, _room.ContentPolicy, _cts.Token));
 
-                    answers[i] = ok ? cleaned : ScriptedBotAgent.ScriptedAnswer(questions[i], samples, bot.Id);
+                    if (ok)
+                    {
+                        answers[i] = cleaned;
+                        continue;
+                    }
+
+                    AiMetrics.Fallbacks.Add(1, new KeyValuePair<string, object?>("kind", "onboarding_validation"));
+                    bool found = false;
+                    for (int attempt = 0; attempt < 8; attempt++)
+                    {
+                        OnboardingAnswer replacement = ScriptedBotAgent.ScriptedAnswer(questions[i], samples, bot.Id);
+                        if (replacement.Text is { } fallbackText)
+                            replacement = replacement with { Text = PromptText.NormalizeDashes(fallbackText) };
+                        if (OnboardingAnswerValidator.ValidateOne(questions[i], i + 1, replacement, _opt.AnswerMaxLength, out cleaned) is not null
+                            || OnboardingAnswerValidator.IsNearCopy(cleaned.Text, humanTexts)
+                            || (cleaned.Text is { Length: > 0 } checkedText && !await _contentFilter.IsAllowedAsync(checkedText, _room.ContentPolicy, _cts.Token)))
+                            continue;
+                        answers[i] = cleaned;
+                        found = true;
+                        break;
+                    }
+                    if (!found) throw new ContentUnavailableException();
                 }
 
                 lock (_gate)
@@ -716,10 +842,14 @@ public sealed class TuringTownEngine : IDisposable
             {
                 throw;
             }
+            catch (ContentUnavailableException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                // The bot just plays without a persona.
                 _logger.LogWarning(ex, "Room {Room}: a bot could not answer the onboarding form", _room.Code);
+                throw new ContentUnavailableException();
             }
         }));
     }
@@ -817,13 +947,15 @@ public sealed class TuringTownEngine : IDisposable
                     TimeSpan thought = _clock.UtcNow - asked;
                     NoteLatency(bot, thought);
                     if (line is null) continue;
+                    line = PromptText.NormalizeDashes(line);
 
                     // Typing takes time too. The time the agent already took counts towards it.
-                    TimeSpan typing = TimeSpan.FromMilliseconds(Math.Min(_opt.BotTypingMaxMs, line.Length * (long)_opt.BotTypingMsPerChar)) - thought;
+                    TimeSpan typing = TimeSpan.FromMilliseconds(TypingTargetMs(bot.Id, line.Length, _opt.BotTypingMsPerChar, _opt.BotTypingMaxMs, Random.Shared.NextDouble())) - thought;
                     if (typing > TimeSpan.Zero) await _clock.Delay(typing, ct);
 
                     error = await PostChatAsync(bot, line, ct);
                 }
+
                 finally
                 {
                     // Also on a quiet turn or when the discussion ends. The client drops it when the message arrives too.
@@ -855,6 +987,14 @@ public sealed class TuringTownEngine : IDisposable
     /// How many lines this bot may have said by now. Normally the per-round budget; with <see cref="TuringTownOptions.BotPaceToHumans"/>
     /// it follows the humans: about 1.3x what a living human has said this round, and at least one.
     /// </summary>
+    internal static int TypingTargetMs(Guid botId, int length, int msPerChar, int capMs, double variation)
+    {
+        uint seed = BitConverter.ToUInt32(botId.ToByteArray(), 0);
+        double speed = 0.85 + seed % 31 / 100.0;
+        double jitter = 0.9 + Math.Clamp(variation, 0, 1) * 0.2;
+        return (int)Math.Clamp(length * (double)msPerChar * speed * jitter, 0, Math.Max(0, capMs));
+    }
+
     private int PaceBudget()
     {
         if (_opt.BotPaceToHumans != true) return _opt.BotMessagesPerRound;

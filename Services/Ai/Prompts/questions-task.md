@@ -1,6 +1,7 @@
-version: 1
+version: 2
 
 Write exactly {{text}} Text question(s), {{single}} SingleChoice question(s) and {{multi}} MultiChoice question(s), in any order.
+{{tone_requirement}}
 
 For a Text question return an empty options list and maxSelect 0. For a SingleChoice return maxSelect 1.
 

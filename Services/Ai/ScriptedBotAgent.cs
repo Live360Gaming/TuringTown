@@ -41,14 +41,14 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static readonly TextTemplate[] MatureText =
     [
-        new("What is the pettiest hill you will die on?", true,
-            ["people who dont put the cart back", "Gif is a hard g", "toilet paper goes over not under", "reply all should be illegal", "jogging is just fast walking with drama"]),
-        new("What is the most unhinged thing you think is totally normal?", true,
-            ["cereal at 2am", "Talking to my plants", "rewatching the same show six times", "dipping fries in ice cream", "showering at night only"]),
-        new("What opinion would get you kicked out of a group chat?", true,
-            ["voice notes should be banned", "Pineapple belongs on pizza", "group chats should go quiet after 10", "brunch is a scam", "the original is never better"]),
-        new("Which food do you defend that everyone else hates?", true,
-            ["olives", "Black licorice honestly", "pineapple pizza forever", "brussels sprouts but roasted", "anchovies dont @ me"]),
+        new("What harmless thing makes you irrationally pissed off?", true,
+            ["people who dont put the cart back", "slow walkers", "reply all emails", "the printer refusing to work", "wet socks"]),
+        new("What is your most embarrassing lazy-ass habit?", true,
+            ["eating cereal straight from the box", "leaving laundry in the dryer", "rewatching the same show", "calling toast dinner", "ignoring my alarm"]),
+        new("What petty thing would you put in a swear jar?", true,
+            ["meetings that could be emails", "people spoiling the ending", "loud chewing", "slow internet", "the snooze button"]),
+        new("What is a ridiculous thing you would ban if you had the power?", true,
+            ["reply all emails", "voice notes longer than a minute", "tiny restaurant portions", "slow walkers", "monday mornings"]),
     ];
 
     /// <summary>For a question the bot has no list for (a generated one): opinion-shaped, so it fits most questions.</summary>
@@ -73,8 +73,8 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static readonly ChoiceTemplate[] MatureSingle =
     [
-        new("Texting back right away is...", true, ["Desperate", "Polite", "Rare", "Whatever"], 1),
-        new("The worst habit in a housemate?", true, ["Loud chewing", "Dirty dishes", "Late night calls", "Stealing snacks"], 1),
+        new("Which petty annoyance deserves a swear jar?", true, ["Reply-all emails", "Loud chewing", "Spoilers", "Slow walkers"], 1),
+        new("Your lazy-ass dinner of choice?", true, ["Cereal", "Cold pizza", "Toast", "Leftovers"], 1),
     ];
 
     private static readonly ChoiceTemplate[] FamilyMulti =
@@ -86,8 +86,8 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static readonly ChoiceTemplate[] MatureMulti =
     [
-        new("Which habits are red flags? Pick up to 3.", true, ["Never texting back", "Chewing loudly", "Always late", "Reply-all emails", "Spoilers"], 3),
-        new("Which questionable choices do you defend? Pick up to 3.", true, ["Cereal for dinner", "Staying up too late", "Rewatching one show", "Ignoring texts", "Midnight snacks"], 3),
+        new("Which petty things piss you off? Pick up to 3.", true, ["Loud chewing", "Spoilers", "Slow walkers", "Reply-all emails", "Wet socks"], 3),
+        new("Which lazy-ass choices do you defend? Pick up to 3.", true, ["Cereal for dinner", "Cold pizza", "Ignoring chores", "Midnight snacks", "Snoozing alarms"], 3),
     ];
 
     /// <summary>
@@ -110,10 +110,40 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         foreach (ChoiceTemplate t in Draw(multis, mix.MultiChoice))
             picked.Add(ToQuestion(t, QuestionKind.MultiChoice));
 
+        if (!policy.FamilyFriendly && picked.Count > 0 && !picked.Any(q => q.Mature))
+        {
+            int index = RandomNumberGenerator.GetInt32(picked.Count);
+            picked[index] = MatureQuestion(picked[index].Kind);
+        }
+
         return picked
             .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
             .Select((q, i) => q with { Id = $"q{i + 1}" })
             .ToArray();
+    }
+
+    internal static OnboardingQuestion MatureQuestion(QuestionKind kind) => kind switch
+    {
+        QuestionKind.Text => TextQuestion(Pick(MatureText)),
+        QuestionKind.SingleChoice => ToQuestion(Pick(MatureSingle), kind),
+        QuestionKind.MultiChoice => ToQuestion(Pick(MatureMulti), kind),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind))
+    };
+
+    private static OnboardingQuestion TextQuestion(TextTemplate t) =>
+        new("", QuestionKind.Text, t.Text, t.Mature, [], 0, 0);
+
+    internal static IReadOnlyList<OnboardingQuestion> QuestionCandidates(ContentPolicy policy, QuestionKind kind, bool matureOnly = false)
+    {
+        IEnumerable<OnboardingQuestion> questions = kind switch
+        {
+            QuestionKind.Text => FamilyText.Concat(MatureText).Select(TextQuestion),
+            QuestionKind.SingleChoice => FamilySingle.Concat(MatureSingle).Select(t => ToQuestion(t, kind)),
+            QuestionKind.MultiChoice => FamilyMulti.Concat(MatureMulti).Select(t => ToQuestion(t, kind)),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
+        return questions.Where(q => (!policy.FamilyFriendly || !q.Mature) && (!matureOnly || q.Mature))
+            .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToArray();
     }
 
     private static OnboardingQuestion ToQuestion(ChoiceTemplate t, QuestionKind kind)
@@ -242,14 +272,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static readonly string[] Reactions =
     [
-        "lol", "true", "fair", "nah", "hmm idk about that", "lmao what", "same honestly", "wait really", "ok that is fair", "big if true",
-        "agreed", "not buying it", "huh", "haha", "real", "I mean yeah", "thats what I was thinking", "eh",
-    ];
-
-    private static readonly string[] AnswersToQuestions =
-    [
-        "no idea tbh", "maybe?", "I think so", "not really", "hard to say", "depends", "yes 100%", "ask someone else lol",
-        "I was about to ask the same thing", "probably not",
+        "lol", "hmm", "wait really", "huh", "haha", "ok", "interesting", "hold on", "wait what",
     ];
 
     private static readonly string[] Defences =
@@ -261,15 +284,14 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static readonly string[] MentionReplies =
     [
-        "not sure what you mean", "why are you asking me", "haha fair question", "I was wondering the same about you",
-        "hmm good point", "I dunno, you tell me", "I stand by it", "yeah I guess", "wait what did I miss",
+        "not sure what you mean", "why are you asking me", "haha wait what", "I dunno, you tell me",
+        "wait what did I miss", "can you explain", "not sure honestly",
     ];
 
     private static readonly string[] AccuseReasons =
     [
-        "you have been really quiet", "you keep dodging questions", "your answers feel kinda generic", "not trusting you rn",
-        "you agreed with everyone so far", "that last message was way too polished", "you changed your story", "explain yourself",
-        "something about your answers is off", "you answered way too fast",
+        "people are pointing at you, whats your side", "others seem suspicious of you, what do you think",
+        "youre getting accused a lot, anything to say",
     ];
 
     private static readonly string[] BoardAboutOthers =
@@ -345,13 +367,26 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             return (said.Alias, defence);
         }
 
-        if (said.Text.Contains('?') && ctx.Persona.Count > 0 && rng.Next(100) < 30)
+        if (said.Text.Contains('?') && ctx.Persona.Count > 0)
         {
-            string? mine = OwnAnswer(ctx, rng);
-            if (mine is not null) return (said.Alias, string.Format(Pick(BoardOwn, rng), mine));
+            PersonaAnswer[] matching = ctx.Persona.Where(p => QuestionMatches(said.Text, p.Question)).ToArray();
+            if (matching.Length > 0)
+            {
+                PersonaAnswer p = matching[rng.Next(matching.Length)];
+                string? mine = p.Kind == QuestionKind.Text ? p.Text : p.ChosenOptions.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(mine)) return (said.Alias, string.Format(Pick(BoardOwn, rng), Quote(mine, p.Kind, rng)));
+            }
+            return (said.Alias, Pick(MentionReplies, rng));
         }
 
-        return (said.Alias, said.Text.Contains('?') ? Pick(AnswersToQuestions, rng) : Pick(MentionReplies, rng));
+        return (said.Alias, Pick(MentionReplies, rng));
+    }
+
+    private static bool QuestionMatches(string message, string question)
+    {
+        string[] words = Regex.Matches(question.ToLowerInvariant(), @"\b[a-z]{5,}\b")
+            .Select(m => m.Value).Where(w => w is not ("which" or "what" or "think" or "about" or "would" or "these" or "there")).ToArray();
+        return words.Any(w => Regex.IsMatch(message, $@"\b{Regex.Escape(w)}\b", RegexOptions.IgnoreCase));
     }
 
     private static (string? Mention, string? Body) FreeLine(ChatRequest request, BotVoice voice, Random rng)
@@ -375,11 +410,15 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
         // React to the last thing someone said.
         if (roll < 55 && last is { } line)
-            return (null, line.Text.Contains('?') ? Pick(AnswersToQuestions, rng) : Pick(Reactions, rng));
+            return (null, line.Text.Contains('?') ? "not sure what you mean" : Pick(Reactions, rng));
 
         // Accuse someone, with a reason. Leans towards whoever the room is already looking at.
-        if (roll < 55 + voice.MentionPercent && request.OtherPlayers.Count > 0)
-            return (MostTalkedAbout(request, rng), Pick(AccuseReasons, rng));
+        if (roll < 55 + voice.MentionPercent)
+        {
+            string[] accused = request.OtherPlayers.Where(p => request.Recent.Any(l =>
+                !l.Alias.Equals(p, StringComparison.OrdinalIgnoreCase) && Mentions(l.Text, p) && Accusing.IsMatch(l.Text))).ToArray();
+            if (accused.Length > 0) return (accused[rng.Next(accused.Length)], Pick(AccuseReasons, rng));
+        }
 
         return (null, Pick(pool, rng));
     }
@@ -435,17 +474,6 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             : p.ChosenOptions[rng.Next(p.ChosenOptions.Count)].ToLowerInvariant();
     }
 
-    /// <summary>
-    /// Who to @mention: weighted by how often the others have mentioned or accused each player recently, so a bot
-    /// tends to pile on like a person would, with some chance for anyone.
-    /// </summary>
-    private static string MostTalkedAbout(ChatRequest request, Random rng)
-    {
-        string[] players = request.OtherPlayers.ToArray();
-        double[] weights = players.Select(p => 1.0 + Heat(p, request.Recent, request.BotAlias)).ToArray();
-        return players[WeightedIndex(weights, rng)];
-    }
-
     // ---------------------------------------------------------------- votes
 
     public Task EndRoundAsync(RoundEndRequest request, CancellationToken ct) => Task.CompletedTask;
@@ -493,7 +521,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private static string Normal(string text) => new(text.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
-    private static string Pick(string[] pool) => pool[RandomNumberGenerator.GetInt32(pool.Length)];
+    private static T Pick<T>(T[] pool) => pool[RandomNumberGenerator.GetInt32(pool.Length)];
 
     private static string Pick(string[] pool, Random rng) => pool[rng.Next(pool.Length)];
 }

@@ -416,6 +416,18 @@ public class FoundryAgentTests
     }
 
     [Fact]
+    public async Task Generated_questions_and_options_do_not_keep_long_dashes()
+    {
+        FakeLlmClient llm = new()
+        {
+            Reply = _ => """{"questions":[{"kind":"SingleChoice","text":"Pick one \u2014 quickly?","mature":false,"options":[{"text":"This \u2014 one","mature":false},{"text":"That","mature":false}],"maxSelect":1}]}"""
+        };
+        IReadOnlyList<OnboardingQuestion> questions = await Generator(llm).GenerateAsync(new QuestionRequest(AiKit.Family, new QuestionMix(0, 1, 0)), default);
+        Assert.Equal("Pick one, quickly?", questions[0].Text);
+        Assert.Equal("This, one", questions[0].Options[0].Text);
+    }
+
+    [Fact]
     public async Task A_generator_that_fails_or_returns_junk_is_replaced_by_the_built_in_questions()
     {
         QuestionMix mix = new(1, 1, 1);
