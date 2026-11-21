@@ -215,6 +215,8 @@ public sealed class ScriptedBotAgent : IBotAgent
         return Task.FromResult<string?>(Pick(pool));
     }
 
+    public Task EndRoundAsync(RoundEndRequest request, CancellationToken ct) => Task.CompletedTask;
+
     public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct)
     {
         if (request.Candidates.Count == 0) return Task.FromResult<Guid?>(null);

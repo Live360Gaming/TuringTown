@@ -225,6 +225,7 @@ public class SecrecyAndIdentityTests
         public Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
         public Task<string?> NextChatMessageAsync(ChatRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
         public Task<Guid?> CastVoteAsync(VoteRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
+        public Task EndRoundAsync(RoundEndRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
     }
 
     private sealed class HangingAgent : IBotAgent
@@ -232,6 +233,7 @@ public class SecrecyAndIdentityTests
         public async Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return []; }
         public async Task<string?> NextChatMessageAsync(ChatRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return null; }
         public async Task<Guid?> CastVoteAsync(VoteRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return null; }
+        public async Task EndRoundAsync(RoundEndRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); }
     }
 
     private sealed class BrokenGenerator : IQuestionGenerator
@@ -274,7 +276,7 @@ public class SecrecyAndIdentityTests
         ContentPolicy policy = new(true);
 
         Guid id = Guid.NewGuid();
-        Guid? vote = await agent.CastVoteAsync(new VoteRequest("Red Apple", "", policy, 1, [new VoteCandidate(id, "Blue Kiwi")], []), default);
+        Guid? vote = await agent.CastVoteAsync(new VoteRequest("Red Apple", "", policy, 1, [new VoteCandidate(id, "Blue Kiwi")], [], TestContext.For("Red Apple")), default);
         Assert.Equal(id, vote);
     }
 
@@ -284,7 +286,7 @@ public class SecrecyAndIdentityTests
         FallbackBotAgent agent = new(new HangingAgent(), new ScriptedBotAgent(), TimeSpan.FromMilliseconds(50));
 
         IReadOnlyList<OnboardingAnswer> answers = await agent
-            .AnswerOnboardingAsync(new OnboardingAnswerRequest("Red Apple", new ContentPolicy(true), [new OnboardingQuestion("q1", "Why?", false)], []), default)
+            .AnswerOnboardingAsync(new OnboardingAnswerRequest("Red Apple", new ContentPolicy(true), [new OnboardingQuestion("q1", "Why?", false)], [], TestContext.For("Red Apple")), default)
             .WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Single(answers);

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Time.Testing;
 using TuringTown.Models;
 using TuringTown.Services.Ai;
 using TuringTown.Services.Games;
+using TuringTown.Services.Storage;
 
 namespace TuringTown.Tests;
 
@@ -22,6 +23,10 @@ internal sealed class TestAgent : IBotAgent
     public List<ChatRequest> ChatRequests { get; } = [];
     public List<VoteRequest> VoteRequests { get; } = [];
     public List<OnboardingAnswerRequest> OnboardingRequests { get; } = [];
+    public List<RoundEndRequest> RoundEndRequests { get; } = [];
+
+    /// <summary>Runs inside every end-of-round call. Default: returns at once.</summary>
+    public Func<RoundEndRequest, CancellationToken, Task>? RoundEnd { get; set; }
 
     /// <summary>Default: valid scripted answers. Tests can return bad ones to check the engine replaces them.</summary>
     public Func<OnboardingAnswerRequest, IReadOnlyList<OnboardingAnswer>>? Answer { get; set; }
@@ -32,10 +37,13 @@ internal sealed class TestAgent : IBotAgent
         return Task.FromResult(Answer?.Invoke(request) ?? request.Questions.Select(q => ScriptedBotAgent.ScriptedAnswer(q, request.HumanAnswers)).ToArray());
     }
 
+    /// <summary>When set, answers chat instead of <see cref="Chat"/> (so a test can make the agent take time).</summary>
+    public Func<ChatRequest, CancellationToken, Task<string?>>? ChatAsync { get; set; }
+
     public Task<string?> NextChatMessageAsync(ChatRequest request, CancellationToken ct)
     {
         lock (ChatRequests) ChatRequests.Add(request);
-        return Task.FromResult(Chat(request));
+        return ChatAsync is { } async ? async(request, ct) : Task.FromResult(Chat(request));
     }
 
     public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct)
@@ -43,6 +51,19 @@ internal sealed class TestAgent : IBotAgent
         lock (VoteRequests) VoteRequests.Add(request);
         return Task.FromResult(Vote(request));
     }
+
+    public Task EndRoundAsync(RoundEndRequest request, CancellationToken ct)
+    {
+        lock (RoundEndRequests) RoundEndRequests.Add(request);
+        return RoundEnd?.Invoke(request, ct) ?? Task.CompletedTask;
+    }
+}
+
+internal static class TestContext
+{
+    /// <summary>A context for a request a test builds by hand.</summary>
+    public static BotContext For(string alias, int botCount = 1) =>
+        new(new BotKey(Guid.NewGuid(), Guid.NewGuid()), alias, botCount, [], 0, [], [], [], StyleProfile.Empty);
 }
 
 /// <summary>
@@ -70,6 +91,7 @@ internal sealed class Harness : IRoomBroadcaster
     public Room Room { get; }
     public FakeTimeProvider Time { get; } = new();
     public TestAgent Agent { get; } = new();
+    public InMemoryBotMemoryStore Memory { get; } = new();
     public TuringTownEngine Engine { get; }
     public TuringTownOptions Options { get; } = new()
     {
@@ -86,7 +108,9 @@ internal sealed class Harness : IRoomBroadcaster
         BotMentionReplyMaxDelayMs = 0,
         BotVoteMinDelayMs = 0,
         BotVoteMaxDelayMs = 0,
-        ChatMinIntervalMs = 1000
+        ChatMinIntervalMs = 1000,
+        BotTypingMsPerChar = 0,
+        BotMentionIgnorePercent = 0
     };
 
     public List<Player> Humans { get; } = [];
@@ -106,7 +130,7 @@ internal sealed class Harness : IRoomBroadcaster
         }
 
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
-        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
+        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
         Engine.Start();
     }
 

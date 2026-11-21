@@ -45,6 +45,27 @@ public sealed class TuringTownOptions
     public int BotChatMinDelayMs { get; set; } = 4000;
     public int BotChatMaxDelayMs { get; set; } = 12000;
 
+    /// <summary>A bot "types" for this long per character before its line appears, up to <see cref="BotTypingMaxMs"/>.
+    /// The model's own thinking time counts towards it.</summary>
+    public int BotTypingMsPerChar { get; set; } = 120;
+
+    public int BotTypingMaxMs { get; set; } = 4000;
+
+    /// <summary>
+    /// Percent of @mentions a bot does not answer at once: it gets to them on its next normal turn instead (answering
+    /// every mention immediately is a tell).
+    /// </summary>
+    public int BotMentionIgnorePercent { get; set; } = 15;
+
+    /// <summary>
+    /// When true a bot never says much more than the humans do (at most about 1.3x a human's lines this round, and
+    /// always at least one), still capped by <see cref="BotMessagesPerRound"/>. Meant for the real AI.
+    /// </summary>
+    public bool BotPaceToHumans { get; set; }
+
+    /// <summary>How many of its own latest lines a bot is shown, so it stays consistent.</summary>
+    public int BotOwnLinesContext { get; set; } = 5;
+
     /// <summary>
     /// Most players one message may @mention (more are ignored), so a message cannot be used to spam everyone.
     /// </summary>

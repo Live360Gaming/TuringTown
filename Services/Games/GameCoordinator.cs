@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TuringTown.Models;
 using TuringTown.Services.Ai;
+using TuringTown.Services.Storage;
 
 namespace TuringTown.Services.Games;
 
@@ -12,6 +13,7 @@ namespace TuringTown.Services.Games;
 public sealed class GameCoordinator(
     IBotAgent agent,
     IQuestionGenerator questionGenerator,
+    IBotMemoryStore memory,
     IContentFilter contentFilter,
     IRoomBroadcaster broadcaster,
     TimeProvider time,
@@ -28,7 +30,7 @@ public sealed class GameCoordinator(
         RoomStartError error = room.TryStart(TuringTownEngine.BotCountFor);
         if (error != RoomStartError.None) return error;
 
-        TuringTownEngine engine = new(room, agent, questionGenerator, contentFilter, broadcaster, time, options.Value,
+        TuringTownEngine engine = new(room, agent, questionGenerator, memory, contentFilter, broadcaster, time, options.Value,
             loggerFactory.CreateLogger<TuringTownEngine>(), finished => Finished(room, finished));
 
         _engines[room.Code] = engine;

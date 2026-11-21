@@ -96,6 +96,13 @@ samples. It is **never told which other player is human or a bot**, and with two
 teammate. So a bot may accuse or vote for its own teammate without knowing it, and that is intended. Bot requests never
 carry an `IsBot` flag for anyone (`BotKnowledgeTests`). Each bot's memory and context are its own: no shared state.
 
+Every request carries a `BotContext` (`Services/Ai/BotContext.cs`): the bot's `BotKey` (a storage key, never put in a
+prompt), the bot count, its own persona (its onboarding answers) and latest lines, the other living players by alias, the
+finished rounds as the Reveal showed them (`RoundOutcome`, which includes the role of a player who was already voted out,
+as every player saw), and a `StyleProfile` of how the humans wrote and what they picked. Free text in the style samples is
+untrusted player input: `PromptText.Sanitize` strips invisible and direction-changing characters and caps it, and it must
+only ever reach a model as quoted data.
+
 ## Chat rules
 
 Players are only ever their alias and character. Enforced in `ChatFilter` and the engine, for humans and bots alike:
@@ -129,8 +136,19 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
 - `ScriptedBotAgent` and `BuiltInQuestionGenerator` work offline and are the defaults. They are also the fallbacks.
   The built-in questions (`ScriptedBotAgent.BuiltInQuestions`) include every kind; the scripted bot answers every kind
   validly, picking from what the humans picked.
-- `FallbackBotAgent` and `FallbackQuestionGenerator` wrap a real one and answer with the fallback on a timeout or
-  error, so a game never stalls.
+- `FallbackBotAgent` and `FallbackQuestionGenerator` wrap a real one and answer with a safe fallback on a timeout or
+  error, so a game never stalls. Each kind of call has its own timeout (`AgentTimeouts`). A failed **vote** or **onboarding
+  answer** is answered by the scripted agent; a failed **chat** turn is **silence** (a canned line in the middle of an AI
+  conversation is a tell); a failed end-of-round call is ignored.
+- **Memory.** `IBotMemoryStore` (`Services/Storage/`) holds each bot's own notes under its `BotKey`. It has no way to list
+  keys, so an agent can only touch its own. It is in memory, also in production (rooms are lost on restart anyway), and the
+  engine clears the game's memory when the game ends.
+- **End of round.** After each vote the engine calls `IBotAgent.EndRoundAsync` for every living bot, in the background,
+  with the round's public chat, so the agent can condense its notes. It never holds up the Reveal.
+- **Pacing.** The engine shortens a bot's pause by how long its agent usually takes (so a slow model does not make it
+  slower than its pause), adds typing time (`BotTypingMsPerChar`, the agent's own time counts towards it), sometimes
+  leaves an @mention for its next normal turn (`BotMentionIgnorePercent`), and with `BotPaceToHumans` never says much
+  more than the humans do.
 - The engine **validates** generated questions (`QuestionValidator`: the mix, option counts, ids and lengths, no
   personal details in a question or an option, nothing mature in a family room) and every answer, human or bot
   (`OnboardingAnswerValidator`). A bad question set is replaced by the built-in one; a bad bot answer is replaced
@@ -155,6 +173,10 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `MaxMentionsPerMessage` | 3 | players one message may @mention |
 | `BotMentionReplyMinDelayMs` / `BotMentionReplyMaxDelayMs` | 1500 / 5000 | how soon a mentioned bot answers |
 | `BotChatMinDelayMs` / `BotChatMaxDelayMs` | 4000 / 12000 | bots wait a random time so they type like people |
+| `BotTypingMsPerChar` / `BotTypingMaxMs` | 120 / 4000 | typing time before a line appears (the agent's own time counts) |
+| `BotMentionIgnorePercent` | 15 | percent of @mentions a bot leaves for its next normal turn |
+| `BotPaceToHumans` | false | the bot never says much more than the humans (about 1.3x, at least one line); meant for the real AI |
+| `BotOwnLinesContext` | 5 | how many of its own latest lines a bot is shown, so it stays consistent |
 | `BotVoteMinDelayMs` / `BotVoteMaxDelayMs` | 3000 / 15000 | |
 
 The player limits (`Game:MaxPlayers`, `Game:MinPlayers`) are separate and belong to `GameOptions`. `MaxPlayers` is **4**

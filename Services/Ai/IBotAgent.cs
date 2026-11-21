@@ -15,7 +15,8 @@ public sealed record OnboardingAnswerRequest(
     string BotAlias,
     ContentPolicy Policy,
     IReadOnlyList<OnboardingQuestion> Questions,
-    IReadOnlyList<OnboardingAnswer> HumanAnswers);
+    IReadOnlyList<OnboardingAnswer> HumanAnswers,
+    BotContext Context);
 
 /// <param name="Mentions">Lines that @mentioned this bot since it last spoke. Answering them is the most natural thing to say.</param>
 /// <param name="OtherPlayers">Aliases of everyone else still in the game. To @mention one, write "@" and the alias exactly.
@@ -27,7 +28,8 @@ public sealed record ChatRequest(
     int Round,
     IReadOnlyList<ChatLine> Recent,
     IReadOnlyList<ChatLine> Mentions,
-    IReadOnlyList<string> OtherPlayers);
+    IReadOnlyList<string> OtherPlayers,
+    BotContext Context);
 
 public sealed record VoteRequest(
     string BotAlias,
@@ -35,7 +37,11 @@ public sealed record VoteRequest(
     ContentPolicy Policy,
     int Round,
     IReadOnlyList<VoteCandidate> Candidates,
-    IReadOnlyList<ChatLine> Recent);
+    IReadOnlyList<ChatLine> Recent,
+    BotContext Context);
+
+/// <param name="RoundTranscript">Everything said in the round that just ended (public chat only).</param>
+public sealed record RoundEndRequest(BotContext Context, ContentPolicy Policy, IReadOnlyList<ChatLine> RoundTranscript);
 
 /// <summary>
 /// The AI behind the bots (a player that is secretly a bot). Writing the onboarding questions is a separate role,
@@ -60,4 +66,10 @@ public interface IBotAgent
     /// Who the bot votes for (one of the candidates), or null to abstain.
     /// </summary>
     Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// Called once per living bot after each round's vote, in the background, so the agent can condense what it
+    /// learned into its own memory. It never holds up the game.
+    /// </summary>
+    Task EndRoundAsync(RoundEndRequest request, CancellationToken ct);
 }

@@ -2,6 +2,7 @@ using TuringTown.Models;
 using TuringTown.Services;
 using TuringTown.Services.Ai;
 using TuringTown.Services.Games;
+using TuringTown.Services.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
 builder.Services.AddSingleton<IBotAgent, ScriptedBotAgent>();
 builder.Services.AddSingleton<IQuestionGenerator, BuiltInQuestionGenerator>();
+builder.Services.AddSingleton<IBotMemoryStore, InMemoryBotMemoryStore>();
 builder.Services.AddSingleton<IContentFilter, AllowAllContentFilter>();
 builder.Services.AddSingleton<IRoomBroadcaster, SignalRRoomBroadcaster>();
 builder.Services.AddSingleton<GameCoordinator>();
