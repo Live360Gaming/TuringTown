@@ -4,6 +4,7 @@ import {addHoverFill, BTN, createTextButton} from '../../../../core/ui/Button.js
 import * as Phaser from 'phaser';
 import {ChatFeed} from '../../../../core/ui/ChatFeed.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
+import {buzz, hapticsEnabled, hapticsSupported, setHapticsEnabled} from '../../../../core/haptics.js';
 
 const CHIP_W = 240;
 const CHIP_H = 40;
@@ -18,7 +19,18 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         this.sending = false;
         this.canWrite = !this.session.spectating;
 
-        this.title = this.addText(`Round ${this.session.state.round}: Discuss`, {fontStyle: 'bold'});
+        this.title = this.addText(`Round ${this.session.state.round}: Discuss`, {fontStyle: 'bold'}).setOrigin(0, 0.5);
+
+        // Each phone can turn its own buzz off. Hidden where the browser cannot vibrate at all (iPhones).
+        this.buzzBtn = null;
+        if (hapticsSupported()) {
+            const label = () => `Buzz: ${hapticsEnabled() ? 'On' : 'Off'}`;
+            this.buzzBtn = createTextButton(this, 0, 0, label(), () => {
+                const on = setHapticsEnabled(!hapticsEnabled());
+                this.buzzBtn.setLabel(label());
+                if (on) buzz(40);
+            }, {width: 110, height: 44, fontSize: '18px', variant: 'ghost'});
+        }
         this.statusText = this.addText(this.canWrite ? '' : 'You were voted out. You can only watch now.', {align: 'center'});
 
         // Lines that @mention you are shown in gold.
@@ -26,6 +38,8 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         this.feed.setMessages(this.session.transcript);
         this.listen(this.session, 'chat', message => {
             this.feed.add(message);
+            // Everyone's buzz is identical for every message, so it never hints at who is a bot.
+            if (message.playerId !== this.session.you?.id) buzz(60);
             this.notifyIfMentioned(message);
         });
         this.events.once('shutdown', () => this.feed.destroy());
@@ -80,7 +94,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         const me = this.session.you;
         if (!me || message.playerId === me.id || !message.mentions?.includes(me.id)) return;
 
-        navigator.vibrate?.(200);
+        buzz([120, 60, 120]);
         this.statusText.setText(`${message.alias} mentioned you`).setColor('#ffd54a');
         this.time.delayedCall(4000, () => this.statusText.setText('').setColor('#ffffff'));
     }
@@ -125,7 +139,8 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         });
         const feedBottom = (this.chips.length > 0 ? chipsTop : inputTop - 14 * m.s) - 8 * m.s;
 
-        this.title.setPosition(m.cx, m.top + 120 * m.s).setFontSize(m.fs(34, 22));
+        this.title.setPosition(m.left + pad, m.top + 120 * m.s).setFontSize(m.fs(34, 22));
+        this.buzzBtn?.setPosition(m.right - pad - 55, m.top + 120 * m.s);
         this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
 
         this.feed.resize({
