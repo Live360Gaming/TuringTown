@@ -101,7 +101,7 @@ export class Host extends Scene {
         this.network.startPolling('room', `/api/room/${encodeURIComponent(this.roomCode)}`, 1000);
 
         // Who has joined, shown as their avatars and aliases.
-        session.on('roster', this.drawRoster, this);
+        session.on('roster', this.onRoster, this);
         session.on('gameError', this.showGameError, this);
 
         // Real-time connection: lets the host start the game and moves every screen along with it.
@@ -110,7 +110,16 @@ export class Host extends Scene {
             if (this.closed) return;
             session.attachDirector();
         }
+        this.readyIds = new Set(session.roster.filter(p => p.ready).map(p => p.id));
         this.drawRoster(session.roster);
+    }
+
+    /** A roster update: chimes when someone has just readied up, then redraws the lineup. */
+    onRoster(roster) {
+        const ready = new Set(roster.filter(p => p.ready).map(p => p.id));
+        if (this.readyIds && [...ready].some(id => !this.readyIds.has(id))) this.sound.play('ready_sfx');
+        this.readyIds = ready;
+        this.drawRoster(roster);
     }
 
     cleanup() {
@@ -119,7 +128,7 @@ export class Host extends Scene {
         // Without a session (the room never opened) nothing else will stop the lobby music. With one, it carries on
         // into the game and the session stops it when the room is left.
         if (!getSession(this)) getMusic(this.game).stop(400);
-        this.session?.off('roster', this.drawRoster, this);
+        this.session?.off('roster', this.onRoster, this);
         this.session?.off('gameError', this.showGameError, this);
         this.closed = true;
         // The session stays open: it carries the room through the game. Quit closes it (see quit()).
@@ -232,8 +241,8 @@ export class Host extends Scene {
             if (player) {
                 const avatar = createPlaceholderAvatar(this, x, y, size, this.placeholderIndex(player), {dim: !player.connected});
                 this.rosterItems.push(avatar);
-                // Ready players are covered in green, drawn over the character.
-                if (player.ready) this.rosterItems.push(this.drawReadyOverlay(avatar, x, y, size));
+                // Ready players are covered in green and cut to the ring drawn around them.
+                if (player.ready) this.rosterItems.push(...this.drawReadyOverlay(avatar, x, y, size));
                 this.rosterItems.push(this.drawReadyBadge(x, feet + 28, player.ready));
                 if (!player.connected) {
                     this.rosterItems.push(this.add.text(x, feet + 54, 'Reconnecting…',
@@ -246,15 +255,22 @@ export class Host extends Scene {
         this.updateLobbyStatus();
     }
 
-    /** A green wash over the character's shape (same art, tinted and added on top) plus a glowing ring around it. */
+    /**
+     * A green wash over the character's shape (same art, tinted and added on top), a glowing ring around it, and the
+     * character clipped to that ring so nothing pokes out past it. Returns the ring and the mask shape, which the
+     * caller destroys along with the avatar.
+     */
     drawReadyOverlay(avatar, x, y, size) {
         const wash = this.add.image(0, 0, avatar.list[0].texture.key).setDisplaySize(size, size)
             .setTintFill(HEX.green).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.4);
+        avatar.add(wash);
         const radius = size * 0.44;
-        const ring = this.add.graphics()
+        const clip = this.make.graphics({x, y}, false).fillStyle(0xffffff).fillCircle(0, 0, radius);
+        avatar.setMask(clip.createGeometryMask());
+        const ring = this.add.graphics().setPosition(x, y).setAlpha(avatar.alpha)
             .lineStyle(12, HEX.green, 0.18).strokeCircle(0, 0, radius)
             .lineStyle(4, HEX.green, 0.95).strokeCircle(0, 0, radius);
-        return this.add.container(x, y, [wash, ring]).setAlpha(avatar.alpha);
+        return [ring, clip];
     }
 
     /** "READY" in a green pill, or a muted "Not ready". */

@@ -139,8 +139,10 @@ export class PlayerLobby extends Scene {
     }
 
     async toggleReady() {
+        const ready = !this.session.you.ready;
+        if (ready) this.sound.play('ready_sfx');
         try {
-            await this.session.invoke('SetReady', !this.session.you.ready);
+            await this.session.invoke('SetReady', ready);
         } catch (err) {
             if (!this.closed) this.statusText.setText(hubErrorMessage(err));
         }

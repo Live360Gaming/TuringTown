@@ -60,6 +60,8 @@ export class Preloader extends Scene
         this.load.audio('message_sfx2', 'shared/sfx/message_sfx2.mp3');
         this.load.audio('message_sfx3', 'shared/sfx/message_sfx3.mp3');
         this.load.audio('message_sfx4', 'shared/sfx/message_sfx4.mp3');
+        // A player readying up in the lobby.
+        this.load.audio('ready_sfx', 'shared/sfx/ready_sfx.mp3');
     }
 
     create ()
