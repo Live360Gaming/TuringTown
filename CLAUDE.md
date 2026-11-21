@@ -23,6 +23,10 @@ Backend (repo root): `dotnet test TuringTown.slnx --configuration Release` is wh
 `TuringTown.Tests/` (xUnit). Game rules run on a fake clock (`Harness.cs`), and `HubIntegrationTests` plays a whole
 game over real SignalR connections. Single test: `dotnet test TuringTown.Tests --filter "FullyQualifiedName~<TestName>"`.
 The root project's globbing excludes `TuringTown.Tests/**` (see `TuringTown.csproj`); keep that when adding files there.
+`TestEnvironment.cs` forces `Ai:Provider=Scripted`, archiving off and content safety off through environment variables, so
+a developer's user secrets never make a test call Azure. A test that needs another setting overrides it in code.
+`BotEvalTests` (the real model) is skipped unless `TURINGTOWN_EVAL=1` and the Foundry settings are set
+(`TURINGTOWN_EVAL_GAMES` sets how many games it plays, 3 by default).
 
 CI (`.github/workflows/ci.yml`) also builds the Docker image and smoke-tests `/` and `/api/test` with
 `scripts/verify-endpoints.sh`. Deploys happen only when a stable GitHub Release is published. See
@@ -56,6 +60,12 @@ served under a sub-path).
   Timings are the `TuringTown` config section (`TuringTownOptions`, all optional). Full details, hub contract and win
   rules are in [docs/game-flow.md](docs/game-flow.md).
 - Non-GET requests get `no-store` cache headers via middleware in `Program.cs`.
+- Room create/join are rate limited per client address (`RateLimits:RoomRequestsPerMinute`, the `rooms` policy).
+- `Services/Storage/`: `IBotMemoryStore` is per-bot memory keyed by `BotKey` (one game only, no way to list keys, never
+  holds roles). `IGameArchive` saves transcripts only when `Storage:ArchiveTranscripts` is on (in memory, or Azure Blob).
+- Seasonal art: `SeasonProvider` (`Season:Mode`, Auto = Christmas in December) is served by `GET /api/config`.
+  `core/season.js` loads it before the art, and a season's `assets/seasons/<season>/manifest.json` lists only the
+  texture keys it replaces; everything else keeps the normal art.
 
 **Client** (`game/src/`):
 - One Phaser `Game` (`main.js`) with all scenes registered up front: `Boot` → `Preloader` → `MainMenu` → `Host` (the TV
