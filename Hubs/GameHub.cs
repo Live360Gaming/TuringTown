@@ -120,7 +120,8 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
 
     // ---------------------------------------------------------------- players
 
-    public async Task SubmitOnboarding(string[] answers)
+    /// <summary>One answer per question: the written text, or the ids of the chosen options.</summary>
+    public async Task SubmitOnboarding(OnboardingAnswer[] answers)
     {
         (Room room, Guid playerId) = RequirePlayer();
         Throw(await RequireEngine(room).SubmitOnboardingAsync(playerId, answers));
@@ -136,6 +137,21 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
     {
         (Room room, Guid playerId) = RequirePlayer();
         Throw(await RequireEngine(room).CastVoteAsync(playerId, targetPlayerId));
+    }
+
+    /// <summary>While waiting in the lobby, switch to a character nobody else has chosen.</summary>
+    public async Task ChangeCharacter(string characterId)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        string? error = room.TryChangeCharacter(playerId, characterId) switch
+        {
+            CharacterChangeError.None => null,
+            CharacterChangeError.NotInLobby => "Characters can only be changed in the lobby.",
+            CharacterChangeError.Taken => "Someone else already picked that character.",
+            _ => "Unknown character."
+        };
+        Throw(error);
+        await broadcaster.RosterChanged(room);
     }
 
     // ---------------------------------------------------------------- helpers

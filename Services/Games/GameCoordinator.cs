@@ -11,6 +11,7 @@ namespace TuringTown.Services.Games;
 /// </summary>
 public sealed class GameCoordinator(
     IBotAgent agent,
+    IQuestionGenerator questionGenerator,
     IContentFilter contentFilter,
     IRoomBroadcaster broadcaster,
     TimeProvider time,
@@ -27,7 +28,7 @@ public sealed class GameCoordinator(
         RoomStartError error = room.TryStart(TuringTownEngine.BotCountFor);
         if (error != RoomStartError.None) return error;
 
-        TuringTownEngine engine = new(room, agent, contentFilter, broadcaster, time, options.Value,
+        TuringTownEngine engine = new(room, agent, questionGenerator, contentFilter, broadcaster, time, options.Value,
             loggerFactory.CreateLogger<TuringTownEngine>(), finished => Finished(room, finished));
 
         _engines[room.Code] = engine;

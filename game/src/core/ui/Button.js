@@ -3,6 +3,13 @@ export const BTN_HOVER = 0x4466cc;
 export const BTN_DISABLED = 0x2a2f4d;
 export const PANEL = 0x222244;
 
+/** Lights up a rectangle while the pointer is over it. For cards and chips that are not full buttons. */
+export function addHoverFill(rect) {
+    return rect
+        .on('pointerover', () => rect.setFillStyle(BTN_HOVER))
+        .on('pointerout', () => rect.setFillStyle(BTN));
+}
+
 /** Simple rectangle + label button. Returns a container (with setEnabled/setLabel) so it can be grouped into panels. */
 export function createTextButton(scene, x, y, label, onClick, {width = 300, height = 70, fontSize = '32px'} = {}) {
     let enabled = true;

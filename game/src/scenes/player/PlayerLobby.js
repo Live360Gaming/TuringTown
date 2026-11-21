@@ -1,14 +1,19 @@
 import * as Phaser from "phaser";
 import {Scene} from "phaser";
 import {enterFullWindow} from "../../core/scaling.js";
-import {createTextButton, PANEL} from "../../core/ui/Button.js";
+import {createTextButton} from "../../core/ui/Button.js";
+import {drawPanel} from "../../core/ui/Panel.js";
 import {hubErrorMessage} from "../../core/gameHub.js";
 import {createAvatar} from "../../core/characters.js";
+import {CHARACTER_KEYS} from "../../constants.js";
 import {clearCredentials, GameSession, getSession, leaveToMenu, setSession} from "../../core/session.js";
 
 // Waiting screen: the player has joined and sees the alias and character the server gave them until the host
 // starts the game. It also keeps the GameSession for the whole visit; after a game ends the director brings the
 // player back here and the same session is reused (see core/director.js).
+const PICK_SIZE = 76;
+const PICK_GAP = 8;
+
 export class PlayerLobby extends Scene {
     constructor() {
         super("PlayerLobby");
@@ -26,6 +31,7 @@ export class PlayerLobby extends Scene {
         this.background = this.add.image(0, 0, 'background');
         this.panel = this.add.graphics();
         this.avatar = null;
+        this.pickerTiles = [];
         this.nameText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.titleText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.statusText = this.add.text(0, 0, 'Connecting...', {color: '#ffffff', align: 'center'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
@@ -82,7 +88,41 @@ export class PlayerLobby extends Scene {
         this.nameText.setText(you.alias).setColor(you.color);
         this.titleText.setText(`You're in ${this.session.roomCode}`);
         this.statusText.setText('Waiting for the host to start...');
+        this.buildPicker();
         this.layout();
+    }
+
+    /** One tile per character: yours is outlined, ones other players hold are dimmed, the rest can be tapped. */
+    buildPicker() {
+        this.pickerTiles.forEach(tile => tile.destroy());
+        this.pickerTiles = [];
+
+        const you = this.session.you;
+        const takenByOthers = new Set(this.session.roster.filter(p => p.id !== you.id).map(p => p.characterId));
+
+        for (const key of CHARACTER_KEYS) {
+            const mine = key === you.characterId;
+            const taken = takenByOthers.has(key);
+            const img = this.add.image(0, 0, key).setDisplaySize(PICK_SIZE, PICK_SIZE);
+            const ring = this.add.graphics()
+                .lineStyle(mine ? 5 : 2, mine ? 0xffffff : 0x888888, 1)
+                .strokeRoundedRect(-PICK_SIZE / 2, -PICK_SIZE / 2, PICK_SIZE, PICK_SIZE, 10);
+            const tile = this.add.container(0, 0, [img, ring]).setSize(PICK_SIZE, PICK_SIZE);
+            tile.setAlpha(taken ? 0.3 : 1);
+            if (!mine && !taken) {
+                tile.setInteractive({useHandCursor: true}).on('pointerup', () => this.pick(key));
+            }
+            this.pickerTiles.push(tile);
+        }
+    }
+
+    async pick(characterId) {
+        try {
+            await this.session.invoke('ChangeCharacter', characterId);
+        } catch (err) {
+            // Most likely someone grabbed it first; the roster update that follows dims it.
+            if (!this.closed) this.statusText.setText(hubErrorMessage(err));
+        }
     }
 
     cleanup() {
@@ -102,18 +142,19 @@ export class PlayerLobby extends Scene {
             .setScale(Math.max(width / this.background.width, height / this.background.height));
 
         const panelW = 560 * s;
-        const panelH = 700 * s;
-        this.panel.clear()
-            .fillStyle(PANEL, 1)
-            .fillRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s)
-            .lineStyle(3, 0xffffff, 1)
-            .strokeRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s);
+        const panelH = 840 * s;
+        drawPanel(this.panel, cx - panelW / 2, cy - panelH / 2, panelW, panelH, s);
 
-        this.avatar?.setPosition(cx, cy - 170 * s).setScale(s * 1.3);
-        this.nameText.setPosition(cx, cy - 20 * s).setFontSize(38 * s);
-        this.titleText.setPosition(cx, cy + 50 * s).setFontSize(34 * s);
-        this.statusText.setPosition(cx, cy + 130 * s).setFontSize(28 * s).setWordWrapWidth(panelW - 60 * s);
-        this.quitBtn.setPosition(cx, cy + 250 * s).setScale(s);
+        this.avatar?.setPosition(cx, cy - 280 * s).setScale(s * 1.1);
+        this.nameText.setPosition(cx, cy - 130 * s).setFontSize(38 * s);
+        this.titleText.setPosition(cx, cy - 70 * s).setFontSize(34 * s);
+
+        const step = PICK_SIZE + PICK_GAP;
+        const rowStart = cx - (step * (this.pickerTiles.length - 1) / 2) * s;
+        this.pickerTiles.forEach((tile, i) => tile.setPosition(rowStart + i * step * s, cy + 10 * s).setScale(s));
+
+        this.statusText.setPosition(cx, cy + 120 * s).setFontSize(28 * s).setWordWrapWidth(panelW - 60 * s);
+        this.quitBtn.setPosition(cx, cy + 300 * s).setScale(s);
     }
 
     /** Leave the room for good and go back to the main menu. */

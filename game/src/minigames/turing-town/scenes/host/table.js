@@ -98,7 +98,9 @@ export function createTable(scene, {drift = false} = {}) {
         const height = text.height + 24;
 
         const background = scene.add.graphics();
-        background.fillStyle(0xffffff, 1).fillRoundedRect(-BUBBLE_WIDTH / 2, -height - 10, BUBBLE_WIDTH, height, 18);
+        // A message that @mentions someone gets a golden bubble, so the room sees who is being spoken to.
+        const bubbleColor = message.mentions?.length ? 0xffe082 : 0xffffff;
+        background.fillStyle(bubbleColor, 1).fillRoundedRect(-BUBBLE_WIDTH / 2, -height - 10, BUBBLE_WIDTH, height, 18);
         background.fillTriangle(-12, -10, 12, -10, 0, 6);
         text.setPosition(0, -22);
 

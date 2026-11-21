@@ -1,7 +1,9 @@
 import * as Phaser from 'phaser';
 import {Scene} from 'phaser';
 import {enterFullWindow} from '../scaling.js';
-import {createTextButton, PANEL} from '../ui/Button.js';
+import {createTextButton} from '../ui/Button.js';
+import {drawPanel} from '../ui/Panel.js';
+import {listen} from './listen.js';
 import {getSession, leaveToMenu} from '../session.js';
 import {attachCountdown} from '../countdown.js';
 import {createAvatar} from '../characters.js';
@@ -71,11 +73,7 @@ export class PlayerStage extends Scene {
         this.background.setPosition(cx, cy)
             .setScale(Math.max(width / this.background.width, height / this.background.height));
 
-        this.panel.clear()
-            .fillStyle(PANEL, 1)
-            .fillRoundedRect(m.left, m.top, panelW, panelH, 28 * s)
-            .lineStyle(3, 0xffffff, 1)
-            .strokeRoundedRect(m.left, m.top, panelW, panelH, 28 * s);
+        drawPanel(this.panel, m.left, m.top, panelW, panelH, s);
 
         this.youAvatar?.setPosition(m.left + 54 * s, m.top + 54 * s).setScale(s * 0.8);
         this.youText.setPosition(m.left + 100 * s, m.top + 54 * s).setFontSize(26 * s);
@@ -89,8 +87,7 @@ export class PlayerStage extends Scene {
 
     /** Subscribe to an emitter for as long as this scene is running. */
     listen(emitter, event, handler) {
-        emitter.on(event, handler, this);
-        this.events.once('shutdown', () => emitter.off(event, handler, this));
+        listen(this, emitter, event, handler);
     }
 
     /** A text object that stays sharp on high-DPI phones. */

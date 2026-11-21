@@ -19,20 +19,27 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 |---|---|---|---|
 | Lobby | Players join; host changes settings | host calls `StartGame` (needs `MinPlayers`) | none |
 | Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` (or the safety limit) | none |
-| Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, text, mature}]}` |
+| Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
 | Discussion | Anonymous chat | timer | none |
 | Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
 | Reveal | Who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally}` |
 | Results | Winner and every role | host calls `ReturnToLobby`, or timer | `{winner, roles}` |
 
 - **Voting.** Plurality is eliminated. A **tie (or no votes) eliminates nobody.** Eliminated humans stay as read-only
-  spectators. Bots vote through the agent and only pick among humans.
+  spectators. Bots vote through the agent and may pick **any living player but themselves** (see
+  [What a bot knows](#what-a-bot-knows)).
 - **Winning.** Humans win when no bot is left. Bots win when living bots are at least as many as living humans, or when
   `MaxRounds` passes with a bot still alive (so a run of ties cannot stall the game).
 - **Bots.** 1 bot for 2-4 humans, 2 for 5 or more (`TuringTownEngine.BotCountFor`). Bots are seated when the game
   starts, with an alias and character from the same pool as humans, and are removed when the room returns to the lobby.
-- **Onboarding answers are private.** They are never shown to other players. They go to the bot agent (text only, no
-  tokens or ids) so the bots can match how the humans write.
+- **Onboarding questions** come in three kinds (`kind`): `Text` (free text), `SingleChoice` (pick exactly one of 2-6
+  options, usually four, `minSelect = maxSelect = 1`) and `MultiChoice` (3-6 options, pick `minSelect`..`maxSelect`).
+  A game asks a fixed mix, one of each by default (`TextQuestions`, `SingleChoiceQuestions`, `MultiChoiceQuestions`).
+  Option ids are `a`..`f`, assigned by the server. There is **never a correct answer**: they are private preference
+  questions.
+- **Onboarding answers are private.** They are never shown to other players. They go to the bot agent (written text,
+  and the option ids the humans picked, with no tokens or player ids) so the bots can match how the humans write and
+  what they pick.
 - **Waiting is bounded.** A player who disconnects is not waited for. A bot whose agent call fails abstains.
 
 ## The secret
@@ -60,7 +67,7 @@ Server to client:
 |---|---|
 | `StateChanged` | `{gameId, stage, round, step, endsAtUtcMs, data}`. Always a **full snapshot**, never a delta. |
 | `RosterChanged` | `PlayerInfo[]` (also changes when someone connects, disconnects or is voted out) |
-| `ChatMessage` | `{id, playerId, alias, color, characterId, text, sentAtUtcMs}` |
+| `ChatMessage` | `{id, playerId, alias, color, characterId, text, sentAtUtcMs, mentions}` (`mentions` = ids of the players it @mentions) |
 | `Progress` | `{done, total}` for the current Onboarding or Voting stage |
 
 Client to server (a refused call throws a `HubException` with a readable message):
@@ -70,7 +77,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `JoinAsHost(roomCode, hostToken)` / `JoinAsPlayer(roomCode, playerId, playerToken)` | host / player | any time. Returns `{state, roster, you, transcript, serverTimeUtcMs, unmasked}` |
 | `StartGame()` | host | Lobby |
 | `TutorialStep(step)` / `TutorialDone()` | host | Tutorial |
-| `SubmitOnboarding(string[] answers)` | player | Onboarding (one answer per question) |
+| `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
 | `SendChat(text)` | living player | Discussion |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
 | `ReturnToLobby()` | host | Results |
@@ -81,6 +88,14 @@ with it, so every screen shows the same time even if a device clock is wrong (`G
 Because the state is a snapshot, a phone that refreshes mid-game just joins again and renders the current stage. The
 client keeps the player's credentials in `sessionStorage` for this. The seat stays reserved while disconnected.
 
+## What a bot knows
+
+A bot knows that **it** is a bot, the rules, **how many** bots are in the room (1 or 2), and everything a human seat
+sees: the roster by alias, the chat, the Reveal outcomes and tallies, and the humans' onboarding answers as style
+samples. It is **never told which other player is human or a bot**, and with two bots neither knows which player is its
+teammate. So a bot may accuse or vote for its own teammate without knowing it, and that is intended. Bot requests never
+carry an `IsBot` flag for anyone (`BotKnowledgeTests`). Each bot's memory and context are its own: no shared state.
+
 ## Chat rules
 
 Players are only ever their alias and character. Enforced in `ChatFilter` and the engine, for humans and bots alike:
@@ -89,15 +104,39 @@ length limit, per-player rate limit, living players only, Discussion only, and *
 The server cannot detect an arbitrary real name; that is covered by the bots' instructions and by
 `QuestionValidator`, which rejects onboarding questions that ask for a name, age, location, school, workplace or contact.
 
+### @mentions
+
+A player is mentioned by writing `@` and their alias exactly, in any letter case, for example `@Purple Mango`. The
+server finds them (`TuringTownEngine.FindMentions`) and puts their ids in the message's `mentions`. Rules:
+- Only seated players count, never the sender. Anything else is just text. At most `MaxMentionsPerMessage` (3) count,
+  and the longest alias is matched first (so `@Red Apple 2` is not read as `@Red Apple`).
+- Humans and bots mention the same way. A bot's reply goes through the same parsing and filters.
+- **A bot that is mentioned answers soon.** It is woken from its usual wait and replies after a short pause
+  (`BotMentionReplyMinDelayMs`/`MaxDelayMs`) instead of ignoring the question. The lines that mentioned it are passed to
+  the agent in `ChatRequest.Mentions`, and `ChatRequest.OtherPlayers` lists everyone else by alias (no roles, so a bot
+  can mention anyone, including a teammate it cannot identify).
+- Screens: phones show a tap-to-add `@Alias` chip for each other living player, show a message that mentions you in gold,
+  and buzz the phone if it can. The TV draws a mentioning message in a golden bubble.
+
 ## AI boundary
 
-Everything the AI does goes through `IBotAgent` (`Services/Ai/`): generate the onboarding questions, answer them as a
-bot, say the next chat line, cast a vote. Every call takes the room's `ContentPolicy`.
+Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolicy`:
 
-- `ScriptedBotAgent` works offline and is the default. It is also the fallback.
-- `FallbackBotAgent` wraps a real agent and answers with the fallback on a timeout or error, so a game never stalls.
-- **Not written yet:** the real agent (Azure AI Foundry). Its endpoint, auth and request shape are unknown, so it is to
-  be configuration-bound. Questions it returns are validated and replaced by built-in ones if invalid.
+- `IBotAgent` is a **player**: answer the onboarding form (as text or option ids), say the next chat line, cast a vote.
+- `IQuestionGenerator` is **not a player**: it writes the onboarding form (the mix of `Text`, `SingleChoice` and
+  `MultiChoice` questions) during the Tutorial. It has no persona and no game context.
+
+- `ScriptedBotAgent` and `BuiltInQuestionGenerator` work offline and are the defaults. They are also the fallbacks.
+  The built-in questions (`ScriptedBotAgent.BuiltInQuestions`) include every kind; the scripted bot answers every kind
+  validly, picking from what the humans picked.
+- `FallbackBotAgent` and `FallbackQuestionGenerator` wrap a real one and answer with the fallback on a timeout or
+  error, so a game never stalls.
+- The engine **validates** generated questions (`QuestionValidator`: the mix, option counts, ids and lengths, no
+  personal details in a question or an option, nothing mature in a family room) and every answer, human or bot
+  (`OnboardingAnswerValidator`). A bad question set is replaced by the built-in one; a bad bot answer is replaced
+  per question.
+- **Not written yet:** the real agent and generator (Azure AI Foundry). Their endpoint, auth and request shape are to be
+  configuration-bound.
 
 ## Configuration
 
@@ -109,10 +148,12 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `DiscussionSeconds` / `VotingSeconds` | 120 / 30 | |
 | `RevealSeconds` / `ResultsSeconds` | 8 / 30 | |
 | `MaxRounds` | 5 | bots win if one is still alive after this many rounds |
-| `QuestionCount` | 3 | onboarding questions |
+| `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind (the form length is their sum) |
 | `ChatMaxLength` / `AnswerMaxLength` | 200 / 300 | |
 | `ChatMinIntervalMs` | 1500 | per-player chat rate limit |
 | `BotMessagesPerRound` | 5 | cost control per bot |
+| `MaxMentionsPerMessage` | 3 | players one message may @mention |
+| `BotMentionReplyMinDelayMs` / `BotMentionReplyMaxDelayMs` | 1500 / 5000 | how soon a mentioned bot answers |
 | `BotChatMinDelayMs` / `BotChatMaxDelayMs` | 4000 / 12000 | bots wait a random time so they type like people |
 | `BotVoteMinDelayMs` / `BotVoteMaxDelayMs` | 3000 / 15000 | |
 

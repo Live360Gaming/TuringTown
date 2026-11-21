@@ -7,10 +7,15 @@ import {createAvatar} from '../characters.js';
  * A message is {alias, color, characterId, text} as sent by the server.
  */
 export class ChatFeed {
-    constructor(scene, {x = 0, y = 0, width = 400, height = 400, fontSize = 22, avatarSize = 44} = {}) {
+    /**
+     * `highlightPlayerId`: messages that @mention this player are shown in gold, so they stand out. A message is
+     * {alias, color, characterId, text, mentions: [playerId]}.
+     */
+    constructor(scene, {x = 0, y = 0, width = 400, height = 400, fontSize = 22, avatarSize = 44, highlightPlayerId = null} = {}) {
         this.scene = scene;
         this.messages = [];
         this.items = [];
+        this.highlightPlayerId = highlightPlayerId;
         this.box = {x, y, width, height, fontSize, avatarSize};
     }
 
@@ -44,8 +49,10 @@ export class ChatFeed {
 
             const alias = this.scene.add.text(textX, 0, message.alias, {fontSize: `${fontSize}px`, fontStyle: 'bold', color: message.color})
                 .setResolution(window.devicePixelRatio);
+            const toMe = this.highlightPlayerId != null && message.mentions?.includes(this.highlightPlayerId);
             const body = this.scene.add.text(textX, 0, message.text, {
-                fontSize: `${fontSize}px`, color: '#ffffff', wordWrap: {width: textWidth},
+                fontSize: `${fontSize}px`, color: toMe ? '#ffd54a' : '#ffffff', fontStyle: toMe ? 'bold' : 'normal',
+                wordWrap: {width: textWidth},
             }).setResolution(window.devicePixelRatio);
 
             const itemHeight = Math.max(avatarSize, alias.height + body.height) + gap;

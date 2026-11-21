@@ -145,11 +145,10 @@ public class RulesTests
         Assert.Null(h.Engine.TutorialDone());
         await h.ToAsync(Stage.Onboarding);
         Guid a = h.Humans[0].Id;
-        int n = h.Options.QuestionCount;
 
-        Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, ["only one"]));
-        Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, Enumerable.Repeat<string?>("email me at me@example.com", n).ToArray()));
-        Assert.Null(await h.Engine.SubmitOnboardingAsync(a, Enumerable.Repeat<string?>("I love pasta", n).ToArray()));
+        Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, [new OnboardingAnswer(h.Questions[0].Id, "only one", [])]));
+        Assert.NotNull(await h.Engine.SubmitOnboardingAsync(a, h.Answers("email me at me@example.com")));
+        Assert.Null(await h.Engine.SubmitOnboardingAsync(a, h.Answers("I love pasta")));
 
         Assert.DoesNotContain(h.Messages, m => m.Json.Contains("I love pasta"));
     }
@@ -163,7 +162,7 @@ public class RulesTests
 
         DateTimeOffset before = h.Time.GetUtcNow();
         foreach (Player human in h.Humans)
-            Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, Enumerable.Repeat<string?>("x", h.Options.QuestionCount).ToArray()));
+            Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers("x")));
         await h.ToAsync(Stage.Discussion, 1);
 
         Assert.True((h.Time.GetUtcNow() - before).TotalSeconds < h.Options.OnboardingSeconds);
@@ -183,11 +182,89 @@ public class RulesTests
         Assert.NotNull(h.Engine.ReturnToLobby());
     }
 
+    // ---------------------------------------------------------------- @mentions
+
+    [Fact]
+    public async Task A_mention_is_an_at_sign_and_an_exact_alias_and_nothing_else_counts()
+    {
+        Harness h = new(humans: 2);
+        await h.ThroughOnboardingAsync();
+        Player a = h.Humans[0], b = h.Humans[1];
+        PlayerSeat bot = h.Room.GetSeats().First(s => s.IsBot);
+
+        // B by exact alias, the bot in lower case, plus yourself, a stranger and a name with no "@".
+        string text = $"hey @{b.Alias} and @{bot.Alias.ToLowerInvariant()}, not @{a.Alias} or @Nobody Real or {b.Alias}";
+        Assert.Null(await h.Engine.SendChatAsync(a.Id, text));
+
+        ChatMessage message = Assert.Single(h.Engine.GetTranscript());
+        Assert.Equal([b.Id, bot.Id], message.Mentions.OrderBy(id => id == bot.Id));
+    }
+
+    [Fact]
+    public async Task A_message_without_mentions_has_an_empty_list()
+    {
+        Harness h = new(humans: 2);
+        await h.ThroughOnboardingAsync();
+
+        Assert.Null(await h.Engine.SendChatAsync(h.Humans[0].Id, $"I wonder who {h.Humans[1].Alias} is"));
+
+        Assert.Empty(Assert.Single(h.Engine.GetTranscript()).Mentions);
+    }
+
+    [Fact]
+    public async Task Only_a_few_players_can_be_mentioned_in_one_message()
+    {
+        Harness h = new(humans: 4);
+        await h.ThroughOnboardingAsync();
+
+        string everyone = string.Join(" ", h.Room.GetSeats().Where(s => s.Id != h.Humans[0].Id).Select(s => $"@{s.Alias}"));
+        Assert.Null(await h.Engine.SendChatAsync(h.Humans[0].Id, everyone));
+
+        Assert.Equal(h.Options.MaxMentionsPerMessage, Assert.Single(h.Engine.GetTranscript()).Mentions.Count);
+    }
+
+    [Fact]
+    public async Task A_bot_that_is_mentioned_answers_soon_without_waiting_for_its_turn()
+    {
+        // Its normal turn is 10 minutes away, so only the mention can make it speak.
+        Harness h = new(humans: 2, o =>
+        {
+            o.BotMessagesPerRound = 2;
+            o.BotChatMinDelayMs = 600_000;
+            o.BotChatMaxDelayMs = 600_000;
+        });
+        ChatRequest? seen = null;
+        h.Agent.Chat = request =>
+        {
+            if (request.Mentions.Count == 0) return null;
+            seen = request;
+            return $"@{request.Mentions[0].Alias} I hear you";
+        };
+
+        await h.ThroughOnboardingAsync();
+        Player a = h.Humans[0];
+        PlayerSeat bot = h.Room.GetSeats().First(s => s.IsBot);
+
+        Assert.Null(await h.Engine.SendChatAsync(a.Id, $"@{bot.Alias} are you real?"));
+        await h.UntilAsync(() => h.Engine.GetTranscript().Count >= 2, "the bot's answer");
+
+        ChatMessage answer = h.Engine.GetTranscript()[1];
+        Assert.Equal(bot.Id, answer.PlayerId);
+        Assert.Equal([a.Id], answer.Mentions);
+
+        // What the bot was shown: the line that mentioned it, and everyone else by alias only (no roles).
+        Assert.NotNull(seen);
+        Assert.Equal(a.Alias, seen.Mentions[0].Alias);
+        Assert.Equal(h.Humans.Select(p => p.Alias).Order(), seen.OtherPlayers.Order());
+        Assert.DoesNotContain(bot.Alias, seen.OtherPlayers);
+    }
+
     // ---------------------------------------------------------------- chat filter
 
     [Theory]
     [InlineData("hello there", ChatCheck.Ok)]
     [InlineData("what names do you like?", ChatCheck.Ok)]
+    [InlineData("@Red Apple what do you think?", ChatCheck.Ok)]
     [InlineData("I have 3 cats and 2 dogs", ChatCheck.Ok)]
     [InlineData("", ChatCheck.Empty)]
     [InlineData("   ", ChatCheck.Empty)]
@@ -248,21 +325,25 @@ public class RulesTests
         {
             ContentPolicy policy = new(familyFriendly);
             for (int i = 0; i < 25; i++)
-                Assert.True(QuestionValidator.IsValid(ScriptedBotAgent.BuiltInQuestions(policy, 3), policy, 3));
+            {
+                IReadOnlyList<OnboardingQuestion> questions = ScriptedBotAgent.BuiltInQuestions(policy, new QuestionMix(1, 1, 1));
+                Assert.True(QuestionValidator.IsValid(questions, policy, new QuestionMix(1, 1, 1)));
+            }
         }
     }
 
     [Fact]
     public async Task Bad_questions_from_the_agent_are_replaced_by_built_in_ones()
     {
-        Harness h = new(humans: 2);
-        h.Agent.Questions = [new OnboardingQuestion("q1", "What is your name?", false), new("q2", "x", false), new("q3", "y", false)];
+        // Three text questions: one asks for a name, and the mix is wrong as well. Either way the built-in set is used.
+        Harness h = new(humans: 2, questions: new TestQuestionGenerator(
+            [new OnboardingQuestion("q1", "What is your name?", false), new("q2", "x", false), new("q3", "y", false)]));
 
         Assert.Null(h.Engine.TutorialDone());
         await h.ToAsync(Stage.Onboarding);
 
         OnboardingData data = (OnboardingData)h.Room.State.Data!;
         Assert.DoesNotContain(data.Questions, q => q.Text.Contains("name"));
-        Assert.True(QuestionValidator.IsValid(data.Questions.ToArray(), new ContentPolicy(true), 3));
+        Assert.True(QuestionValidator.IsValid(data.Questions.ToArray(), new ContentPolicy(true), h.Options.Mix));
     }
 }

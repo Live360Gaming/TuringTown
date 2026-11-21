@@ -4,7 +4,7 @@ Code is behavior. Data is content and numbers. A mini game is described by data,
 questions, etc.) can be produced by an agent that returns data in a fixed structure. This doc defines that structure.
 
 Status: **a design, partly built.** The first game, Turing Town, exists (see [game-flow.md](game-flow.md)). What is
-implemented: `game.json` for Turing Town, the onboarding-question shape (`{id, text, mature}`) with its validation
+implemented: `game.json` for Turing Town, the onboarding-question shape (`{id, kind, text, mature, options, minSelect, maxSelect}`) with its validation
 (`QuestionValidator`), the `family`/`mature` tone mapping from `ContentPolicy`, and the `IBotAgent` boundary with an
 offline `ScriptedBotAgent`. **Not implemented:** the real AI agent and the prompt below, the JSON Schema file, and
 the built-in packs as files (the built-in questions are in code). It extends [content-policy.md](content-policy.md),
@@ -71,6 +71,19 @@ required in all of them:
   }
 }
 ```
+
+Turing Town's item is an onboarding question, so it adds `kind`, `options` and the selection limits:
+
+```json
+{ "id": "q2", "kind": "SingleChoice", "text": "Pick a superpower.", "mature": false,
+  "options": [ { "id": "a", "text": "Flying", "mature": false }, { "id": "b", "text": "Invisibility", "mature": false } ],
+  "minSelect": 1, "maxSelect": 1 }
+```
+
+`kind` is `Text` (no options, `minSelect = maxSelect = 0`), `SingleChoice` (2-6 options, `1`/`1`) or `MultiChoice` (3-6
+options, `1 <= minSelect <= maxSelect <= options`, `maxSelect >= 2`). Option ids are `a`..`f` and unique, option text is at
+most 40 characters and unique, and each option carries its own `mature` flag. **There is no correct answer and no
+scoring.** Validation is `QuestionValidator`; the agent's output uses a schema without ids, which the server assigns.
 
 A game adds its own fields next to these (answers, options, difficulty). `mature` is the flag that
 [content-policy.md](content-policy.md) already requires on static pools. The server uses it to filter, and the
@@ -207,6 +220,6 @@ Conventions:
 
 - Where the server reads `game.json`: duplicated on the server, or the server serves `public/minigames`. The prompt
   needs it server-side, so it should have one source of truth.
-- Turing Town's item is a bare onboarding question. If a later game needs more fields, extend the item schema
-  per game; `id`, `text` and `mature` stay required.
+- Turing Town's item is an onboarding question with a `kind` and options. If a later game needs more fields, extend the
+  item schema per game; `id`, `text` and `mature` stay required.
 - Retry and fallback policy when the agent's output keeps failing validation.

@@ -23,6 +23,7 @@ builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
 builder.Services.AddSingleton<IBotAgent, ScriptedBotAgent>();
+builder.Services.AddSingleton<IQuestionGenerator, BuiltInQuestionGenerator>();
 builder.Services.AddSingleton<IContentFilter, AllowAllContentFilter>();
 builder.Services.AddSingleton<IRoomBroadcaster, SignalRRoomBroadcaster>();
 builder.Services.AddSingleton<GameCoordinator>();

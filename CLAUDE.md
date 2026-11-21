@@ -88,7 +88,7 @@ served under a sub-path).
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,
 default ON). See [docs/content-policy.md](docs/content-policy.md). The design for per-game data and AI-generated
 content (schemas, prompts, tone handling) is in [docs/game-data.md](docs/game-data.md). Only the offline part exists:
-the bots and the onboarding questions go through `IBotAgent`, and there is **no real AI agent wired in yet** (no
+the bots go through `IBotAgent` and the onboarding questions through `IQuestionGenerator`, and there is **no real AI agent wired in yet** (no
 `FoundryBotAgent`, and `AllowAllContentFilter` is a placeholder for Azure Content Safety).
 
 **Hosting limit.** Rooms, engines and SignalR groups are all in one process's memory, so the app must run as a

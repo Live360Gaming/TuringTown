@@ -4,6 +4,7 @@ import {enterFixedSize, fitImageToScreen} from '../scaling.js';
 import {getSession, leaveToMenu} from '../session.js';
 import {attachCountdown} from '../countdown.js';
 import {createAvatar} from '../characters.js';
+import {listen} from './listen.js';
 
 /**
  * Base for a screen on the TV during a game: the fixed 16:9 canvas, background, a title, the stage countdown,
@@ -38,8 +39,7 @@ export class HostStage extends Scene {
 
     /** Subscribe to an emitter for as long as this scene is running. */
     listen(emitter, event, handler) {
-        emitter.on(event, handler, this);
-        this.events.once('shutdown', () => emitter.off(event, handler, this));
+        listen(this, emitter, event, handler);
     }
 
     /**

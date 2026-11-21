@@ -41,9 +41,52 @@ internal readonly record struct PlayerSeat(Guid Id, string Alias, string Color, 
     public PlayerInfo ToInfo() => new(Id, Alias, Color, CharacterId, Alive, Connected);
 }
 
-public readonly record struct ChatMessage(Guid Id, Guid PlayerId, string Alias, string Color, string CharacterId, string Text, long SentAtUtcMs);
+/// <param name="Mentions">Ids of the players this message @mentions (only real, seated players; never the sender).</param>
+public readonly record struct ChatMessage(Guid Id, Guid PlayerId, string Alias, string Color, string CharacterId, string Text, long SentAtUtcMs, IReadOnlyList<Guid> Mentions);
 
-public readonly record struct OnboardingQuestion(string Id, string Text, bool Mature);
+/// <summary>How a player answers an onboarding question. There is never a "correct" answer: these are private
+/// preference questions that feed the bots' personas.</summary>
+public enum QuestionKind
+{
+    Text,
+    SingleChoice,
+    MultiChoice
+}
+
+/// <summary>One option of a choice question. Ids are <c>a</c>..<c>f</c>, assigned by the server.</summary>
+public readonly record struct QuestionOption(string Id, string Text, bool Mature);
+
+/// <summary>
+/// One onboarding question. A <see cref="QuestionKind.Text"/> question has no options. A single choice has 2-6 and
+/// <c>MinSelect = MaxSelect = 1</c>. A multi choice has 3-6 and <c>1 &lt;= MinSelect &lt;= MaxSelect</c>.
+/// </summary>
+public sealed record OnboardingQuestion(
+    string Id,
+    QuestionKind Kind,
+    string Text,
+    bool Mature,
+    IReadOnlyList<QuestionOption> Options,
+    int MinSelect,
+    int MaxSelect)
+{
+    /// <summary>A free-text question.</summary>
+    public OnboardingQuestion(string id, string text, bool mature)
+        : this(id, QuestionKind.Text, text, mature, [], 0, 0)
+    {
+    }
+}
+
+/// <summary>
+/// A player's answer to one question: free <paramref name="Text"/> for a text question, or the chosen
+/// <paramref name="OptionIds"/> for a choice question. Never both.
+/// </summary>
+public sealed record OnboardingAnswer(string QuestionId, string? Text, IReadOnlyList<string>? OptionIds);
+
+/// <summary>How many questions of each kind a game asks.</summary>
+public readonly record struct QuestionMix(int Text, int SingleChoice, int MultiChoice)
+{
+    public int Total => Text + SingleChoice + MultiChoice;
+}
 
 /// <summary>Data for the Onboarding stage.</summary>
 public readonly record struct OnboardingData(IReadOnlyList<OnboardingQuestion> Questions);

@@ -1,4 +1,4 @@
-import {BTN, BTN_HOVER} from '../../../../core/ui/Button.js';
+import {addHoverFill, BTN} from '../../../../core/ui/Button.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
@@ -39,8 +39,7 @@ export class TuringTownPlayerVoting extends PlayerStage {
             .setOrigin(0, 0.5);
         const container = this.add.container(0, 0, [bg, avatar, label]);
 
-        bg.on('pointerover', () => bg.setFillStyle(BTN_HOVER));
-        bg.on('pointerout', () => bg.setFillStyle(BTN));
+        addHoverFill(bg);
         bg.on('pointerup', () => this.vote(player, bg));
 
         return {container, bg};

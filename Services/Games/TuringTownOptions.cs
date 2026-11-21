@@ -1,3 +1,5 @@
+using TuringTown.Models;
+
 namespace TuringTown.Services.Games;
 
 /// <summary>
@@ -20,7 +22,15 @@ public sealed class TuringTownOptions
     /// <summary>After this many rounds with a bot still alive, the bots win.</summary>
     public int MaxRounds { get; set; } = 5;
 
-    public int QuestionCount { get; set; } = 3;
+    /// <summary>How many onboarding questions of each kind a game asks (a fixed mix, so the form length is predictable).</summary>
+    public int TextQuestions { get; set; } = 1;
+    public int SingleChoiceQuestions { get; set; } = 1;
+    public int MultiChoiceQuestions { get; set; } = 1;
+
+    public QuestionMix Mix => new(TextQuestions, SingleChoiceQuestions, MultiChoiceQuestions);
+
+    public int QuestionCount => Mix.Total;
+
     public int AnswerMaxLength { get; set; } = 300;
 
     public int ChatMaxLength { get; set; } = 200;
@@ -34,6 +44,17 @@ public sealed class TuringTownOptions
     /// <summary>Bots wait a random time in this range before each chat line, so they type like people.</summary>
     public int BotChatMinDelayMs { get; set; } = 4000;
     public int BotChatMaxDelayMs { get; set; } = 12000;
+
+    /// <summary>
+    /// Most players one message may @mention (more are ignored), so a message cannot be used to spam everyone.
+    /// </summary>
+    public int MaxMentionsPerMessage { get; set; } = 3;
+
+    /// <summary>
+    /// A bot that is @mentioned answers after a short pause in this range, instead of waiting for its usual turn.
+    /// </summary>
+    public int BotMentionReplyMinDelayMs { get; set; } = 1500;
+    public int BotMentionReplyMaxDelayMs { get; set; } = 5000;
 
     public int BotVoteMinDelayMs { get; set; } = 3000;
     public int BotVoteMaxDelayMs { get; set; } = 15000;

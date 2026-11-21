@@ -8,10 +8,7 @@ namespace TuringTown.Services.Ai;
 /// </summary>
 public sealed class FallbackBotAgent(IBotAgent primary, IBotAgent fallback, TimeSpan timeout) : IBotAgent
 {
-    public Task<IReadOnlyList<OnboardingQuestion>> GenerateOnboardingQuestionsAsync(QuestionRequest request, CancellationToken ct) =>
-        Run(c => primary.GenerateOnboardingQuestionsAsync(request, c), c => fallback.GenerateOnboardingQuestionsAsync(request, c), ct);
-
-    public Task<IReadOnlyList<string>> AnswerOnboardingAsync(OnboardingAnswerRequest request, CancellationToken ct) =>
+    public Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest request, CancellationToken ct) =>
         Run(c => primary.AnswerOnboardingAsync(request, c), c => fallback.AnswerOnboardingAsync(request, c), ct);
 
     public Task<string?> NextChatMessageAsync(ChatRequest request, CancellationToken ct) =>

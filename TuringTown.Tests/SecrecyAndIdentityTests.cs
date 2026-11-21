@@ -222,18 +222,49 @@ public class SecrecyAndIdentityTests
 
     private sealed class BrokenAgent : IBotAgent
     {
-        public Task<IReadOnlyList<OnboardingQuestion>> GenerateOnboardingQuestionsAsync(QuestionRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
-        public Task<IReadOnlyList<string>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
+        public Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
         public Task<string?> NextChatMessageAsync(ChatRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
         public Task<Guid?> CastVoteAsync(VoteRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
     }
 
     private sealed class HangingAgent : IBotAgent
     {
-        public async Task<IReadOnlyList<OnboardingQuestion>> GenerateOnboardingQuestionsAsync(QuestionRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return []; }
-        public async Task<IReadOnlyList<string>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return []; }
+        public async Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return []; }
         public async Task<string?> NextChatMessageAsync(ChatRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return null; }
         public async Task<Guid?> CastVoteAsync(VoteRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return null; }
+    }
+
+    private sealed class BrokenGenerator : IQuestionGenerator
+    {
+        public Task<IReadOnlyList<OnboardingQuestion>> GenerateAsync(QuestionRequest r, CancellationToken ct) => throw new InvalidOperationException("down");
+    }
+
+    private sealed class HangingGenerator : IQuestionGenerator
+    {
+        public async Task<IReadOnlyList<OnboardingQuestion>> GenerateAsync(QuestionRequest r, CancellationToken ct) { await Task.Delay(Timeout.Infinite, ct); return []; }
+    }
+
+    [Fact]
+    public async Task An_erroring_question_generator_is_answered_by_the_built_in_questions()
+    {
+        FallbackQuestionGenerator generator = new(new BrokenGenerator(), new BuiltInQuestionGenerator(), TimeSpan.FromSeconds(5));
+        QuestionMix mix = new(1, 1, 1);
+        ContentPolicy policy = new(true);
+
+        IReadOnlyList<OnboardingQuestion> questions = await generator.GenerateAsync(new QuestionRequest(policy, mix), default);
+        Assert.True(QuestionValidator.IsValid(questions, policy, mix));
+    }
+
+    [Fact]
+    public async Task A_hanging_question_generator_times_out_into_the_built_in_questions()
+    {
+        FallbackQuestionGenerator generator = new(new HangingGenerator(), new BuiltInQuestionGenerator(), TimeSpan.FromMilliseconds(50));
+
+        IReadOnlyList<OnboardingQuestion> questions = await generator
+            .GenerateAsync(new QuestionRequest(new ContentPolicy(true), new QuestionMix(1, 1, 1)), default)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(3, questions.Count);
     }
 
     [Fact]
@@ -241,9 +272,6 @@ public class SecrecyAndIdentityTests
     {
         FallbackBotAgent agent = new(new BrokenAgent(), new ScriptedBotAgent(), TimeSpan.FromSeconds(5));
         ContentPolicy policy = new(true);
-
-        IReadOnlyList<OnboardingQuestion> questions = await agent.GenerateOnboardingQuestionsAsync(new QuestionRequest(policy, 3), default);
-        Assert.Equal(3, questions.Count);
 
         Guid id = Guid.NewGuid();
         Guid? vote = await agent.CastVoteAsync(new VoteRequest("Red Apple", "", policy, 1, [new VoteCandidate(id, "Blue Kiwi")], []), default);
@@ -255,7 +283,7 @@ public class SecrecyAndIdentityTests
     {
         FallbackBotAgent agent = new(new HangingAgent(), new ScriptedBotAgent(), TimeSpan.FromMilliseconds(50));
 
-        IReadOnlyList<string> answers = await agent
+        IReadOnlyList<OnboardingAnswer> answers = await agent
             .AnswerOnboardingAsync(new OnboardingAnswerRequest("Red Apple", new ContentPolicy(true), [new OnboardingQuestion("q1", "Why?", false)], []), default)
             .WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -265,9 +293,9 @@ public class SecrecyAndIdentityTests
     [Fact]
     public async Task Cancelling_the_caller_is_not_swallowed_by_the_fallback()
     {
-        FallbackBotAgent agent = new(new HangingAgent(), new ScriptedBotAgent(), TimeSpan.FromSeconds(30));
+        FallbackQuestionGenerator generator = new(new HangingGenerator(), new BuiltInQuestionGenerator(), TimeSpan.FromSeconds(30));
         using CancellationTokenSource cts = new();
-        Task<IReadOnlyList<OnboardingQuestion>> call = agent.GenerateOnboardingQuestionsAsync(new QuestionRequest(new ContentPolicy(true), 3), cts.Token);
+        Task<IReadOnlyList<OnboardingQuestion>> call = generator.GenerateAsync(new QuestionRequest(new ContentPolicy(true), new QuestionMix(1, 1, 1)), cts.Token);
 
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);

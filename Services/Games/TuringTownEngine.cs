@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using TuringTown.Models;
 using TuringTown.Services.Ai;
@@ -18,9 +17,11 @@ public sealed class TuringTownEngine : IDisposable
 {
     private readonly Room _room;
     private readonly IBotAgent _agent;
+    private readonly IQuestionGenerator _questionGenerator;
     private readonly IContentFilter _contentFilter;
     private readonly IRoomBroadcaster _broadcaster;
-    private readonly TimeProvider _time;
+    private readonly GameClock _clock;
+    private readonly ChatLog _chat;
     private readonly TuringTownOptions _opt;
     private readonly ILogger _logger;
     private readonly Action<TuringTownEngine>? _onFinished;
@@ -28,22 +29,25 @@ public sealed class TuringTownEngine : IDisposable
 
     // Everything below is guarded by _gate.
     private readonly object _gate = new();
-    private readonly List<ChatMessage> _transcript = [];
-    private readonly Dictionary<Guid, string[]> _answers = [];
+    private readonly Dictionary<Guid, OnboardingAnswer[]> _answers = [];
     private readonly Dictionary<Guid, string> _personas = [];
     private readonly Dictionary<Guid, Guid?> _votes = [];
-    private readonly Dictionary<Guid, DateTimeOffset> _lastChat = [];
     private readonly HashSet<Guid> _unmasked = [];
-    private IReadOnlyList<OnboardingQuestion> _questions = [];
-    private TaskCompletionSource _stageDone = NewSignal();
 
-    private readonly TaskCompletionSource _tutorialDone = NewSignal();
-    private readonly TaskCompletionSource _resultsDone = NewSignal();
+    // Lines that @mentioned a bot and that it has not answered yet, and a signal that wakes the bot when one arrives.
+    private readonly Dictionary<Guid, List<ChatLine>> _pendingMentions = [];
+    private readonly Dictionary<Guid, TaskCompletionSource> _mentionSignals = [];
+    private IReadOnlyList<OnboardingQuestion> _questions = [];
+    private TaskCompletionSource _stageDone = GameClock.NewSignal();
+
+    private readonly TaskCompletionSource _tutorialDone = GameClock.NewSignal();
+    private readonly TaskCompletionSource _resultsDone = GameClock.NewSignal();
     private Task? _loop;
 
     public TuringTownEngine(
         Room room,
         IBotAgent agent,
+        IQuestionGenerator questionGenerator,
         IContentFilter contentFilter,
         IRoomBroadcaster broadcaster,
         TimeProvider time,
@@ -53,10 +57,12 @@ public sealed class TuringTownEngine : IDisposable
     {
         _room = room;
         _agent = agent;
+        _questionGenerator = questionGenerator;
         _contentFilter = contentFilter;
         _broadcaster = broadcaster;
-        _time = time;
         _opt = options;
+        _clock = new GameClock(time, _cts.Token);
+        _chat = new ChatLog(options.TranscriptLimit, options.ChatMinIntervalMs);
         _logger = logger;
         _onFinished = onFinished;
     }
@@ -81,8 +87,6 @@ public sealed class TuringTownEngine : IDisposable
         _cts.Cancel();
         _cts.Dispose();
     }
-
-    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     // ---------------------------------------------------------------- the game loop
 
@@ -144,7 +148,7 @@ public sealed class TuringTownEngine : IDisposable
     {
         TimeSpan max = TimeSpan.FromSeconds(_opt.TutorialMaxSeconds);
         await EnterStageAsync(Stage.Tutorial, 0, 0, max, null);
-        await WaitAsync(max, _tutorialDone.Task);
+        await _clock.WaitAsync(max, _tutorialDone.Task);
     }
 
     private async Task RunOnboardingAsync(IReadOnlyList<OnboardingQuestion> questions)
@@ -154,12 +158,12 @@ public sealed class TuringTownEngine : IDisposable
         {
             _questions = questions;
             _answers.Clear();
-            _stageDone = NewSignal();
+            _stageDone = GameClock.NewSignal();
         }
 
         await EnterStageAsync(Stage.Onboarding, 0, 0, duration, new OnboardingData(questions));
         await UpdateProgressAsync();
-        await WaitAsync(duration, CurrentSignal());
+        await _clock.WaitAsync(duration, CurrentSignal());
 
         // The bots answer last, so they can match how the humans actually wrote.
         await BotOnboardingAsync(questions);
@@ -168,12 +172,20 @@ public sealed class TuringTownEngine : IDisposable
     private async Task RunDiscussionAsync(int round)
     {
         TimeSpan duration = TimeSpan.FromSeconds(_opt.DiscussionSeconds);
+
+        // Mentions from an earlier round are old news.
+        lock (_gate)
+        {
+            _pendingMentions.Clear();
+            _mentionSignals.Clear();
+        }
+
         await EnterStageAsync(Stage.Discussion, round, 0, duration, null);
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotChatLoopAsync(b, round, stage.Token)).ToArray();
 
-        await WaitAsync(duration);
+        await _clock.WaitAsync(duration);
 
         stage.Cancel();
         await Task.WhenAll(bots);
@@ -185,7 +197,7 @@ public sealed class TuringTownEngine : IDisposable
         lock (_gate)
         {
             _votes.Clear();
-            _stageDone = NewSignal();
+            _stageDone = GameClock.NewSignal();
         }
 
         await EnterStageAsync(Stage.Voting, round, 0, duration, null);
@@ -194,7 +206,7 @@ public sealed class TuringTownEngine : IDisposable
         Task[] bots = BotSeats().Select(b => BotVoteAsync(b, round, stage.Token)).ToArray();
 
         await UpdateProgressAsync();
-        await WaitAsync(duration, CurrentSignal());
+        await _clock.WaitAsync(duration, CurrentSignal());
 
         stage.Cancel();
         await Task.WhenAll(bots);
@@ -214,7 +226,7 @@ public sealed class TuringTownEngine : IDisposable
 
         TimeSpan revealTime = TimeSpan.FromSeconds(_opt.RevealSeconds);
         await EnterStageAsync(Stage.Reveal, round, 0, revealTime, reveal);
-        await WaitAsync(revealTime);
+        await _clock.WaitAsync(revealTime);
     }
 
     private async Task RunResultsAsync(string winner)
@@ -228,7 +240,7 @@ public sealed class TuringTownEngine : IDisposable
 
         TimeSpan duration = TimeSpan.FromSeconds(_opt.ResultsSeconds);
         await EnterStageAsync(Stage.Results, 0, 0, duration, new ResultsData(winner, roles));
-        await WaitAsync(duration, _resultsDone.Task);
+        await _clock.WaitAsync(duration, _resultsDone.Task);
     }
 
     /// <summary>
@@ -250,7 +262,7 @@ public sealed class TuringTownEngine : IDisposable
 
     private async Task EnterStageAsync(Stage stage, int round, int step, TimeSpan? duration, object? data)
     {
-        long? endsAt = duration is { } d ? _time.GetUtcNow().Add(d).ToUnixTimeMilliseconds() : null;
+        long? endsAt = duration is { } d ? _clock.EndsAt(d) : null;
         GameState state = _room.SetState(new GameState(Room.GameId, stage, round, step, endsAt, data));
         await _broadcaster.StateChanged(_room, state);
     }
@@ -259,30 +271,6 @@ public sealed class TuringTownEngine : IDisposable
     {
         lock (_gate)
             return _stageDone.Task;
-    }
-
-    /// <summary>
-    /// Waits for <paramref name="timeout"/> or until <paramref name="signal"/> completes, whichever is first.
-    /// Throws if the engine is disposed meanwhile.
-    /// </summary>
-    private async Task WaitAsync(TimeSpan timeout, Task? signal = null)
-    {
-        using CancellationTokenSource local = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
-        Task delay = Task.Delay(timeout, _time, local.Token);
-
-        await Task.WhenAny(signal ?? delay, delay);
-
-        local.Cancel();
-        _cts.Token.ThrowIfCancellationRequested();
-
-        try
-        {
-            await delay;
-        }
-        catch (OperationCanceledException)
-        {
-            // We cancelled it ourselves because the signal arrived first.
-        }
     }
 
     // ---------------------------------------------------------------- progress
@@ -339,8 +327,7 @@ public sealed class TuringTownEngine : IDisposable
 
     public IReadOnlyList<ChatMessage> GetTranscript()
     {
-        lock (_gate)
-            return _transcript.ToArray();
+        return _chat.Snapshot();
     }
 
     /// <summary>
@@ -378,7 +365,7 @@ public sealed class TuringTownEngine : IDisposable
         return null;
     }
 
-    public async Task<string?> SubmitOnboardingAsync(Guid playerId, IReadOnlyList<string?>? answers)
+    public async Task<string?> SubmitOnboardingAsync(Guid playerId, IReadOnlyList<OnboardingAnswer?>? answers)
     {
         if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot) return "Unknown player.";
         if (_room.State.Stage != Stage.Onboarding) return "The form is closed.";
@@ -387,16 +374,16 @@ public sealed class TuringTownEngine : IDisposable
         lock (_gate)
             questions = _questions;
 
-        if (answers is null || answers.Count != questions.Count) return "Please answer every question.";
+        // Checked against the questions that were asked: unknown or missing questions, wrong option counts and
+        // unknown options, free text on a choice question, over-long or leaky text.
+        string? error = OnboardingAnswerValidator.Validate(questions, answers, _opt.AnswerMaxLength, out OnboardingAnswer[] cleaned);
+        if (error is not null) return error;
 
-        string[] cleaned = new string[questions.Count];
-        for (int i = 0; i < cleaned.Length; i++)
+        // Only free text can carry anything unwanted; a choice is just option ids from the server's own list.
+        foreach (OnboardingAnswer answer in cleaned)
         {
-            ChatCheck check = ChatFilter.Check(answers[i], _opt.AnswerMaxLength, out string text);
-            if (check is not (ChatCheck.Ok or ChatCheck.Empty)) return ChatFilter.Describe(check);
-            if (text.Length > 0 && !await _contentFilter.IsAllowedAsync(text, _room.ContentPolicy, _cts.Token))
+            if (answer.Text is { Length: > 0 } text && !await _contentFilter.IsAllowedAsync(text, _room.ContentPolicy, _cts.Token))
                 return "That answer is not allowed.";
-            cleaned[i] = text;
         }
 
         lock (_gate)
@@ -415,13 +402,7 @@ public sealed class TuringTownEngine : IDisposable
         if (!seat.Alive) return "You have been voted out. You can only watch now.";
         if (_room.State.Stage != Stage.Discussion) return "Chat is closed right now.";
 
-        lock (_gate)
-        {
-            DateTimeOffset now = _time.GetUtcNow();
-            if (_lastChat.TryGetValue(playerId, out DateTimeOffset last) && (now - last).TotalMilliseconds < _opt.ChatMinIntervalMs)
-                return "Slow down a little.";
-            _lastChat[playerId] = now;
-        }
+        if (!_chat.TryTakeTurn(playerId, _clock.UtcNow)) return "Slow down a little.";
 
         return await PostChatAsync(seat, text, _cts.Token);
     }
@@ -451,24 +432,35 @@ public sealed class TuringTownEngine : IDisposable
         if (check != ChatCheck.Ok) return ChatFilter.Describe(check);
         if (!await _contentFilter.IsAllowedAsync(cleaned, _room.ContentPolicy, ct)) return "That message is not allowed.";
 
+        IReadOnlyList<PlayerSeat> mentioned =
+            MentionParser.Find(cleaned, _room.GetSeats().Where(s => s.Id != sender.Id), _opt.MaxMentionsPerMessage);
+
         ChatMessage message;
         lock (_gate)
         {
             if (_room.State.Stage != Stage.Discussion) return "Chat is closed right now.";
 
             message = new ChatMessage(Guid.NewGuid(), sender.Id, sender.Alias, sender.Color, sender.CharacterId, cleaned,
-                _time.GetUtcNow().ToUnixTimeMilliseconds());
-            _transcript.Add(message);
-            if (_transcript.Count > _opt.TranscriptLimit) _transcript.RemoveAt(0);
+                _clock.ToUnixMs(_clock.UtcNow), mentioned.Select(s => s.Id).ToArray());
+            _chat.Add(message);
+
+            // A bot that was spoken to will answer, rather than waiting for its usual turn.
+            foreach (PlayerSeat seat in mentioned.Where(s => s.IsBot))
+            {
+                if (!_pendingMentions.TryGetValue(seat.Id, out List<ChatLine>? pending))
+                    _pendingMentions[seat.Id] = pending = [];
+                pending.Add(new ChatLine(sender.Alias, cleaned));
+
+                if (_mentionSignals.TryGetValue(seat.Id, out TaskCompletionSource? signal)) signal.TrySetResult();
+            }
         }
 
         await _broadcaster.ChatMessage(_room, message);
         return null;
     }
 
-    // Must be called with the gate held.
     private IReadOnlyList<ChatLine> RecentLines() =>
-        _transcript.TakeLast(_opt.BotContextLines).Select(m => new ChatLine(m.Alias, m.Text)).ToArray();
+        _chat.Recent(_opt.BotContextLines).Select(m => new ChatLine(m.Alias, m.Text)).ToArray();
 
     // ---------------------------------------------------------------- the bots
 
@@ -480,10 +472,11 @@ public sealed class TuringTownEngine : IDisposable
         try
         {
             IReadOnlyList<OnboardingQuestion> questions =
-                await _agent.GenerateOnboardingQuestionsAsync(new QuestionRequest(policy, _opt.QuestionCount), _cts.Token);
+                await _questionGenerator.GenerateAsync(new QuestionRequest(policy, _opt.Mix), _cts.Token);
 
-            if (QuestionValidator.IsValid(questions, policy, _opt.QuestionCount)) return questions;
-            _logger.LogWarning("Room {Room}: the agent's onboarding questions failed validation, using the built-in ones", _room.Code);
+            if (QuestionValidator.IsValid(questions, policy, _opt.Mix) && await QuestionsAllowedAsync(questions, policy))
+                return questions;
+            _logger.LogWarning("Room {Room}: the generated onboarding questions failed validation, using the built-in ones", _room.Code);
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
         {
@@ -494,24 +487,50 @@ public sealed class TuringTownEngine : IDisposable
             _logger.LogWarning(ex, "Room {Room}: could not get onboarding questions from the agent, using the built-in ones", _room.Code);
         }
 
-        return ScriptedBotAgent.BuiltInQuestions(policy, _opt.QuestionCount);
+        return ScriptedBotAgent.BuiltInQuestions(policy, _opt.Mix);
+    }
+
+    /// <summary>
+    /// Generated text is shown to every player, so it passes the same content filter as chat.
+    /// </summary>
+    private async Task<bool> QuestionsAllowedAsync(IReadOnlyList<OnboardingQuestion> questions, ContentPolicy policy)
+    {
+        foreach (OnboardingQuestion q in questions)
+        {
+            if (!await _contentFilter.IsAllowedAsync(q.Text, policy, _cts.Token)) return false;
+            foreach (QuestionOption option in q.Options)
+                if (!await _contentFilter.IsAllowedAsync(option.Text, policy, _cts.Token)) return false;
+        }
+        return true;
     }
 
     private async Task BotOnboardingAsync(IReadOnlyList<OnboardingQuestion> questions)
     {
-        string[] samples;
+        // What the humans answered, with no ids or names: free text for style, option ids for what they pick.
+        OnboardingAnswer[] samples;
         lock (_gate)
-            samples = _answers.Values.SelectMany(a => a).Where(a => a.Length > 0).ToArray();
+            samples = _answers.Values.SelectMany(a => a).ToArray();
 
         await Task.WhenAll(BotSeats().Select(async bot =>
         {
             try
             {
-                IReadOnlyList<string> answers = await _agent.AnswerOnboardingAsync(
+                IReadOnlyList<OnboardingAnswer> given = await _agent.AnswerOnboardingAsync(
                     new OnboardingAnswerRequest(bot.Alias, _room.ContentPolicy, questions, samples), _cts.Token);
 
+                // The same checks as for a human. An invalid answer is replaced, so a bot always has a full persona.
+                OnboardingAnswer[] answers = new OnboardingAnswer[questions.Count];
+                for (int i = 0; i < answers.Length; i++)
+                {
+                    OnboardingAnswer? answer = given?.FirstOrDefault(a => a?.QuestionId == questions[i].Id);
+                    bool ok = OnboardingAnswerValidator.ValidateOne(questions[i], i + 1, answer, _opt.AnswerMaxLength, out OnboardingAnswer cleaned) is null
+                              && (cleaned.Text is not { Length: > 0 } text || await _contentFilter.IsAllowedAsync(text, _room.ContentPolicy, _cts.Token));
+
+                    answers[i] = ok ? cleaned : ScriptedBotAgent.ScriptedAnswer(questions[i], samples);
+                }
+
                 lock (_gate)
-                    _personas[bot.Id] = string.Join(" | ", answers);
+                    _personas[bot.Id] = PersonaText(questions, answers);
             }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested)
             {
@@ -525,6 +544,23 @@ public sealed class TuringTownEngine : IDisposable
         }));
     }
 
+    /// <summary>
+    /// The bot's own answers as one line of text, for its prompt. Choices are written out as the option texts.
+    /// </summary>
+    private static string PersonaText(IReadOnlyList<OnboardingQuestion> questions, IReadOnlyList<OnboardingAnswer> answers)
+    {
+        List<string> parts = [];
+        foreach (OnboardingQuestion q in questions)
+        {
+            OnboardingAnswer? a = answers.FirstOrDefault(x => x.QuestionId == q.Id);
+            string value = q.Kind == QuestionKind.Text
+                ? a?.Text ?? ""
+                : string.Join(", ", q.Options.Where(o => a?.OptionIds?.Contains(o.Id) == true).Select(o => o.Text));
+            if (value.Length > 0) parts.Add(value);
+        }
+        return string.Join(" | ", parts);
+    }
+
     private async Task BotChatLoopAsync(PlayerSeat bot, int round, CancellationToken ct)
     {
         try
@@ -533,11 +569,24 @@ public sealed class TuringTownEngine : IDisposable
             // Quiet turns do not use up the budget, so cap the attempts as well.
             for (int attempt = 0; attempt < _opt.BotMessagesPerRound * 3 && posted < _opt.BotMessagesPerRound; attempt++)
             {
-                await Task.Delay(RandomDelay(_opt.BotChatMinDelayMs, _opt.BotChatMaxDelayMs), _time, ct);
+                await WaitForTurnAsync(bot, ct);
 
                 ChatRequest request;
                 lock (_gate)
-                    request = new ChatRequest(bot.Alias, _personas.GetValueOrDefault(bot.Id, ""), _room.ContentPolicy, round, RecentLines());
+                {
+                    // Hand over what was said to the bot since it last spoke, and start collecting afresh.
+                    ChatLine[] mentions = [];
+                    if (_pendingMentions.TryGetValue(bot.Id, out List<ChatLine>? pending))
+                    {
+                        mentions = pending.ToArray();
+                        pending.Clear();
+                    }
+
+                    // Aliases only. A bot is never told who is human and who is a bot.
+                    string[] others = _room.GetSeats().Where(s => s.Alive && s.Id != bot.Id).Select(s => s.Alias).ToArray();
+                    request = new ChatRequest(bot.Alias, _personas.GetValueOrDefault(bot.Id, ""), _room.ContentPolicy, round,
+                        RecentLines(), mentions, others);
+                }
 
                 string? line = await _agent.NextChatMessageAsync(request, ct);
                 if (line is null) continue;
@@ -555,18 +604,58 @@ public sealed class TuringTownEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Waits for the bot's next turn: a random, human-like pause, or a shorter one if somebody @mentions it, so a
+    /// bot that is spoken to answers soon after instead of ignoring the question.
+    /// </summary>
+    private async Task WaitForTurnAsync(PlayerSeat bot, CancellationToken ct)
+    {
+        TaskCompletionSource signal;
+        bool alreadyMentioned;
+        lock (_gate)
+        {
+            alreadyMentioned = _pendingMentions.TryGetValue(bot.Id, out List<ChatLine>? pending) && pending.Count > 0;
+            signal = _mentionSignals[bot.Id] = GameClock.NewSignal();
+        }
+
+        if (!alreadyMentioned)
+        {
+            using CancellationTokenSource local = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            Task idle = _clock.Delay(GameClock.RandomDelay(_opt.BotChatMinDelayMs, _opt.BotChatMaxDelayMs), local.Token);
+
+            Task first = await Task.WhenAny(idle, signal.Task);
+            local.Cancel();
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                await idle;
+            }
+            catch (OperationCanceledException)
+            {
+                // We cancelled the idle wait ourselves because the bot was mentioned.
+            }
+
+            if (first == idle) return;
+        }
+
+        // Someone spoke to this bot: reply after a short pause, like a person reading and typing.
+        await _clock.Delay(GameClock.RandomDelay(_opt.BotMentionReplyMinDelayMs, _opt.BotMentionReplyMaxDelayMs), ct);
+    }
+
     private async Task BotVoteAsync(PlayerSeat bot, int round, CancellationToken ct)
     {
         try
         {
-            await Task.Delay(RandomDelay(_opt.BotVoteMinDelayMs, _opt.BotVoteMaxDelayMs), _time, ct);
+            await _clock.Delay(GameClock.RandomDelay(_opt.BotVoteMinDelayMs, _opt.BotVoteMaxDelayMs), ct);
 
             VoteRequest request;
             lock (_gate)
             {
-                // Bots know their teammates, so they only ever pick among the humans.
+                // A bot is never told who is human and who is a bot, not even its teammate: it may vote for any
+                // living player but itself, and may well pick the other bot without knowing.
                 VoteCandidate[] candidates = _room.GetSeats()
-                    .Where(s => s.Alive && !s.IsBot)
+                    .Where(s => s.Alive && s.Id != bot.Id)
                     .Select(s => new VoteCandidate(s.Id, s.Alias))
                     .ToArray();
                 request = new VoteRequest(bot.Alias, _personas.GetValueOrDefault(bot.Id, ""), _room.ContentPolicy, round, candidates, RecentLines());
@@ -601,9 +690,6 @@ public sealed class TuringTownEngine : IDisposable
         }
     }
 
-    private static TimeSpan RandomDelay(int minMs, int maxMs) =>
-        TimeSpan.FromMilliseconds(maxMs <= minMs ? minMs : RandomNumberGenerator.GetInt32(minMs, maxMs + 1));
-
     // ---------------------------------------------------------------- voting
 
     /// <summary>
@@ -614,26 +700,17 @@ public sealed class TuringTownEngine : IDisposable
         lock (_gate)
         {
             Dictionary<Guid, PlayerSeat> seats = _room.GetSeats().ToDictionary(s => s.Id);
-            Dictionary<Guid, int> counts = [];
+            VoteTally.Result result = VoteTally.Plurality(_votes.Values, id => seats.TryGetValue(id, out PlayerSeat seat) && seat.Alive);
 
-            foreach (Guid? target in _votes.Values)
-            {
-                if (target is not { } id || !seats.TryGetValue(id, out PlayerSeat seat) || !seat.Alive) continue;
-                counts[id] = counts.GetValueOrDefault(id) + 1;
-            }
-
-            VoteCount[] tally = counts
+            VoteCount[] tally = result.Counts
                 .Select(kv => new VoteCount(seats[kv.Key].Alias, kv.Value))
                 .OrderByDescending(v => v.Votes)
                 .ThenBy(v => v.Alias, StringComparer.Ordinal)
                 .ToArray();
 
-            int max = counts.Count == 0 ? 0 : counts.Values.Max();
-            KeyValuePair<Guid, int>[] top = counts.Where(kv => kv.Value == max).ToArray();
-
-            if (max > 0 && top.Length == 1)
+            if (result.Winner is { } winner)
             {
-                PlayerSeat eliminated = seats[top[0].Key];
+                PlayerSeat eliminated = seats[winner];
                 _room.Eliminate(eliminated.Id);
                 return new RevealData(eliminated.ToInfo() with { Alive = false }, eliminated.IsBot, tally);
             }

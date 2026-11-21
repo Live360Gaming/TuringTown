@@ -2,7 +2,8 @@ import * as Phaser from "phaser";
 import {Scene} from "phaser";
 import {NetworkManager} from "../../core/network.js";
 import {enterFullWindow} from "../../core/scaling.js";
-import {createTextButton, PANEL} from "../../core/ui/Button.js";
+import {createTextButton} from "../../core/ui/Button.js";
+import {drawPanel} from "../../core/ui/Panel.js";
 import {loadCredentials, saveCredentials} from "../../core/session.js";
 
 // Players can be on a phone or a laptop, so unlike the Host this scene fills the whole window
@@ -88,11 +89,7 @@ export class Player extends Scene {
         // Card: portrait panel centred on screen, like the mockup.
         const panelW = 560 * s;
         const panelH = 700 * s;
-        this.panel.clear()
-            .fillStyle(PANEL, 1)
-            .fillRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s)
-            .lineStyle(3, 0xffffff, 1)
-            .strokeRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 28 * s);
+        drawPanel(this.panel, cx - panelW / 2, cy - panelH / 2, panelW, panelH, s);
 
         this.titleText.setPosition(cx, cy - 250 * s).setFontSize(44 * s);
         this.statusText.setPosition(cx, cy - 30 * s).setFontSize(28 * s)

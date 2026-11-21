@@ -18,17 +18,40 @@ internal sealed class TestAgent : IBotAgent
 
     public Func<ChatRequest, string?> Chat { get; set; } = _ => null;
 
-    public IReadOnlyList<OnboardingQuestion>? Questions { get; set; }
+    /// <summary>Every request the engine made, so tests can check what a bot was (and was not) told.</summary>
+    public List<ChatRequest> ChatRequests { get; } = [];
+    public List<VoteRequest> VoteRequests { get; } = [];
+    public List<OnboardingAnswerRequest> OnboardingRequests { get; } = [];
 
-    public Task<IReadOnlyList<OnboardingQuestion>> GenerateOnboardingQuestionsAsync(QuestionRequest request, CancellationToken ct) =>
-        Task.FromResult(Questions ?? ScriptedBotAgent.BuiltInQuestions(request.Policy, request.Count));
+    /// <summary>Default: valid scripted answers. Tests can return bad ones to check the engine replaces them.</summary>
+    public Func<OnboardingAnswerRequest, IReadOnlyList<OnboardingAnswer>>? Answer { get; set; }
 
-    public Task<IReadOnlyList<string>> AnswerOnboardingAsync(OnboardingAnswerRequest request, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(request.Questions.Select(_ => "an answer").ToArray());
+    public Task<IReadOnlyList<OnboardingAnswer>> AnswerOnboardingAsync(OnboardingAnswerRequest request, CancellationToken ct)
+    {
+        lock (OnboardingRequests) OnboardingRequests.Add(request);
+        return Task.FromResult(Answer?.Invoke(request) ?? request.Questions.Select(q => ScriptedBotAgent.ScriptedAnswer(q, request.HumanAnswers)).ToArray());
+    }
 
-    public Task<string?> NextChatMessageAsync(ChatRequest request, CancellationToken ct) => Task.FromResult(Chat(request));
+    public Task<string?> NextChatMessageAsync(ChatRequest request, CancellationToken ct)
+    {
+        lock (ChatRequests) ChatRequests.Add(request);
+        return Task.FromResult(Chat(request));
+    }
 
-    public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct) => Task.FromResult(Vote(request));
+    public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct)
+    {
+        lock (VoteRequests) VoteRequests.Add(request);
+        return Task.FromResult(Vote(request));
+    }
+}
+
+/// <summary>
+/// A question generator the tests control. Default: the built-in questions.
+/// </summary>
+internal sealed class TestQuestionGenerator(IReadOnlyList<OnboardingQuestion>? questions = null) : IQuestionGenerator
+{
+    public Task<IReadOnlyList<OnboardingQuestion>> GenerateAsync(QuestionRequest request, CancellationToken ct) =>
+        Task.FromResult(questions ?? ScriptedBotAgent.BuiltInQuestions(request.Policy, request.Mix));
 }
 
 /// <summary>
@@ -59,6 +82,8 @@ internal sealed class Harness : IRoomBroadcaster
         BotMessagesPerRound = 0,
         BotChatMinDelayMs = 0,
         BotChatMaxDelayMs = 0,
+        BotMentionReplyMinDelayMs = 0,
+        BotMentionReplyMaxDelayMs = 0,
         BotVoteMinDelayMs = 0,
         BotVoteMaxDelayMs = 0,
         ChatMinIntervalMs = 1000
@@ -68,7 +93,7 @@ internal sealed class Harness : IRoomBroadcaster
     public List<GameState> States { get; } = [];
     public List<Sent> Messages { get; } = [];
 
-    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null)
+    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null)
     {
         configure?.Invoke(Options);
         Room = new Room(RoomCode.CreateRandomRoomCode(), gameOptions ?? new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
@@ -81,7 +106,7 @@ internal sealed class Harness : IRoomBroadcaster
         }
 
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
-        Engine = new TuringTownEngine(Room, agent ?? Agent, new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
+        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
         Engine.Start();
     }
 
@@ -90,6 +115,19 @@ internal sealed class Harness : IRoomBroadcaster
     public Guid BotId => Room.GetSeats().First(s => s.IsBot).Id;
 
     public IEnumerable<Guid> BotIds => Room.GetSeats().Where(s => s.IsBot).Select(s => s.Id);
+
+    /// <summary>The questions of the Onboarding stage (call once it has started).</summary>
+    public IReadOnlyList<OnboardingQuestion> Questions => ((OnboardingData)Room.State.Data!).Questions;
+
+    /// <summary>
+    /// A valid answer to every question: <paramref name="text"/> for a text question, the first option(s) otherwise.
+    /// </summary>
+    public static OnboardingAnswer[] AnswersFor(IReadOnlyList<OnboardingQuestion> questions, string text = "an answer") =>
+        questions.Select(q => q.Kind == QuestionKind.Text
+            ? new OnboardingAnswer(q.Id, text, [])
+            : new OnboardingAnswer(q.Id, "", q.Options.Take(q.MinSelect).Select(o => o.Id).ToArray())).ToArray();
+
+    public OnboardingAnswer[] Answers(string text = "an answer") => AnswersFor(Questions, text);
 
     /// <summary>
     /// Moves the fake clock forward until the condition holds. The engine runs on other threads, so this
@@ -122,7 +160,7 @@ internal sealed class Harness : IRoomBroadcaster
         Assert.Null(Engine.TutorialDone());
         await ToAsync(Stage.Onboarding);
         foreach (Player human in Humans)
-            Assert.Null(await Engine.SubmitOnboardingAsync(human.Id, Enumerable.Repeat<string?>("an answer", Options.QuestionCount).ToArray()));
+            Assert.Null(await Engine.SubmitOnboardingAsync(human.Id, Answers()));
         await ToAsync(Stage.Discussion, 1);
     }
 

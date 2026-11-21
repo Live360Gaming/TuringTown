@@ -151,10 +151,17 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(3, questions.GetArrayLength());
         Assert.All(questions.EnumerateArray(), q => Assert.False(string.IsNullOrWhiteSpace(q.GetProperty("text").GetString())));
 
-        string[] leaky = ["a", "b", "mail me at me@example.com"];
-        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SubmitOnboarding", leaky));
-        await p1.Connection.InvokeAsync("SubmitOnboarding", new[] { "I like pasta", "Sundays", "A cat" });
-        await p2.Connection.InvokeAsync("SubmitOnboarding", new[] { "Tacos", "Mondays", "A dog" });
+        // The form has one question of each kind, and the wire format carries text or option ids per question.
+        Assert.Equal(["MultiChoice", "SingleChoice", "Text"], questions.EnumerateArray().Select(q => q.GetProperty("kind").GetString()!).Order().ToArray());
+        Assert.All(questions.EnumerateArray().Where(q => q.GetProperty("kind").GetString() != "Text"),
+            q => Assert.InRange(q.GetProperty("options").GetArrayLength(), 2, 6));
+
+        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "mail me at me@example.com")));
+        // A choice question cannot take free text, and an option that does not exist is refused.
+        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "fine", textOnChoice: true)));
+        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "fine", unknownOption: true)));
+        await p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "I like pasta"));
+        await p2.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "Tacos"));
 
         // --- discussion: chat shows aliases, and a name leak is refused
         await p1.WaitForStageAsync("Discussion", 1);
@@ -166,6 +173,14 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(joined[0].Alias, line.GetProperty("alias").GetString());
         Assert.Equal("hello everyone", line.GetProperty("text").GetString());
         Assert.Equal(joined[0].CharacterId, line.GetProperty("characterId").GetString());
+        Assert.Equal(0, line.GetProperty("mentions").GetArrayLength());
+
+        // An @mention arrives as the ids of the players it names.
+        await p2.Connection.InvokeAsync("SendChat", $"@{joined[0].Alias} hi back");
+        await WaitUntilAsync(() => host.Chat.Count == 2 && p1.Chat.Count == 2);
+        JsonElement reply = host.Chat.Last();
+        Assert.Equal(joined[1].Alias, reply.GetProperty("alias").GetString());
+        Assert.Equal([joined[0].PlayerId], reply.GetProperty("mentions").EnumerateArray().Select(m => m.GetGuid()).ToArray());
 
         // --- voting rounds until the game ends (two rounds at most)
         JsonElement results = default;
@@ -205,6 +220,21 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await WaitUntilAsync(() => host.States.Last().GetProperty("stage").GetString() == "Lobby");
         await WaitUntilAsync(() => host.Rosters.Last().GetArrayLength() == 2);
     }
+
+    /// <summary>
+    /// A submission for the questions the server sent, in the shape the hub takes: written text for a text question
+    /// and the ids of the chosen options for a choice question.
+    /// </summary>
+    private static object[] OnboardingAnswers(JsonElement questions, string text, bool textOnChoice = false, bool unknownOption = false) =>
+        questions.EnumerateArray().Select(q =>
+        {
+            string id = q.GetProperty("id").GetString()!;
+            if (q.GetProperty("kind").GetString() == "Text")
+                return (object)new { questionId = id, text, optionIds = Array.Empty<string>() };
+
+            string option = unknownOption ? "z" : q.GetProperty("options")[0].GetProperty("id").GetString()!;
+            return new { questionId = id, text = textOnChoice ? text : "", optionIds = new[] { option } };
+        }).ToArray();
 
     private static async Task VoteForSomeoneElseAsync(Client client, Guid myId)
     {

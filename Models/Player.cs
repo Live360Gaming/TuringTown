@@ -17,9 +17,9 @@ public class Player
     public required string Token { get; init; }
 
     /// <summary>
-    /// The character (see <see cref="Characters"/>) randomly assigned on join.
+    /// The character (see <see cref="Characters"/>) randomly assigned on join. Humans may swap it in the lobby (see <see cref="Room.TryChangeCharacter"/>).
     /// </summary>
-    public required string CharacterId { get; init; }
+    public required string CharacterId { get; set; }
 
     /// <summary>
     /// The random "Color Fruit" name this player is known by.

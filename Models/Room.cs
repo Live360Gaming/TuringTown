@@ -20,6 +20,14 @@ public enum RoomStartError
     NotEnoughPlayers
 }
 
+public enum CharacterChangeError
+{
+    None,
+    NotInLobby,
+    UnknownCharacter,
+    Taken
+}
+
 public enum RoomSettingsError
 {
     None,
@@ -171,6 +179,26 @@ public class Room(RoomCode rc, GameOptions options)
                 return false;
             }
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Lets a player in the lobby switch to a character nobody else has chosen. Choosing your own is a no-op.
+    /// </summary>
+    public CharacterChangeError TryChangeCharacter(Guid playerId, string characterId)
+    {
+        lock (this)
+        {
+            if (_state.Stage != Stage.Lobby) return CharacterChangeError.NotInLobby;
+            if (!Characters.All.Contains(characterId)) return CharacterChangeError.UnknownCharacter;
+
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId && !p.IsBot);
+            if (player is null) return CharacterChangeError.UnknownCharacter;
+            if (player.CharacterId == characterId) return CharacterChangeError.None;
+            if (_players.Any(p => p.CharacterId == characterId)) return CharacterChangeError.Taken;
+
+            player.CharacterId = characterId;
+            return CharacterChangeError.None;
         }
     }
 
