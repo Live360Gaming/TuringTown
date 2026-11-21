@@ -203,7 +203,9 @@ public class BotPlumbingTests
 
         await h.UntilAsync(() => BotLines(h) == 1, "the bot's line");
         TimeSpan elapsed = h.Time.GetUtcNow() - start;
-        Assert.InRange(elapsed.TotalMilliseconds, 1500, 4500);
+        // The low bound is the point: the line waits for its typing time. The high bound is loose because the harness
+        // moves the clock 250 ms per real millisecond, so a slow runner overshoots by a few ticks.
+        Assert.InRange(elapsed.TotalMilliseconds, 1500, 10_000);
     }
 
     [Fact]
@@ -237,7 +239,10 @@ public class BotPlumbingTests
         DateTimeOffset start = h.Time.GetUtcNow();
         await h.UntilAsync(() => BotLines(h) == 1, "the bot's line");
 
-        Assert.InRange((h.Time.GetUtcNow() - start).TotalMilliseconds, 0, 2500);
+        // Uncapped, 150 characters would take over two minutes. The bound is loose because the harness moves the clock
+        // 250 ms per real millisecond, so a slow runner overshoots the 1 s cap by a few ticks. The exact cap is checked
+        // in Typing_target_scales_with_length_and_varies_with_a_cap.
+        Assert.InRange((h.Time.GetUtcNow() - start).TotalMilliseconds, 0, 10_000);
     }
 
     [Fact]

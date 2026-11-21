@@ -984,8 +984,8 @@ public sealed class TuringTownEngine : IDisposable
     }
 
     /// <summary>
-    /// How many lines this bot may have said by now. Normally the per-round budget; with <see cref="TuringTownOptions.BotPaceToHumans"/>
-    /// it follows the humans: about 1.3x what a living human has said this round, and at least one.
+    /// How long a bot "types" a line of <paramref name="length"/> characters: <paramref name="msPerChar"/> per character,
+    /// scaled by a fixed per-bot speed and a little random variation, and never more than <paramref name="capMs"/>.
     /// </summary>
     internal static int TypingTargetMs(Guid botId, int length, int msPerChar, int capMs, double variation)
     {
@@ -995,6 +995,10 @@ public sealed class TuringTownEngine : IDisposable
         return (int)Math.Clamp(length * (double)msPerChar * speed * jitter, 0, Math.Max(0, capMs));
     }
 
+    /// <summary>
+    /// How many lines this bot may have said by now. Normally the per-round budget; with <see cref="TuringTownOptions.BotPaceToHumans"/>
+    /// it follows the humans: about 1.3x what a living human has said this round, and at least one.
+    /// </summary>
     private int PaceBudget()
     {
         if (_opt.BotPaceToHumans != true) return _opt.BotMessagesPerRound;
