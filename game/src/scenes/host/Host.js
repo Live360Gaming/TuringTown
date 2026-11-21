@@ -9,6 +9,8 @@ import {hubErrorMessage} from "../../core/gameHub.js";
 import {createPlaceholderAvatar} from "../../core/characters.js";
 import {COLORS, HEX, prefersReducedMotion, textStyle} from "../../core/theme.js";
 import {GameSession, getSession, leaveToMenu, setSession} from "../../core/session.js";
+import {LOBBY_TRACK, loadStageMusic, playTrack} from "../../minigames/turing-town/music.js";
+import {getMusic} from "../../core/music.js";
 
 // Overlay scenes launched on top of the lobby (see scenes/host/overlays).
 const OVERLAYS = ['HostSettings', 'QuitConfirm'];
@@ -41,9 +43,9 @@ export class Host extends Scene {
         this.placeholderOf = new Map();
         this.events.once('shutdown', () => this.cleanup());
 
-        // Lobby music loops until the scene shuts down.
-        this.lobbyMusic = this.sound.add('lobby_music', {loop: true});
-        this.lobbyMusic.play();
+        // Lobby music. It keeps playing into the game and then follows the stages (see minigames/turing-town/music.js).
+        playTrack(this.game, LOBBY_TRACK);
+        loadStageMusic(this);
 
         // Add a background image for the host
         fitImageToScreen(this, 'background_tv');
@@ -113,8 +115,10 @@ export class Host extends Scene {
 
     cleanup() {
         OVERLAYS.forEach(key => this.scene.stop(key));
-        this.lobbyMusic?.destroy();
         this.network?.destroy();
+        // Without a session (the room never opened) nothing else will stop the lobby music. With one, it carries on
+        // into the game and the session stops it when the room is left.
+        if (!getSession(this)) getMusic(this.game).stop(400);
         this.session?.off('roster', this.drawRoster, this);
         this.session?.off('gameError', this.showGameError, this);
         this.closed = true;

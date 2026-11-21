@@ -2,6 +2,8 @@ import * as Phaser from 'phaser';
 import {connectGameHub} from './gameHub.js';
 import {GameDirector} from './director.js';
 import {ROBOT_KEYS} from '../constants.js';
+import {getMusic} from './music.js';
+import {followStageMusic} from '../minigames/turing-town/music.js';
 
 const REGISTRY_KEY = 'session';
 /** A typing indicator with no update for this long is dropped (a phone that went away mid-sentence). */
@@ -109,7 +111,12 @@ Thanks for playing. Goodbye!`);
         this.director = new GameDirector(this.game, this, this.lobbyKey);
         this.director.start();
         // The TV shows a banner whenever someone drops, on every screen (see scenes/host/overlays/PresenceToast).
-        if (this.role === 'host') this.game.scene.run('PresenceToast');
+        if (this.role === 'host') {
+            this.game.scene.run('PresenceToast');
+            // Music plays on the TV only, and follows the stage.
+            this.stopMusic?.();
+            this.stopMusic = followStageMusic(this.game, this);
+        }
     }
 
     applyJoin(result) {
@@ -247,7 +254,11 @@ Thanks for playing. Goodbye!`);
         if (this.closed) return;
         this.closed = true;
         this.director?.stop();
-        if (this.role === 'host') this.game.scene.stop('PresenceToast');
+        if (this.role === 'host') {
+            this.game.scene.stop('PresenceToast');
+            this.stopMusic?.();
+            getMusic(this.game).stop(400);
+        }
         const connection = this.connection;
         this.connection = null;
         connection?.stop();

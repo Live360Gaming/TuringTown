@@ -98,6 +98,10 @@ served under a sub-path).
   Mono; SIL OFL) are self-hosted in `game/public/fonts/` and waited for by the Preloader. `installTextDefaults()` (called in
   `main.js`) makes every `add.text` use the UI font. Player names on the TV use `core/ui/Nameplate.js`.
 - `core/hostSettings.js` stores the host volume in `localStorage` and applies it as Phaser's global sound volume.
+- Music is **TV only**: `core/music.js` (`getMusic(game)`, one crossfading player per game, not tied to a scene) plays
+  the track `minigames/turing-town/music.js` picks for each stage (`trackFor`). The host session follows the stage
+  (`GameSession.attachDirector`); phones never play music. The Preloader loads only the lobby track, and `Host` loads
+  the rest in the background. Files are in `game/public/audio/turing-town/music/`.
 
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,
 default ON). See [docs/content-policy.md](docs/content-policy.md). The design for per-game data and AI-generated

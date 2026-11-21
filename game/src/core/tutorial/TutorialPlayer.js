@@ -1,6 +1,7 @@
 import {HOST_CENTER_X, HOST_CENTER_Y, HOST_WIDTH} from '../../constants.js';
 import {ensurePlaceholderImage} from '../placeholders.js';
 import {TUTORIAL_ANIMATIONS} from './animations.js';
+import {getMusic} from '../music.js';
 
 /**
  * Plays a game's how-to-play on the TV, one step after another.
@@ -68,6 +69,9 @@ export class TutorialPlayer {
 
         if (step.narration && this.scene.cache.audio.exists(step.narration)) {
             this.narration = this.scene.sound.add(step.narration);
+            // The music dips under the voice and comes back when it ends.
+            getMusic(this.scene.game).duck(true);
+            this.narration.once('complete', () => getMusic(this.scene.game).duck(false));
             this.narration.play();
         }
     }
@@ -90,6 +94,7 @@ export class TutorialPlayer {
         this.timer = null;
         this.stopAnimation?.();
         this.stopAnimation = null;
+        if (this.narration) getMusic(this.scene.game).duck(false);
         this.narration?.destroy();
         this.narration = null;
         this.layer.removeAll(true);

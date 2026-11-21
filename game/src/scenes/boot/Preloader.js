@@ -5,6 +5,7 @@ import { LoadingIndicator } from '../../core/ui/LoadingIndicator.js';
 import { CHARACTER_KEYS, PLACEHOLDER_KEYS, PLACEHOLDER_ROBOT_KEY, ROBOT_KEYS } from '../../constants.js';
 import { loadFonts } from '../../core/theme.js';
 import { assetPath } from '../../core/season.js';
+import { LOBBY_TRACK, TRACKS } from '../../minigames/turing-town/music.js';
 
 // Loading screen to download all the assets before starting the game.
 export class Preloader extends Scene
@@ -52,7 +53,8 @@ export class Preloader extends Scene
         [...CHARACTER_KEYS, ...ROBOT_KEYS, ...PLACEHOLDER_KEYS, PLACEHOLDER_ROBOT_KEY].forEach(key => this.load.image(key, `${key}.png`));
 
         this.load.setPath('audio');
-        this.load.audio('lobby_music', 'lobby_music.mp3');
+        // Only the lobby track here: phones never play music, so the TV loads the rest itself (see Host).
+        this.load.audio(LOBBY_TRACK, TRACKS[LOBBY_TRACK].file);
         // Chat sounds shared by every game: message sent, message received, and a message that mentions you.
         this.load.audio('message_sfx1', 'shared/sfx/message_sfx1.mp3');
         this.load.audio('message_sfx2', 'shared/sfx/message_sfx2.mp3');
