@@ -73,9 +73,27 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         {
             await broadcaster.RosterChanged(room);
             await NotifyPresence(room);
+
+            // In the lobby the seat is only held for a short while (a refresh comes straight back).
+            if (room.State.Stage == Stage.Lobby)
+                _ = ClearFromLobbyAfterGraceAsync(room, playerId, room.GetDisconnectCount(playerId));
         }
 
         await base.OnDisconnectedAsync(exception);
+    }
+
+    private async Task ClearFromLobbyAfterGraceAsync(Room room, Guid playerId, int disconnectCount)
+    {
+        try
+        {
+            await Task.Delay(room.LobbyDisconnectGrace, time);
+            if (room.TryRemoveDisconnected(playerId, disconnectCount))
+                await broadcaster.RosterChanged(room);
+        }
+        catch (Exception)
+        {
+            // Nothing to do: the seat stays and is cleared the next time the player drops.
+        }
     }
 
     // A form or vote must not wait for a player who left.
@@ -87,15 +105,17 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
 
     // ---------------------------------------------------------------- host
 
+    /// <summary>Starts the game. The host can, and so can the leader (the first player to join).</summary>
     public Task StartGame()
     {
-        Room room = RequireHost();
+        Room room = RequireHostOrLeader();
 
         string? error = games.StartGame(room) switch
         {
             RoomStartError.None => null,
             RoomStartError.NotInLobby => "The game has already started.",
             RoomStartError.NotEnoughPlayers => "Not enough players to start.",
+            RoomStartError.NotAllReady => "Waiting for everyone to be ready.",
             _ => "Could not start the game."
         };
         return error is null ? Task.CompletedTask : throw new HubException(error);
@@ -163,7 +183,32 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         await broadcaster.RosterChanged(room);
     }
 
+    /// <summary>While waiting in the lobby, mark yourself ready (or not).</summary>
+    public async Task SetReady(bool ready)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        string? error = room.TrySetReady(playerId, ready) switch
+        {
+            ReadyError.None => null,
+            ReadyError.NotInLobby => "You can only get ready in the lobby.",
+            _ => "Join the room first."
+        };
+        Throw(error);
+        await broadcaster.RosterChanged(room);
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private Room RequireHostOrLeader()
+    {
+        if (Context.Items.TryGetValue(RoleKey, out object? role) && role as string == "player"
+            && Context.Items.TryGetValue(RoomKey, out object? r) && r is Room room
+            && Context.Items.TryGetValue(PlayerKey, out object? p) && p is Guid playerId)
+        {
+            return room.IsLeader(playerId) ? room : throw new HubException("Only the host or the first player can start the game.");
+        }
+        return RequireHost();
+    }
 
     private Room RequireHost()
     {

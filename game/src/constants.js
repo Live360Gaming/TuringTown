@@ -22,3 +22,8 @@ export const PLAYER_CENTER_Y = PLAYER_HEIGHT / 2;
 // ROBOT_KEYS are only ever shown once a bot has been found out (see GameSession.spriteKey).
 export const CHARACTER_KEYS = Array.from({length: 6}, (_, i) => `character_${String(i + 1).padStart(2, '0')}`);
 export const ROBOT_KEYS = Array.from({length: 3}, (_, i) => `robot_${String(i + 1).padStart(2, '0')}`);
+
+// The host lobby shows these mystery silhouettes instead of a joined player's real character.
+// The robot placeholder is never handed to a player slot: a robot next to someone would hint they are a bot.
+export const PLACEHOLDER_KEYS = Array.from({length: 9}, (_, i) => `placeholder_${String(i + 1).padStart(2, '0')}`);
+export const PLACEHOLDER_ROBOT_KEY = 'placeholder_robot';

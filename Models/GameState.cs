@@ -31,14 +31,18 @@ public sealed record GameState(string GameId, Stage Stage, int Round, int Step, 
 /// <summary>
 /// The public view of a player. Deliberately has no token and no role.
 /// </summary>
-public readonly record struct PlayerInfo(Guid Id, string Alias, string Color, string CharacterId, bool Alive, bool Connected);
+/// <remarks>
+/// <paramref name="Ready"/> is the lobby "I'm ready" flag. <paramref name="Leader"/> marks the first human to join, who
+/// may start the game from their phone. Neither says anything about roles.
+/// </remarks>
+public readonly record struct PlayerInfo(Guid Id, string Alias, string Color, string CharacterId, bool Alive, bool Connected, bool Ready, bool Leader);
 
 /// <summary>
 /// A server-side copy of a seat, including the secret role. Never serialize this.
 /// </summary>
-internal readonly record struct PlayerSeat(Guid Id, string Alias, string Color, string CharacterId, bool IsBot, bool Alive, bool Connected)
+internal readonly record struct PlayerSeat(Guid Id, string Alias, string Color, string CharacterId, bool IsBot, bool Alive, bool Connected, bool Ready, bool Leader)
 {
-    public PlayerInfo ToInfo() => new(Id, Alias, Color, CharacterId, Alive, Connected);
+    public PlayerInfo ToInfo() => new(Id, Alias, Color, CharacterId, Alive, Connected, Ready, Leader);
 }
 
 /// <param name="Mentions">Ids of the players this message @mentions (only real, seated players; never the sender).</param>

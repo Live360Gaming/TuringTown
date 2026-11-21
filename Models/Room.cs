@@ -17,7 +17,15 @@ public enum RoomStartError
 {
     None,
     NotInLobby,
-    NotEnoughPlayers
+    NotEnoughPlayers,
+    NotAllReady
+}
+
+public enum ReadyError
+{
+    None,
+    NotInLobby,
+    UnknownPlayer
 }
 
 public enum CharacterChangeError
@@ -203,7 +211,33 @@ public class Room(RoomCode rc, GameOptions options)
     }
 
     /// <summary>
-    /// Moves the room out of the lobby once enough humans have joined, and seats the bots.
+    /// Sets a player's lobby ready flag.
+    /// </summary>
+    public ReadyError TrySetReady(Guid playerId, bool ready)
+    {
+        lock (this)
+        {
+            if (_state.Stage != Stage.Lobby) return ReadyError.NotInLobby;
+
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId && !p.IsBot);
+            if (player is null) return ReadyError.UnknownPlayer;
+
+            player.Ready = ready;
+            return ReadyError.None;
+        }
+    }
+
+    /// <summary>
+    /// True if this player is the leader: the first human to have joined, who may start the game.
+    /// </summary>
+    public bool IsLeader(Guid playerId)
+    {
+        lock (this)
+            return _players.FirstOrDefault(p => !p.IsBot)?.Id == playerId;
+    }
+
+    /// <summary>
+    /// Moves the room out of the lobby once enough humans have joined and all are ready, and seats the bots.
     /// </summary>
     /// <param name="botCountFor">How many bots to add for the given number of humans.</param>
     public RoomStartError TryStart(Func<int, int> botCountFor)
@@ -214,6 +248,7 @@ public class Room(RoomCode rc, GameOptions options)
 
             int humans = _players.Count;
             if (humans < options.MinPlayers) return RoomStartError.NotEnoughPlayers;
+            if (_players.Any(p => !p.Ready)) return RoomStartError.NotAllReady;
 
             int bots = botCountFor(humans);
             for (int i = 0; i < bots; i++)
@@ -284,7 +319,9 @@ public class Room(RoomCode rc, GameOptions options)
         }
     }
 
-    private static PlayerSeat ToSeat(Player p) => new(p.Id, p.Alias, p.Color, p.CharacterId, p.IsBot, p.Alive, p.Connected);
+    // Must be called with the lock held (the leader is the first human in join order).
+    private PlayerSeat ToSeat(Player p) => new(p.Id, p.Alias, p.Color, p.CharacterId, p.IsBot, p.Alive, p.Connected,
+        p.Ready, !p.IsBot && _players.FirstOrDefault(x => !x.IsBot) == p);
 
     /// <summary>
     /// Marks the player as connected through the given hub connection (a newer connection replaces an older one).
@@ -313,6 +350,40 @@ public class Room(RoomCode rc, GameOptions options)
             if (player is null || player.IsBot || player.ConnectionId != connectionId) return false;
             player.ConnectionId = null;
             player.Connected = false;
+            player.DisconnectCount++;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// How long a player who drops out of the lobby keeps their seat.
+    /// </summary>
+    public TimeSpan LobbyDisconnectGrace => TimeSpan.FromSeconds(options.LobbyDisconnectGraceSeconds);
+
+    /// <summary>
+    /// The player's current drop count (see <see cref="Player.DisconnectCount"/>).
+    /// </summary>
+    public int GetDisconnectCount(Guid playerId)
+    {
+        lock (this)
+            return _players.FirstOrDefault(p => p.Id == playerId)?.DisconnectCount ?? 0;
+    }
+
+    /// <summary>
+    /// Frees the seat of a human who dropped out in the lobby and has not come back since
+    /// (<paramref name="disconnectCount"/> is the drop the timer was started for).
+    /// </summary>
+    /// <returns>True if the player was removed.</returns>
+    public bool TryRemoveDisconnected(Guid playerId, int disconnectCount)
+    {
+        lock (this)
+        {
+            if (_state.Stage != Stage.Lobby) return false;
+
+            Player? player = _players.FirstOrDefault(p => p.Id == playerId && !p.IsBot);
+            if (player is null || player.Connected || player.DisconnectCount != disconnectCount) return false;
+
+            _players.Remove(player);
             return true;
         }
     }
@@ -337,7 +408,11 @@ public class Room(RoomCode rc, GameOptions options)
         lock (this)
         {
             _players.RemoveAll(p => p.IsBot);
-            foreach (Player player in _players) player.Alive = true;
+            foreach (Player player in _players)
+            {
+                player.Alive = true;
+                player.Ready = false;
+            }
             _state = GameState.InLobby(GameId);
         }
     }

@@ -5,9 +5,8 @@ import {enterFixedSize, fitImageToScreen} from "../../core/scaling.js";
 import {applyVolume} from "../../core/hostSettings.js";
 import {createTextButton} from "../../core/ui/Button.js";
 import {hubErrorMessage} from "../../core/gameHub.js";
-import {createAvatar} from "../../core/characters.js";
+import {createPlaceholderAvatar} from "../../core/characters.js";
 import {COLORS, HEX, prefersReducedMotion, textStyle} from "../../core/theme.js";
-import {addNameplate} from "../../core/ui/Nameplate.js";
 import {GameSession, getSession, leaveToMenu, setSession} from "../../core/session.js";
 
 // Overlay scenes launched on top of the lobby (see scenes/host/overlays).
@@ -38,6 +37,7 @@ export class Host extends Scene {
         this.startPulse = null;
         this.starting = false;
         this.rosterItems = [];
+        this.placeholderOf = new Map();
         this.events.once('shutdown', () => this.cleanup());
 
         // Lobby music loops until the scene shuts down.
@@ -132,8 +132,16 @@ export class Host extends Scene {
         this.add.text(left + 28, MARQUEE_Y + 18, 'JOIN CODE', textStyle('meta', {fontSize: '16px'})).setOrigin(0, 0.5);
         this.codeText = this.add.text(left + 28, MARQUEE_Y + 52, '- - - -', textStyle('code', {fontSize: '44px'})).setOrigin(0, 0.5);
 
-        this.joinedText = this.add.text(650, MARQUEE_Y + 26, '', textStyle('instruction', {fontSize: '26px', stroke: undefined, strokeThickness: 0})).setOrigin(0.5);
-        this.needText = this.add.text(650, MARQUEE_Y + 56, '', textStyle('body', {fontSize: '20px'})).setOrigin(0.5);
+        this.needText = this.add.text(650, MARQUEE_Y + MARQUEE_H / 2, '', textStyle('instruction', {fontSize: '26px', stroke: undefined, strokeThickness: 0})).setOrigin(0.5);
+
+        // Players X/MAX in the bottom-right corner of the screen.
+        const bx = HOST_WIDTH - 24;
+        const by = HOST_HEIGHT - 16;
+        this.countBg = this.add.graphics()
+            .fillStyle(HEX.bgDeep, 0.85).fillRoundedRect(bx - 130, by - 62, 130, 62, 14)
+            .lineStyle(2, HEX.cyan, 0.85).strokeRoundedRect(bx - 130, by - 62, 130, 62, 14);
+        this.add.text(bx - 65, by - 50, 'PLAYERS', textStyle('meta', {fontSize: '14px'})).setOrigin(0.5);
+        this.countText = this.add.text(bx - 65, by - 24, '0/0', textStyle('code', {fontSize: '34px'})).setOrigin(0.5);
     }
 
     /** A slow pulse on Start while the game can be started. Skipped when the viewer prefers reduced motion. */
@@ -148,14 +156,44 @@ export class Host extends Scene {
         }
     }
 
-    /** "3 of 4 joined" and whether the game can start yet. */
+    /** How many players are ready, and whether every joined player is. */
+    readyStatus() {
+        const roster = this.session?.roster ?? [];
+        const ready = roster.filter(p => p.ready).length;
+        return {ready, total: roster.length, all: roster.length > 0 && ready === roster.length};
+    }
+
+    /** The game can start once enough players joined and every one of them is ready. */
+    canStart() {
+        const {playerCount, minPlayers, phase} = this.state;
+        return phase === 'Lobby' && playerCount >= minPlayers && this.readyStatus().all;
+    }
+
+    /** "X/MAX" in the corner, the line in the marquee, and whether Start is enabled. */
     updateLobbyStatus() {
-        if (!this.joinedText) return;
+        if (!this.needText) return;
         const {playerCount, minPlayers, phase, settings} = this.state;
-        this.joinedText.setText(`${playerCount} of ${settings.maxPlayers || '?'} joined`);
+        this.countText.setText(`${playerCount}/${settings.maxPlayers || '?'}`);
+        const {ready, all} = this.readyStatus();
         if (phase !== 'Lobby') this.needText.setText('Game in progress').setColor(COLORS.textMuted);
-        else if (playerCount >= minPlayers) this.needText.setText('Ready to start!').setColor(COLORS.green);
-        else this.needText.setText(`Need ${minPlayers - playerCount} more to start`).setColor(COLORS.gold);
+        else if (playerCount < minPlayers) this.needText.setText(`Need ${minPlayers - playerCount} more to start`).setColor(COLORS.gold);
+        else if (all) this.needText.setText('Everyone is ready!').setColor(COLORS.green);
+        else this.needText.setText(`${ready} of ${playerCount} ready`).setColor(COLORS.gold);
+
+        const startable = this.canStart();
+        this.startBtn?.setEnabled(startable);
+        this.pulseStart(startable);
+    }
+
+    /** Each player keeps the same silhouette for as long as they are in the lobby (the roster is sorted by name). */
+    placeholderIndex(player) {
+        if (!this.placeholderOf.has(player.id)) {
+            const used = new Set(this.placeholderOf.values());
+            let index = 0;
+            while (used.has(index)) index++;
+            this.placeholderOf.set(player.id, index);
+        }
+        return this.placeholderOf.get(player.id);
     }
 
     /**
@@ -165,6 +203,9 @@ export class Host extends Scene {
     drawRoster(roster) {
         this.rosterItems.forEach(item => item.destroy());
         this.rosterItems = [];
+        // Forget silhouettes of players who are gone, so their pick can be reused.
+        const ids = new Set(roster.map(p => p.id));
+        for (const id of this.placeholderOf.keys()) if (!ids.has(id)) this.placeholderOf.delete(id);
 
         const slots = Math.max(this.state?.settings?.maxPlayers ?? 0, roster.length, 1);
         const gap = Math.min(250, (HOST_WIDTH - 180) / slots);
@@ -177,14 +218,35 @@ export class Host extends Scene {
             const x = startX + i * gap;
             const player = roster[i];
             if (player) {
-                this.rosterItems.push(createAvatar(this, x, y, size, player, {dim: !player.connected}));
-                this.rosterItems.push(addNameplate(this, x, feet + 28, player, {
-                    maxWidth: gap - 6, fontSize: slots > 6 ? 20 : 22, caption: player.connected ? '' : 'Reconnecting…',
-                }));
+                if (player.ready) this.rosterItems.push(this.drawReadyRing(x, y, size));
+                this.rosterItems.push(createPlaceholderAvatar(this, x, y, size, this.placeholderIndex(player), {dim: !player.connected}));
+                this.rosterItems.push(this.drawReadyBadge(x, feet + 28, player.ready));
+                if (!player.connected) {
+                    this.rosterItems.push(this.add.text(x, feet + 54, 'Reconnecting…',
+                        textStyle('meta', {fontSize: '14px', color: COLORS.pink})).setOrigin(0.5));
+                }
             } else {
                 this.rosterItems.push(this.drawEmptySeat(x, y, size));
             }
         }
+        this.updateLobbyStatus();
+    }
+
+    /** A green glowing ring behind a ready player. */
+    drawReadyRing(x, y, size) {
+        const radius = size * 0.44;
+        return this.add.graphics().setPosition(x, y)
+            .lineStyle(12, HEX.green, 0.18).strokeCircle(0, 0, radius)
+            .lineStyle(4, HEX.green, 0.95).strokeCircle(0, 0, radius);
+    }
+
+    /** "READY" in a green pill, or a muted "Not ready". */
+    drawReadyBadge(x, y, ready) {
+        if (!ready) return this.add.text(x, y, 'Not ready', textStyle('meta', {fontSize: '16px', color: COLORS.textMuted})).setOrigin(0.5);
+        const label = this.add.text(0, 0, 'READY', textStyle('meta', {fontSize: '16px', color: COLORS.bgDeep})).setOrigin(0.5);
+        const w = label.width + 28;
+        const bg = this.add.graphics().fillStyle(HEX.green, 1).fillRoundedRect(-w / 2, -13, w, 26, 13);
+        return this.add.container(x, y, [bg, label]);
     }
 
     /** A dashed circle with "Waiting..." for a seat nobody has taken. */
@@ -225,9 +287,7 @@ export class Host extends Scene {
     applyState(state) {
         const seatsChanged = this.state?.settings?.maxPlayers !== state.settings?.maxPlayers;
         this.state = state;
-        this.startBtn?.setEnabled(state.phase === 'Lobby' && state.playerCount >= state.minPlayers);
         this.updateLobbyStatus();
-        this.pulseStart(this.startBtn && state.phase === 'Lobby' && state.playerCount >= state.minPlayers);
         // The lineup shows one seat per allowed player, so it is redrawn when the host changes the limit.
         if (seatsChanged && this.session) this.drawRoster(this.session.roster);
         this.events.emit('state', state);

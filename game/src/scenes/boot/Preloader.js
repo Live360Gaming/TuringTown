@@ -2,7 +2,7 @@ import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
 import { fitImageToScreen } from '../../core/scaling.js';
 import { LoadingIndicator } from '../../core/ui/LoadingIndicator.js';
-import { CHARACTER_KEYS, ROBOT_KEYS } from '../../constants.js';
+import { CHARACTER_KEYS, PLACEHOLDER_KEYS, PLACEHOLDER_ROBOT_KEY, ROBOT_KEYS } from '../../constants.js';
 import { loadFonts } from '../../core/theme.js';
 import { assetPath } from '../../core/season.js';
 
@@ -49,7 +49,7 @@ export class Preloader extends Scene
 
         // The characters, and the robots that are only shown once a bot has been found (see core/session.js).
         this.load.setPath('assets/characters');
-        [...CHARACTER_KEYS, ...ROBOT_KEYS].forEach(key => this.load.image(key, `${key}.png`));
+        [...CHARACTER_KEYS, ...ROBOT_KEYS, ...PLACEHOLDER_KEYS, PLACEHOLDER_ROBOT_KEY].forEach(key => this.load.image(key, `${key}.png`));
 
         this.load.setPath('audio');
         this.load.audio('lobby_music', 'lobby_music.mp3');

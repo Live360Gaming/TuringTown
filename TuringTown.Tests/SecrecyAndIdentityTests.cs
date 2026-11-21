@@ -198,11 +198,13 @@ public class SecrecyAndIdentityTests
     public void Nobody_can_join_once_the_game_has_started_and_the_player_limit_holds()
     {
         Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 2, MinPlayers = 2 });
-        Assert.True(room.TryAddPlayer(out _, out _));
-        Assert.True(room.TryAddPlayer(out _, out _));
+        Assert.True(room.TryAddPlayer(out Player? first, out _));
+        Assert.True(room.TryAddPlayer(out Player? second, out _));
         Assert.False(room.TryAddPlayer(out _, out RoomJoinError full));
         Assert.Equal(RoomJoinError.RoomFull, full);
 
+        Assert.Equal(ReadyError.None, room.TrySetReady(first!.Id, true));
+        Assert.Equal(ReadyError.None, room.TrySetReady(second!.Id, true));
         Assert.Equal(RoomStartError.None, room.TryStart(_ => 1));
         Assert.False(room.TryAddPlayer(out _, out RoomJoinError started));
         Assert.Equal(RoomJoinError.GameStarted, started);
@@ -216,6 +218,83 @@ public class SecrecyAndIdentityTests
         Assert.True(room.TryAddPlayer(out _, out _));
         Assert.Equal(RoomStartError.NotEnoughPlayers, room.TryStart(_ => 1));
         Assert.Equal(Stage.Lobby, room.State.Stage);
+    }
+
+    [Fact]
+    public void The_game_waits_until_every_player_is_ready()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+
+        Assert.Equal(ReadyError.None, room.TrySetReady(a!.Id, true));
+        Assert.Equal(RoomStartError.NotAllReady, room.TryStart(_ => 1));
+
+        // Un-readying is allowed, and ready shows in the roster.
+        Assert.Equal(ReadyError.None, room.TrySetReady(b!.Id, true));
+        Assert.Equal(ReadyError.None, room.TrySetReady(b.Id, false));
+        Assert.Equal(1, room.GetRoster().Count(p => p.Ready));
+        Assert.Equal(RoomStartError.NotAllReady, room.TryStart(_ => 1));
+
+        Assert.Equal(ReadyError.UnknownPlayer, room.TrySetReady(Guid.NewGuid(), true));
+        Assert.Equal(ReadyError.None, room.TrySetReady(b.Id, true));
+        Assert.Equal(RoomStartError.None, room.TryStart(_ => 1));
+        Assert.Equal(ReadyError.NotInLobby, room.TrySetReady(b.Id, false));
+    }
+
+    [Fact]
+    public void A_player_who_stays_offline_in_the_lobby_is_cleared_but_a_quick_return_keeps_the_seat()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+        room.SetConnected(a!.Id, "a1");
+        room.SetConnected(b!.Id, "b1");
+
+        // A drops and comes back before the timer fires: the seat stays.
+        Assert.True(room.SetDisconnected(a.Id, "a1"));
+        int first = room.GetDisconnectCount(a.Id);
+        room.SetConnected(a.Id, "a2");
+        Assert.False(room.TryRemoveDisconnected(a.Id, first));
+        Assert.Equal(2, room.GetRoster().Count);
+
+        // A drops again: the old timer must not clear them, the new one does.
+        Assert.True(room.SetDisconnected(a.Id, "a2"));
+        Assert.False(room.TryRemoveDisconnected(a.Id, first));
+        Assert.True(room.TryRemoveDisconnected(a.Id, room.GetDisconnectCount(a.Id)));
+        Assert.Equal(b.Id, Assert.Single(room.GetRoster()).Id);
+
+        // The next player is now the leader.
+        Assert.True(room.IsLeader(b.Id));
+    }
+
+    [Fact]
+    public void Nobody_is_cleared_once_the_game_has_started()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+        room.SetConnected(a!.Id, "a1");
+        room.SetConnected(b!.Id, "b1");
+        room.TrySetReady(a.Id, true);
+        room.TrySetReady(b.Id, true);
+        Assert.Equal(RoomStartError.None, room.TryStart(_ => 1));
+
+        Assert.True(room.SetDisconnected(a.Id, "a1"));
+        Assert.False(room.TryRemoveDisconnected(a.Id, room.GetDisconnectCount(a.Id)));
+        Assert.Contains(room.GetRoster(), p => p.Id == a.Id && !p.Connected);
+    }
+
+    [Fact]
+    public void The_first_player_to_join_is_the_leader_and_nobody_else_is()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+
+        Assert.True(room.IsLeader(a!.Id));
+        Assert.False(room.IsLeader(b!.Id));
+        Assert.Equal(a.Id, room.GetRoster().Single(p => p.Leader).Id);
     }
 
     // ---------------------------------------------------------------- the agent never stalls the game

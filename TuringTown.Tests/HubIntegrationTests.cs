@@ -127,9 +127,18 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await Assert.ThrowsAnyAsync<HubException>(() => ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[0].PlayerId, "wrong")));
         await Assert.ThrowsAnyAsync<HubException>(() => ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, "wrong")));
 
-        // Only the host can start the game, and players cannot act before it begins.
-        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("StartGame"));
+        // Only the host or the first player (the leader) can start the game, and players cannot act before it begins.
+        await Assert.ThrowsAnyAsync<HubException>(() => p2.Connection.InvokeAsync("StartGame"));
         await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SendChat", "hi"));
+
+        // Nobody is ready yet, so even the host and the leader cannot start.
+        await Assert.ThrowsAnyAsync<HubException>(() => host.Connection.InvokeAsync("StartGame"));
+        await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("StartGame"));
+
+        await p1.Connection.InvokeAsync("SetReady", true);
+        await p2.Connection.InvokeAsync("SetReady", true);
+        await WaitUntilAsync(() => host.Rosters.Count > 0 && host.Rosters.Last().EnumerateArray().All(p => p.GetProperty("ready").GetBoolean()));
+        Assert.Single(host.Rosters.Last().EnumerateArray(), p => p.GetProperty("leader").GetBoolean());
 
         // --- start: Tutorial, with a bot now seated that nobody can tell apart
         await host.Connection.InvokeAsync("StartGame");
@@ -142,7 +151,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         JsonElement roster = p1.Rosters.Last();
         Assert.Equal(3, roster.GetArrayLength());
         foreach (JsonElement player in roster.EnumerateArray())
-            Assert.Equal(["alias", "alive", "characterId", "color", "connected", "id"], player.EnumerateObject().Select(p => p.Name).Order().ToArray());
+            Assert.Equal(["alias", "alive", "characterId", "color", "connected", "id", "leader", "ready"], player.EnumerateObject().Select(p => p.Name).Order().ToArray());
 
         // --- onboarding: questions arrive in the state, answers are checked
         await host.Connection.InvokeAsync("TutorialDone");

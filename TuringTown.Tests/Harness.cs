@@ -128,6 +128,7 @@ internal sealed class Harness : IRoomBroadcaster
             Assert.True(Room.TryAddPlayer(out Player? p, out _));
             Humans.Add(p!);
             Room.SetConnected(p!.Id, $"conn-{i}");
+            Assert.Equal(ReadyError.None, Room.TrySetReady(p.Id, true));
         }
 
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));

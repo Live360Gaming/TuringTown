@@ -36,6 +36,11 @@ export class PlayerLobby extends Scene {
         this.nameText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.titleText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.statusText = this.add.text(0, 0, 'Connecting...', {color: '#ffffff', align: 'center'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
+        this.readyBtn = createTextButton(this, 0, 0, 'Ready', () => this.toggleReady(), {width: 360, height: 70, fontSize: '36px', variant: 'primary'});
+        // Only the first player to join (the leader) sees this one.
+        this.startBtn = createTextButton(this, 0, 0, 'Start Game', () => this.startGame(), {width: 360, height: 70, fontSize: '36px'});
+        this.startBtn.setVisible(false);
+        this.minPlayers = 1;
         this.quitBtn = createTextButton(this, 0, 0, 'Quit', () => this.quit(), {width: 360, height: 80, fontSize: '40px', variant: 'ghost'});
 
         this.input.keyboard.on('keydown-ESC', () => this.quit());
@@ -67,6 +72,7 @@ export class PlayerLobby extends Scene {
                 if (this.closed) return;
                 session.attachDirector();
             }
+            this.loadMinPlayers();
             this.show();
             // A refresh, or a return after a game, may already be past the lobby; the director has moved us on if so.
             this.session.on('roster', this.show, this);
@@ -88,9 +94,59 @@ export class PlayerLobby extends Scene {
         this.avatar = createAvatar(this, 0, 0, 200, you);
         this.nameText.setText(you.alias).setColor(readableOn(you.color));
         this.titleText.setText(`You're in ${this.session.roomCode}`);
-        this.statusText.setText('Waiting for the host to start...');
         this.buildPicker();
+        this.updateReady();
         this.layout();
+    }
+
+    /** The number of players needed to start, so the leader's Start button knows when it can work. */
+    async loadMinPlayers() {
+        try {
+            const res = await fetch(`${window.location.origin}/api/room/${encodeURIComponent(this.session.roomCode)}`);
+            const state = await res.json();
+            if (this.closed) return;
+            this.minPlayers = state.minPlayers ?? 1;
+            this.updateReady();
+        } catch {
+            // The server still checks the minimum when Start is pressed.
+        }
+    }
+
+    /** The Ready toggle, the leader's Start button, and the line telling everyone what we are waiting for. */
+    updateReady() {
+        const you = this.session?.you;
+        if (!you || this.closed) return;
+
+        const roster = this.session.roster;
+        const waiting = roster.filter(p => !p.ready).length;
+        const all = roster.length > 0 && waiting === 0;
+        const enough = roster.length >= this.minPlayers;
+
+        this.readyBtn.setLabel(you.ready ? 'Not ready' : 'Ready');
+        this.startBtn.setVisible(!!you.leader);
+        this.startBtn.setEnabled(all && enough);
+
+        let text;
+        if (!enough) text = `Waiting for more players (${roster.length}/${this.minPlayers})...`;
+        else if (all) text = you.leader ? 'Everyone is ready. Start when you like!' : 'Everyone is ready. Waiting for the host to start...';
+        else text = `Waiting for ${waiting} ${waiting === 1 ? 'player' : 'players'} to get ready...`;
+        this.statusText.setText(text);
+    }
+
+    async toggleReady() {
+        try {
+            await this.session.invoke('SetReady', !this.session.you.ready);
+        } catch (err) {
+            if (!this.closed) this.statusText.setText(hubErrorMessage(err));
+        }
+    }
+
+    async startGame() {
+        try {
+            await this.session.invoke('StartGame');
+        } catch (err) {
+            if (!this.closed) this.statusText.setText(hubErrorMessage(err));
+        }
     }
 
     /** One tile per character: yours is outlined, ones other players hold are dimmed, the rest can be tapped. */
@@ -164,6 +220,8 @@ export class PlayerLobby extends Scene {
 
         this.statusText.setPosition(cx, row1 + cell * 1.5 + 36 * s)
             .setFontSize(fontPx(28, s, 16)).setWordWrapWidth(panelW - 60 * s);
+        this.readyBtn.setPosition(cx, cy + 215 * v).setScale(Math.max(s, 0.6));
+        this.startBtn.setPosition(cx, cy + 285 * v).setScale(Math.max(s, 0.6));
         this.quitBtn.setPosition(cx, cy + panelH / 2 - 60 * s).setScale(Math.max(s, 0.6));
     }
 

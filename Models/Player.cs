@@ -47,4 +47,15 @@ public class Player
     public string? ConnectionId { get; set; }
 
     public bool Connected { get; set; }
+
+    /// <summary>
+    /// How many times this player has dropped. A pending "clear them from the lobby" timer only acts if this
+    /// has not changed since it started, so a quick reconnect-and-drop is not cleared early.
+    /// </summary>
+    public int DisconnectCount { get; set; }
+
+    /// <summary>
+    /// The lobby "I'm ready" flag. Humans only; cleared when the room returns to the lobby.
+    /// </summary>
+    public bool Ready { get; set; }
 }

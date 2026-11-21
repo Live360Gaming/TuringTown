@@ -17,7 +17,7 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 
 | Stage | What happens | Ends when | `data` |
 |---|---|---|---|
-| Lobby | Players join; host changes settings | host calls `StartGame` (needs `MinPlayers`) | none |
+| Lobby | Players join and ready up; host changes settings | host, or the leader (first player to join), calls `StartGame` (needs `MinPlayers`, and every player ready) | none |
 | Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
 | Discussion | Anonymous chat | timer | none |
@@ -45,7 +45,7 @@ Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─
 ## The secret
 
 Whether a player is a bot is the one thing the game depends on. `Player.IsBot` and the engine's role knowledge stay on
-the server; clients only get `PlayerInfo {id, alias, color, characterId, alive, connected}`. Roles first appear in
+the server; clients only get `PlayerInfo {id, alias, color, characterId, alive, connected, ready, leader}`. Roles first appear in
 `Reveal` (the eliminated player) and `Results` (everyone). The roster is sorted by alias so seat order is no tell.
 `SecrecyAndIdentityTests` serialises every broadcast and fails if a role or token appears early. **Never add a role,
 token or "is bot" flag to a DTO, a log line sent to clients, or a chat message.**
@@ -75,7 +75,8 @@ Client to server (a refused call throws a `HubException` with a readable message
 | Method | Who | When |
 |---|---|---|
 | `JoinAsHost(roomCode, hostToken)` / `JoinAsPlayer(roomCode, playerId, playerToken)` | host / player | any time. Returns `{state, roster, you, transcript, serverTimeUtcMs, unmasked}` |
-| `StartGame()` | host | Lobby |
+| `StartGame()` | host, or the leader player (first human to join) | Lobby. Refused until `MinPlayers` have joined and all are ready |
+| `SetReady(bool ready)` | player | Lobby. Shown on the TV as a green ring and badge |
 | `TutorialStep(step)` / `TutorialDone()` | host | Tutorial |
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
 | `SendChat(text)` | living player | Discussion |
