@@ -1,4 +1,5 @@
 import {getMusic} from '../../core/music.js';
+import {NARRATION} from './data/tutorial.js';
 
 // Turing Town's soundtrack and which track goes with each stage. Played on the TV only (see core/music.js).
 
@@ -50,11 +51,16 @@ export function playTrack(game, key) {
     music.play(key, {loop: track.loop, volume: track.volume, fadeInMs: track.loop ? undefined : 300});
 }
 
-/** Starts loading the tracks the Preloader skipped (it only loads the lobby track, since phones never play music). */
+/**
+ * Starts loading the tracks the Preloader skipped (it only loads the lobby track, since phones never play music), and
+ * the tutorial's announcer lines. Safe to call again: only what is missing is loaded. A file that fails to load is
+ * simply not played (the tutorial keeps its visual timing).
+ */
 export function loadStageMusic(scene) {
-    const missing = Object.entries(TRACKS).filter(([key]) => !scene.cache.audio.exists(key));
+    const files = [...Object.entries(TRACKS).map(([key, {file}]) => [key, file]), ...Object.entries(NARRATION)];
+    const missing = files.filter(([key]) => !scene.cache.audio.exists(key));
     if (missing.length === 0) return;
     scene.load.setPath('audio');
-    missing.forEach(([key, {file}]) => scene.load.audio(key, file));
+    missing.forEach(([key, file]) => scene.load.audio(key, file));
     scene.load.start();
 }

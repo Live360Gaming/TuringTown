@@ -109,7 +109,9 @@ served under a sub-path).
 - Music is **TV only**: `core/music.js` (`getMusic(game)`, one crossfading player per game, not tied to a scene) plays
   the track each game's `music.js` picks for its stages (`trackFor`, looked up by `gameId` in `minigames/stageMusic.js`). The host session follows the stage
   (`GameSession.attachDirector`); phones never play music. The Preloader loads only the lobby track, and `Host` loads
-  the rest in the background. Files are in `game/public/audio/turing-town/music/`.
+  the rest in the background. Files are in `game/public/audio/turing-town/music/`. The TV tutorial's announcer lines
+  (`game/public/audio/turing-town/narration/`) load with them; the music ducks under the voice (`MusicPlayer.duck`), and
+  the mix is `AUDIO_MIX` in `core/music.js`.
 
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,
 default ON). See [docs/content-policy.md](docs/content-policy.md). The design for per-game data and AI-generated

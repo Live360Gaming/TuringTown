@@ -5,6 +5,7 @@ import {createTextButton} from '../../../../core/ui/Button.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {COLORS, textStyle} from '../../../../core/theme.js';
 import {TUTORIAL_STEPS} from '../../data/tutorial.js';
+import {loadStageMusic} from '../../music.js';
 
 // How to play, on the TV. The host reports each step so the phones follow along, and says when it is over.
 export class TuringTownHostTutorial extends HostStage {
@@ -16,6 +17,10 @@ export class TuringTownHostTutorial extends HostStage {
         this.setTitle('How to play');
         // The server's safety time limit for the tutorial is not worth showing.
         this.timerText.setVisible(false);
+
+        // The lobby already loaded the announcer lines. A TV refreshed mid-tutorial skipped the lobby, so fetch what is
+        // missing: a line that arrives late is skipped for the step already showing, and the rest are voiced.
+        loadStageMusic(this);
 
         this.tutorial = new TutorialPlayer(this, TUTORIAL_STEPS, {
             onStep: step => this.report('TutorialStep', step),

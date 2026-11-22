@@ -222,6 +222,11 @@ brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprit
   `{id, type: 'animation' | 'slide' | 'video', title?, caption, durationMs, narration?, animation?, image?, video?}`. Animations are
   named (`core/tutorial/animations.js`) so the data holds no code. A `video` step ends when the video does. The host reports
   each step with `TutorialStep` so phones show the same title and caption. The leader's phone has a "Skip intro" button.
+  `narration` is an announcer line (an audio key) played on the TV only. `durationMs` is then a minimum: the step also waits
+  for the line to end plus a short pause, and a missing or broken clip falls back to the visual timing. The music is ducked
+  (`MusicPlayer.duck`, a multiplier on the track's own level) from the first line until the tutorial ends or is skipped.
+  The mix (voice level, duck depth, fade times, the pause) is `AUDIO_MIX` in `core/music.js`. Turing Town's lines are in
+  `public/audio/turing-town/narration/` and are loaded in the background with the stage music (`loadStageMusic`).
 
 ### Add a stage or a game
 
@@ -235,4 +240,4 @@ brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprit
 - A player who quits in the lobby still holds a seat (shown dimmed), which counts toward the minimum.
 - The host cannot rejoin a room after a page refresh; the game ends for the room.
 - Real names cannot be reliably detected in chat (see Chat rules).
-- Art, narration and the how-to-play are placeholders.
+- Some art is still placeholder (tutorial slides).

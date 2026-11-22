@@ -8,12 +8,27 @@
 
 const REGISTRY_KEY = 'music';
 const DEFAULT_FADE_MS = 1500;
-const DUCK_FACTOR = Math.pow(10, -8 / 20); // -8 dB, about 0.40
-const DUCK_FADE_MS = 300;
+
+/**
+ * The TV's mix for spoken narration (the tutorial announcer). Tune it here.
+ *  - narrationVolume: the voice's own level (still scaled by the master volume).
+ *  - duckFactor:      the music's level while anyone is speaking, as a share of its normal level (0.30 = 30%, about -10 dB).
+ *  - duckDownMs / duckUpMs: how long the music takes to dip under the voice, and to come back after it.
+ *  - narrationGapMs:  the pause after a line before the tutorial moves to the next step.
+ */
+export const AUDIO_MIX = {
+    narrationVolume: 1.0,
+    duckFactor: 0.30,
+    duckDownMs: 250,
+    duckUpMs: 600,
+    narrationGapMs: 350,
+};
 
 /**
  * One playing track. `level` is the fade position (0-1) and `duck` the ducking multiplier, both moved toward their
- * targets on every step; the sound's volume is `base * level * duck`.
+ * targets on every step; the sound's volume is `base * level * duck`. The duck is a multiplier on the track's own
+ * level, never an absolute volume, so recovering always lands back on the configured level (and the master volume on
+ * top of it is untouched).
  */
 class Track {
     constructor(sound, base) {
@@ -34,7 +49,11 @@ class Track {
 
     step(delta) {
         this.level = approach(this.level, this.levelTarget, this.levelRate * delta);
-        this.duck = approach(this.duck, this.duckTarget, (1 - DUCK_FACTOR) / DUCK_FADE_MS * delta);
+        // Dip quickly under the voice and come back gently. The rate covers the whole duck range, so a dip that starts
+        // while the music is still recovering simply turns around from where it is.
+        const ms = this.duckTarget < this.duck ? AUDIO_MIX.duckDownMs : AUDIO_MIX.duckUpMs;
+        const range = Math.max(0.01, 1 - AUDIO_MIX.duckFactor);
+        this.duck = approach(this.duck, this.duckTarget, ms > 0 ? range / ms * delta : Infinity);
         this.sound.volume = this.base * this.level * this.duck;
     }
 }
@@ -49,7 +68,8 @@ export class MusicPlayer {
         this.currentKey = null;
         this.current = null;
         this.outgoing = [];
-        this.ducked = false;
+        /** Who is asking for the music to duck (e.g. 'tutorial'). It ducks while anyone is, so requests never stack. */
+        this.duckers = new Set();
         /** A track asked for before its audio finished loading: {key, options}. */
         this.pending = null;
 
@@ -91,11 +111,22 @@ export class MusicPlayer {
         this.releaseCurrent(fadeMs);
     }
 
-    /** Lowers the music by about 8 dB (e.g. under spoken narration), or restores it. */
-    duck(on) {
-        this.ducked = on;
-        const target = on ? DUCK_FACTOR : 1;
-        if (this.current) this.current.duckTarget = target;
+    /**
+     * Lowers the music to AUDIO_MIX.duckFactor of its level (under spoken narration), or lets it come back. `owner`
+     * names who is asking: the music stays ducked until every owner has let go, and asking twice changes nothing.
+     */
+    duck(on, owner = 'default') {
+        if (on) this.duckers.add(owner);
+        else this.duckers.delete(owner);
+        if (this.current) this.current.duckTarget = this.duckTarget();
+    }
+
+    get ducked() {
+        return this.duckers.size > 0;
+    }
+
+    duckTarget() {
+        return this.ducked ? AUDIO_MIX.duckFactor : 1;
     }
 
     destroy() {
@@ -124,7 +155,7 @@ export class MusicPlayer {
             }
             sound.play();
         }
-        track.duckTarget = this.ducked ? DUCK_FACTOR : 1;
+        track.duckTarget = this.duckTarget();
         track.fadeTo(1, fadeInMs);
         this.current = track;
     }

@@ -1,7 +1,7 @@
 import {HOST_CENTER_X, HOST_CENTER_Y, HOST_WIDTH} from '../../constants.js';
 import {ensurePlaceholderImage} from '../placeholders.js';
 import {TUTORIAL_ANIMATIONS} from './animations.js';
-import {getMusic} from '../music.js';
+import {AUDIO_MIX, getMusic} from '../music.js';
 import {COLORS, HEX, textStyle} from '../theme.js';
 
 /**
@@ -13,7 +13,10 @@ import {COLORS, HEX, textStyle} from '../theme.js';
  *  - slide:     a still image (a placeholder is drawn if the real image has not been added yet)
  *  - video:     a video that was loaded under `video`; the step ends when it finishes
  * Every step shows its title (if any) and caption, and can play a narration sound (an audio key). Steps other than video last
- * `durationMs`.
+ * `durationMs`, a minimum: a step with narration also waits for the line to end, plus a short pause (AUDIO_MIX in
+ * core/music.js), so the voice is never cut off. A clip that is missing, failed to load or never reports its end falls
+ * back to the visual timing. Only one line plays at a time. The music is ducked from the first line until the tutorial
+ * ends or is skipped, rather than bobbing up and down between lines.
  *
  * `onStep(index)` is called as each step starts, so the room's phones can follow along.
  * `onDone()` is called once after the last step, or when `finish()` is called to skip the rest.
@@ -37,9 +40,12 @@ export class TutorialPlayer {
 
         this.index = -1;
         this.finished = false;
-        this.timer = null;
+        /** The current step's timers (its minimum time, the pause after the voice, the voice's safety limit). */
+        this.timers = [];
         this.stopAnimation = null;
         this.narration = null;
+        /** This player's claim on the music duck, so another player letting go cannot lift it. */
+        this.duckOwner = Symbol('tutorial');
     }
 
     start(index = 0) {
@@ -63,25 +69,68 @@ export class TutorialPlayer {
         this.onStep(index);
 
         const area = {cx: HOST_CENTER_X, cy: HOST_CENTER_Y};
-        const next = () => this.play(index + 1);
+
+        // The step moves on once its visuals have had their time and its voice (if any) has finished.
+        let visualsDone = false;
+        let voiceDone = true;
+        const advance = () => {
+            if (visualsDone && voiceDone && this.index === index) this.play(index + 1);
+        };
+        const visualsEnd = () => {
+            visualsDone = true;
+            advance();
+        };
 
         if (step.type === 'video' && this.scene.cache.video.exists(step.video)) {
             const video = this.scene.add.video(area.cx, area.cy - 40, step.video);
             this.layer.add(video);
-            video.once('complete', next);
+            video.once('complete', visualsEnd);
             video.play();
         } else {
             this.showStill(step, area);
-            this.timer = this.scene.time.delayedCall(step.durationMs ?? 5000, next);
+            this.later(step.durationMs ?? 5000, visualsEnd);
         }
 
-        if (step.narration && this.scene.cache.audio.exists(step.narration)) {
-            this.narration = this.scene.sound.add(step.narration);
-            // The music dips under the voice and comes back when it ends.
-            getMusic(this.scene.game).duck(true);
-            this.narration.once('complete', () => getMusic(this.scene.game).duck(false));
-            this.narration.play();
+        if (this.speak(step.narration, () => {
+            voiceDone = true;
+            advance();
+        })) voiceDone = false;
+    }
+
+    /**
+     * Plays a narration line, ducking the music. Calls `onEnd` a short pause after the line ends. Returns false (and
+     * never calls `onEnd`) if there is nothing to play, so the step keeps its visual timing.
+     */
+    speak(key, onEnd) {
+        if (!key || !this.scene.cache.audio.exists(key)) return false;
+
+        let sound;
+        try {
+            sound = this.scene.sound.add(key, {volume: AUDIO_MIX.narrationVolume});
+        } catch (err) {
+            console.warn(`Narration "${key}" cannot play`, err);
+            return false;
         }
+        this.narration = sound;
+        getMusic(this.scene.game).duck(true, this.duckOwner);
+
+        let ended = false;
+        const end = () => {
+            if (ended) return;
+            ended = true;
+            this.later(AUDIO_MIX.narrationGapMs, onEnd);
+        };
+        sound.once('complete', end);
+        // A line that never reports its end (blocked audio, a broken file) must not hold the tutorial up.
+        const lengthMs = (sound.duration || 0) * 1000;
+        this.later((lengthMs > 0 ? lengthMs : 10000) + 1500, end);
+        if (sound.play() === false) end();
+        return true;
+    }
+
+    /** A timer that belongs to the current step and is cancelled with it. */
+    later(ms, callback) {
+        this.timers.push(this.scene.time.delayedCall(ms, callback));
     }
 
     showStill(step, area) {
@@ -96,28 +145,33 @@ export class TutorialPlayer {
         this.layer.add(this.scene.add.image(area.cx, area.cy - 40, key));
     }
 
-    /** Stops what the current step started. */
+    /** Stops what the current step started. The music stays ducked: the next step is likely to speak too. */
     clearStep() {
-        this.timer?.remove();
-        this.timer = null;
+        this.timers.forEach(timer => timer.remove());
+        this.timers = [];
         this.stopAnimation?.();
         this.stopAnimation = null;
-        if (this.narration) getMusic(this.scene.game).duck(false);
+        this.narration?.stop();
         this.narration?.destroy();
         this.narration = null;
         this.layer.removeAll(true);
     }
 
-    /** Ends the tutorial now (the host skipped it, or the last step ended). */
+    /** Ends the tutorial now (it was skipped, or the last step ended). */
     finish() {
         if (this.finished) return;
-        this.finished = true;
-        this.clearStep();
+        this.stop();
         this.onDone();
     }
 
+    /** Stops everything without reporting the end (the scene is closing, e.g. the leader skipped from a phone). */
     destroy() {
+        this.stop();
+    }
+
+    stop() {
         this.finished = true;
         this.clearStep();
+        getMusic(this.scene.game).duck(false, this.duckOwner);
     }
 }
