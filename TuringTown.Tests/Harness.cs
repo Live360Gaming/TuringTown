@@ -62,8 +62,8 @@ internal sealed class TestAgent : IBotAgent
 internal static class TestContext
 {
     /// <summary>A context for a request a test builds by hand.</summary>
-    public static BotContext For(string alias, int botCount = 1) =>
-        new(new BotKey(Guid.NewGuid(), Guid.NewGuid()), alias, botCount, [], 0, [], [], [], StyleProfile.Empty);
+    public static BotContext For(string alias) =>
+        new(new BotKey(Guid.NewGuid(), Guid.NewGuid()), alias, [], 0, [], [], [], StyleProfile.Empty);
 }
 
 /// <summary>

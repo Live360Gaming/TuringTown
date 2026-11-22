@@ -152,7 +152,7 @@ public class BotKnowledgeTests
     [InlineData(2, 1)]
     [InlineData(4, 1)]
     [InlineData(5, 2)]
-    public async Task A_bot_is_told_how_many_bots_there_are_and_its_own_key(int humans, int bots)
+    public async Task A_bot_gets_its_own_key_and_alias(int humans, int bots)
     {
         Harness h = new(humans, o => o.BotMessagesPerRound = 1);
         h.Agent.Chat = _ => null;
@@ -167,7 +167,6 @@ public class BotKnowledgeTests
         foreach (PlayerSeat bot in h.Room.GetSeats().Where(s => s.IsBot))
         {
             BotContext context = requests.First(r => r.BotAlias == bot.Alias).Context;
-            Assert.Equal(bots, context.BotCount);
             Assert.Equal(h.Engine.GameId, context.Key.GameId);
             Assert.Equal(bot.Id, context.Key.BotId);
             Assert.Equal(bot.Alias, context.BotAlias);

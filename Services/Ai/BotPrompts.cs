@@ -21,10 +21,12 @@ public sealed partial class BotPrompts
     [
         "Mood for this line: curious.", "Mood for this line: a bit teasing.", "Mood for this line: relaxed.",
         "Mood for this line: suspicious.", "Mood for this line: joking.", "Mood for this line: matter-of-fact.",
-        "Mood for this line: a little impatient.", "Mood for this line: friendly."
+        "Mood for this line: a little impatient.", "Mood for this line: friendly.", "Mood for this line: chatty.",
+        "Mood for this line: distracted.", "Mood for this line: playful.", "Mood for this line: dry.", "Mood for this line: upbeat."
     ];
 
     private readonly Dictionary<string, Template> _templates;
+    private readonly string[] _smallTalk;
 
     public BotPrompts()
     {
@@ -36,7 +38,25 @@ public sealed partial class BotPrompts
             string name = resource[(resource.IndexOf(".Prompts.", StringComparison.Ordinal) + ".Prompts.".Length)..^".md".Length];
             _templates[name] = Parse(name, reader.ReadToEnd());
         }
+
+        // small-talk.md is a list ("- idea" per line), not a template with placeholders.
+        _smallTalk = Get("small-talk").Text.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith("- ", StringComparison.Ordinal))
+            .Select(l => l[2..].Trim())
+            .Where(l => l.Length > 0)
+            .ToArray();
+        if (_smallTalk.Length == 0) throw new InvalidOperationException("Prompt small-talk must list at least one idea.");
     }
+
+    /// <summary>The small-talk ideas from small-talk.md.</summary>
+    public IReadOnlyList<string> SmallTalkIdeas => _smallTalk;
+
+    /// <summary>
+    /// One small-talk idea at random. A reasoning model has no temperature, so without a random seed from here every bot
+    /// in every game would open the chat the same way.
+    /// </summary>
+    public string RandomSmallTalk() => _smallTalk[RandomNumberGenerator.GetInt32(_smallTalk.Length)];
 
     public IReadOnlyCollection<Template> All => _templates.Values;
 

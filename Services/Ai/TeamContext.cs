@@ -22,7 +22,7 @@ public sealed record TeamContext(
     IReadOnlyList<PlayerNote> Players,
     IReadOnlyList<string> Highlights)
 {
-    public const string DefaultGoal = "Finish the game night with more points than the humans. Every game counts.";
+    public const string DefaultGoal = "Earn as many points as you can tonight. Every game counts.";
 
     public static TeamContext Empty { get; } = new(DefaultGoal, [], null, 0, null, [], []);
 }

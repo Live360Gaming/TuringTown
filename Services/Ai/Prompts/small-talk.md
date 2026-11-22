@@ -1,0 +1,26 @@
+version: 1
+
+- complain about something tiny that went wrong today, like a dead phone battery or cold food
+- say you are hungry and name the snack you want right now
+- admit you are terrible at games like this one
+- joke about how short the timer feels
+- react to your own alias, as if you just noticed it
+- say something friendly and silly about another player's alias
+- ask the room a quick this-or-that question (pick a fun pair yourself)
+- give a light hot take about food
+- mention what you would rather be doing right now, without anything personal
+- bring up one of your own form answers casually, as if it just came to mind
+- comment on the music or the vibe of the game
+- say how the game night is going for you so far
+- confess a harmless guilty pleasure, like a snack or a show genre
+- make a dramatic, joking promise about how you will play this round
+- say you are just here for the snacks
+- ask the room which snack is the best for a game night
+- pretend you are confused about the rules for a second, then get it
+- comment on how quiet or chaotic the chat is so far
+- say something about being tired, sleepy or overcaffeinated
+- react to the last round or the last game like a fan would
+- complain playfully that everyone types faster than you
+- start a tiny debate about something silly, like pineapple on pizza or cereal before milk
+- ask whether anyone else is also lying on the couch right now
+- say a random thought you just had, keep it light and harmless

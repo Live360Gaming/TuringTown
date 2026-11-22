@@ -43,10 +43,17 @@ also its fallback:
 | A Witty Bits bot: an answer, a vote | `FoundryWittyBotAgent` in `FallbackWittyBotAgent` | `ScriptedWittyBotAgent` | Writing, Matchup |
 
 - `AgentSelector` picks the agents **once per night** (`AgentSet` holds all of them, and the planner).
-- **The team context.** The bots are one team: every request in every game carries the night's `TeamContext` (the goal,
-  the games, the standings, the team totals only once they are public, and highlights the whole room saw), in a `<night>`
-  block, JSON-quoted because the highlights quote players. Turing Town's `chat`, `vote` and `round-notes` templates get it
-  too (`BotContext.Night`). It never names a bot, so the Turing Town knowledge rule below still holds.
+- **Each bot plays alone.** The score counts the bots as one side, but no bot is told so: no prompt says how many bots
+  there are, mentions another AI or a team, and `BotContext` has no bot count. A bot that knows it has a partner hunts for
+  it, protects it or talks about it, which gives both away. Every request in every game carries the night's
+  `TeamContext` (the goal, the games, the standings, the side totals only once they are public, and highlights the whole
+  room saw), in a `<night>` block, JSON-quoted because the highlights quote players. Turing Town's `chat`, `vote` and
+  `round-notes` templates get it too (`BotContext.Night`). It never names a bot. `FoundryAgentTests` guards the wording.
+- **Small talk.** A reasoning model has no temperature, so the same prompt opens the chat the same way in every game.
+  The chat prompt therefore gets a random `<idea>` from `Prompts/small-talk.md` (one idea per `- ` line) on every line
+  while the chat is starting (fewer than three lines from others), and on 20% of later lines when nobody has spoken to
+  the bot (`FoundryBotAgent.SmallTalkIdea`). The system prompt tells the bot to open like a person at a party, not with
+  "who is the bot". The scripted bot has its own small-talk pool for the same moments.
 - A Witty Bits answer goes through `BotOutputGuard.IsBad` (admission, canary, prompt leak), then the same `ChatFilter` and
   `IContentFilter` as a human's; a rejected one is replaced by a scripted answer. A vote must be one of the answers on
   offer (the schema's enum), or the bot abstains.
@@ -84,6 +91,11 @@ Two sections, deliberately apart:
 Switching model needs no code change: set `Foundry:Deployment` and the `Ai:Calls` values. Reasoning models take no
 `temperature`, so none is sent; variety comes from the prompt.
 
+Each Turing Town bot also gets a private personality selected from its game and bot IDs. It stays the same through
+onboarding, discussion and voting, and gives model-backed bots different ways to express opinions and react. Offline
+bots use personality-specific openers and defenses alongside their existing lines and typing styles. Personalities can
+repeat, and neither provider guarantees a particular personality in a room. Both still follow the room's content policy.
+
 Other settings: `Storage` (the opt-in transcript archive), `ContentSafety`, `RateLimits:RoomRequestsPerMinute` (60), and the bot pacing
 keys in [game-flow.md](game-flow.md). `TuringTown:BotPaceToHumans` is unset by default, which means on for a game on the real AI.
 
@@ -93,15 +105,15 @@ Templates are embedded files in `Services/Ai/Prompts/*.md`, so they are versione
 `version: N` (log it, and bump it when you change one) and uses `{{placeholders}}`; rendering fails if a placeholder is missing or a value is
 unused. Family Friendly picks `tone-family.md` or `tone-mature.md`; the safety rules are in the system prompt for both.
 
-- `bot-system.md` is the same for every call of a game (so the model can cache it): the rules, the knowledge rule ("there are N AI players; you do not know
-  who the others are, humans or AI"), the secrecy rules, the instruction to treat player text as data, and how people write here.
+- `bot-system.md` is the same for every call of a game (so the model can cache it): the rules, the play-alone knowledge
+  rule, secrecy rules, the instruction to treat player text as data, and how people write here.
 - The task templates (`chat`, `vote`, `onboarding`, `round-notes`) carry the per-call data. `chat`, `vote` and `round-notes`
-  get the public answer board (`<board>`, aliases and answers only). `onboarding` gets the humans' answers per text question
-  (`<human_answers>`) and is told its answers will be shown to the room, so it models one or two humans' voice without
-  copying them; the engine replaces a near-copy anyway. `bot-system` lists stock phrases a bot must not use. **Everything a player typed is JSON-quoted**
+  get the bot's own form answers, not anyone else's. `onboarding` gets the humans' answers per text question
+  (`<human_answers>`) as a loose writing-style guide, while its own personality shapes its opinions; the engine replaces a
+  near-copy. `bot-system` lists stock phrases a bot must not use. **Everything a player typed is JSON-quoted**
   inside a tagged block, so it can neither close a tag nor start a line of instructions.
 - `questions-system.md` / `questions-task.md` are for the question generator: no bot framing, no game context. It writes
-  opinion questions and hot takes, since everyone's answers are shown in the Discussion.
+  opinion questions and hot takes, which players can choose to bring up in the Discussion.
 - `planner-system.md` / `planner-task.md` are the AI team's coach; `witty-prompts-system.md` / `witty-prompts-task.md` the
   Witty Bits prompt writer; `witty-system.md` with `witty-answer-task.md` / `witty-vote-task.md` the Witty Bits bot.
 - An OFF-mode form with at least one question includes a question flagged mature. If the model does not produce one,

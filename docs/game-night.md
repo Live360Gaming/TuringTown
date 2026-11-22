@@ -65,9 +65,10 @@ Who is an AI must stay hidden until Turing Town reveals it, even when Witty Bits
   game exactly once, and uses a random order if the plan is missing, slow (`GameNight:PlanningMaxSeconds`) or invalid.
   The line is sanitised and dropped if it gives the AI away. Offline it is `ScriptedGameNightPlanner`; on the real AI,
   `FoundryGameNightPlanner` (see [ai-agents.md](ai-agents.md)).
-- **One collective team.** Each game seats fresh agents (a bot's per-game memory is cleared at the end of every game), but
-  every bot request in every game carries the night's `TeamContext` (`NightContext.Snapshot()`): the goal (finish with
-  more points than the humans), the games and which one is on, the standings, the team totals **only once they are
+- **One side on the scoreboard, but each bot plays alone.** No bot is told how many bots there are or that it has a team
+  (see [ai-agents.md](ai-agents.md)). Each game seats fresh agents (a bot's per-game memory is cleared at the end of every
+  game), but every bot request in every game carries the night's `TeamContext` (`NightContext.Snapshot()`): the goal (earn
+  as many points as you can), the games and which one is on, the standings, the team totals **only once they are
   public**, and highlights the whole room saw (Turing Town reveals, the answers that won Witty Bits matchups). It never says
   which seat is a bot, so inside Turing Town a bot still does not know who its teammate is (`BotKnowledgeTests`).
 - The real AI or the scripted bots are chosen **once per night** (`AgentSelector`), so a budget running out never changes

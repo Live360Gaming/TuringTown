@@ -40,6 +40,8 @@ public sealed class FoundryBotAgent(
         values["max_length"] = ctx.ChatMaxLength.ToString();
         values["target_length"] = TargetLength(request.Recent, ctx).ToString();
         values["mood"] = BotPrompts.RandomMood();
+        values["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description);
+        values["idea"] = SmallTalkIdea(request, prompts.RandomSmallTalk(), Random.Shared.Next(100));
         string user = prompts.Render("chat-task", values);
 
         AiCallOptions call = Calls.Chat;
@@ -64,6 +66,7 @@ public sealed class FoundryBotAgent(
         values["chat"] = PromptJson.Lines(request.Recent);
         // The candidates are every other living player, so the list is the same one as <players>.
         values["players"] = PromptJson.Serialize(request.Candidates.Select(c => c.Alias));
+        values["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description);
         string user = prompts.Render("vote-task", values);
 
         string[] aliases = [.. request.Candidates.Select(c => c.Alias), "ABSTAIN"];
@@ -107,6 +110,7 @@ public sealed class FoundryBotAgent(
         string user = prompts.Render("onboarding-task", new Dictionary<string, string>
         {
             ["alias"] = ctx.BotAlias,
+            ["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description),
             ["style"] = PromptJson.Serialize(ctx.Style),
             // What the humans wrote for each text question, so the bot can model its answer on one or two of them.
             ["human_answers"] = PromptJson.Serialize(ctx.Style.TextAnswers),
@@ -208,7 +212,6 @@ public sealed class FoundryBotAgent(
     private string SystemPrompt(BotContext ctx, ContentPolicy policy) =>
         prompts.Render("bot-system", new Dictionary<string, string>
         {
-            ["bot_count"] = ctx.BotCount.ToString(),
             ["canary"] = Canary(ctx.Key.GameId),
             ["tone"] = prompts.Tone(policy)
         });
@@ -249,6 +252,22 @@ public sealed class FoundryBotAgent(
         int[] humans = recent.Where(l => !l.Alias.Equals(ctx.BotAlias, StringComparison.OrdinalIgnoreCase)).Select(l => l.Text.Length).Order().ToArray();
         int typical = humans.Length >= 3 ? humans[humans.Length / 2] : ctx.Style.MedianLength;
         return typical <= 0 ? ctx.ChatMaxLength : Math.Clamp(typical * 2, 40, ctx.ChatMaxLength);
+    }
+
+    /// <summary>How often a bot that is not being spoken to gets a small-talk idea once the chat is going.</summary>
+    internal const int SmallTalkPercent = 20;
+
+    /// <summary>
+    /// A random small-talk idea for the chat prompt, as an <c>&lt;idea&gt;</c> line, or empty. Always one while the chat is
+    /// just starting (fewer than three lines from other players), so the opening line is small talk rather than "who is
+    /// the bot", and different in every game. Later, now and then when nobody has spoken to the bot.
+    /// </summary>
+    internal static string SmallTalkIdea(ChatRequest request, string idea, int roll)
+    {
+        int fromOthers = request.Recent.Count(l => !l.Alias.Equals(request.BotAlias, StringComparison.OrdinalIgnoreCase));
+        bool opening = fromOthers < 3;
+        if (!opening && (request.Mentions.Count > 0 || roll >= SmallTalkPercent)) return "";
+        return $"<idea>{PromptJson.Serialize(idea)}</idea>";
     }
 
     private static string Scope(BotContext ctx) => ctx.Key.GameId.ToString("N");

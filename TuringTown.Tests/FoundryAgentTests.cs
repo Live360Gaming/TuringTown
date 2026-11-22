@@ -20,7 +20,8 @@ public class FoundryAgentTests
     {
         BotPrompts prompts = new();
         string[] names = ["bot-system", "chat-task", "vote-task", "onboarding-task", "round-notes-task", "questions-system", "questions-task", "tone-family", "tone-mature",
-            "planner-system", "planner-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task"];
+            "planner-system", "planner-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task",
+            "small-talk"];
 
         foreach (string name in names)
             Assert.True(prompts.Get(name).Version >= 1, name);
@@ -49,11 +50,11 @@ public class FoundryAgentTests
     // ---------------------------------------------------------------- the system prompt
 
     [Fact]
-    public async Task The_system_prompt_carries_the_knowledge_rule_the_bot_count_and_a_canary_and_is_the_same_for_every_call()
+    public async Task The_system_prompt_carries_the_play_alone_rule_and_a_canary_and_is_the_same_for_every_call()
     {
         FakeLlmClient llm = new();
         FoundryBotAgent agent = AiKit.Agent(llm);
-        BotContext ctx = AiKit.Ctx(botCount: 2);
+        BotContext ctx = AiKit.Ctx();
 
         await agent.NextChatMessageAsync(AiKit.Chat(ctx), default);
         await agent.CastVoteAsync(AiKit.Vote(ctx), default);
@@ -63,12 +64,117 @@ public class FoundryAgentTests
         Assert.Equal(system, llm.Of("Vote").Single().System);
         Assert.Equal(system, llm.Of("RoundNotes").Single().System);
 
-        Assert.Contains("There are 2 AI player(s)", system);
-        Assert.Contains("do NOT know which of the other players are human", system);
+        Assert.Contains("You have no partner and no team in this room", system);
+        Assert.Contains("SMALL TALK", system);
         Assert.Contains("TONE: family", system);
         Assert.Contains(FoundryBotAgent.Canary(ctx.Key.GameId), system);
         // Nothing in it is specific to this bot, so the model can cache it.
         Assert.DoesNotContain(ctx.BotAlias, system);
+    }
+
+    [Fact]
+    public async Task A_bots_personality_is_consistent_across_onboarding_chat_and_voting()
+    {
+        FakeLlmClient llm = new();
+        FoundryBotAgent agent = AiKit.Agent(llm);
+        BotContext ctx = AiKit.Ctx();
+        string personality = $"<personality>{PromptJson.Serialize(BotPersonality.For(ctx.Key).Description)}</personality>";
+
+        await agent.AnswerOnboardingAsync(AnswerRequest(ctx), default);
+        await agent.NextChatMessageAsync(AiKit.Chat(ctx), default);
+        await agent.CastVoteAsync(AiKit.Vote(ctx), default);
+        await agent.NextChatMessageAsync(AiKit.Chat(ctx with { Round = 2 }), default);
+
+        foreach (LlmCall call in llm.Calls)
+        {
+            Assert.Contains(personality, call.User);
+            Assert.DoesNotContain(ctx.Key.BotId.ToString(), call.User);
+        }
+    }
+
+    [Fact]
+    public void Bot_personalities_are_stable_and_varied_and_drive_scripted_openers()
+    {
+        Guid game = Guid.Parse("10000000-0000-0000-0000-000000000000");
+        BotContext[] bots = Enumerable.Range(1, 100)
+            .Select(i => AiKit.Ctx(game: game, bot: new Guid(i, 0, 0, new byte[8])))
+            .ToArray();
+        Assert.True(bots.Select(b => BotPersonality.For(b.Key).Description).Distinct().Count() >= 6);
+
+        BotContext first = bots[0];
+        BotContext second = bots.First(b => BotPersonality.For(b.Key) != BotPersonality.For(first.Key));
+        foreach (BotContext ctx in new[] { first, second })
+        {
+            BotPersonality personality = BotPersonality.For(ctx.Key);
+            Assert.Same(personality, BotPersonality.For(ctx.Key));
+            (string? mention, string? body) = ScriptedBotAgent.FreeLine(
+                AiKit.Chat(ctx, recent: []), BotVoice.For(ctx.Key.BotId, ctx.Style), new FixedRandom());
+            Assert.Null(mention);
+            Assert.Contains(body, personality.Openers);
+        }
+        Assert.NotEqual(BotPersonality.For(first.Key).Openers[0], BotPersonality.For(second.Key).Openers[0]);
+    }
+
+    private sealed class FixedRandom : Random
+    {
+        public override int Next(int maxValue) => maxValue == 100 ? 42 : 0;
+    }
+
+    [Fact]
+    public async Task No_bot_prompt_tells_a_bot_how_many_bots_there_are_or_that_it_has_a_team()
+    {
+        FakeLlmClient llm = new();
+        FoundryBotAgent agent = AiKit.Agent(llm);
+        BotContext ctx = AiKit.Ctx();
+
+        await agent.NextChatMessageAsync(AiKit.Chat(ctx), default);
+        await agent.CastVoteAsync(AiKit.Vote(ctx), default);
+        await agent.EndRoundAsync(new RoundEndRequest(ctx, AiKit.Family, []), default);
+
+        foreach (LlmCall call in llm.Calls)
+        {
+            string text = call.System + "\n" + call.User;
+            Assert.DoesNotMatch(@"(?i)\bAI player\(s\)|other AI|AI team|your team|teammate|one team", text);
+        }
+        foreach (string name in new[] { "bot-system", "chat-task", "vote-task", "round-notes-task", "onboarding-task", "witty-system", "witty-answer-task", "witty-vote-task" })
+            Assert.DoesNotContain("{{bot_count}}", new BotPrompts().Get(name).Text);
+    }
+
+    [Fact]
+    public void Every_opening_line_gets_a_small_talk_idea_and_later_lines_only_sometimes()
+    {
+        BotContext ctx = AiKit.Ctx();
+        ChatLine[] quiet = [new("Blue Kiwi", "hi")];
+        ChatLine[] busy = [new("Blue Kiwi", "a"), new("Green Pear", "b"), new("Blue Kiwi", "c")];
+
+        Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: []), "x", 99));
+        Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: quiet), "x", 99));
+        // Spoken to while the chat is just starting: still small talk is welcome.
+        Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: quiet, mentions: [quiet[0]]), "x", 99));
+
+        Assert.Equal("", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy), "x", FoundryBotAgent.SmallTalkPercent));
+        Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy), "x", FoundryBotAgent.SmallTalkPercent - 1));
+        Assert.Equal("", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy, mentions: [busy[0]]), "x", 0));
+    }
+
+    [Fact]
+    public void Small_talk_ideas_are_many_and_the_pick_is_random()
+    {
+        BotPrompts prompts = new();
+        Assert.True(prompts.SmallTalkIdeas.Count >= 15);
+        HashSet<string> seen = [.. Enumerable.Range(0, 200).Select(_ => prompts.RandomSmallTalk())];
+        Assert.True(seen.Count >= 10);
+    }
+
+    [Fact]
+    public async Task The_opening_chat_prompt_carries_the_idea_as_quoted_data()
+    {
+        FakeLlmClient llm = new();
+        BotContext ctx = AiKit.Ctx();
+        await AiKit.Agent(llm).NextChatMessageAsync(AiKit.Chat(ctx, recent: []), default);
+
+        string user = llm.Of("Chat").Single().User;
+        Assert.Matches("<idea>\"[^\"]+\"</idea>", user);
     }
 
     [Fact]
@@ -309,7 +415,7 @@ public class FoundryAgentTests
         FakeLlmClient llm = new();
         FoundryBotAgent agent = AiKit.Agent(llm, store);
         Guid game = Guid.NewGuid();
-        BotContext one = AiKit.Ctx("Red Apple", ["Blue Kiwi", "Purple Plum"], 2, game), two = AiKit.Ctx("Purple Plum", ["Blue Kiwi", "Red Apple"], 2, game);
+        BotContext one = AiKit.Ctx("Red Apple", ["Blue Kiwi", "Purple Plum"], game), two = AiKit.Ctx("Purple Plum", ["Blue Kiwi", "Red Apple"], game);
 
         llm.Reply = _ => Notes("note of the first bot");
         await agent.EndRoundAsync(new RoundEndRequest(one, AiKit.Family, []), default);

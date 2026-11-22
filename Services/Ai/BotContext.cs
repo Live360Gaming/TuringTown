@@ -123,11 +123,11 @@ public sealed record StyleProfile(
 }
 
 /// <summary>
-/// Everything one bot is given on a call, and nothing else: its own role (implied by being asked), how many bots
-/// there are, its own persona and lines, and what every player can see. <b>No field says whether any other player is
-/// a bot.</b> With two bots, neither is told which player is its teammate.
+/// Everything one bot is given on a call, and nothing else: its own role (implied by being asked), its own persona and
+/// lines, and what every player can see. <b>No field says whether any other player is a bot, or how many bots there
+/// are.</b> Each bot plays as if it were the only AI in the room, so it never looks for, protects or talks about a
+/// teammate.
 /// </summary>
-/// <param name="BotCount">How many bots are in the room, including this one.</param>
 /// <param name="AlivePlayers">Aliases of the other living players (never this bot's own alias).</param>
 /// <param name="History">The finished rounds, as the Reveal showed them.</param>
 /// <param name="OwnLines">This bot's own latest lines, so it stays consistent.</param>
@@ -135,7 +135,6 @@ public sealed record StyleProfile(
 public sealed record BotContext(
     BotKey Key,
     string BotAlias,
-    int BotCount,
     IReadOnlyList<PersonaAnswer> Persona,
     int Round,
     IReadOnlyList<string> AlivePlayers,
@@ -145,8 +144,8 @@ public sealed record BotContext(
     int ChatMaxLength = 200)
 {
     /// <summary>
-    /// The game night the bot is part of: the AI team's goal, the games, the public score and highlights (see
-    /// <see cref="TeamContext"/>). Null outside a game night. It never says which other seat is a bot.
+    /// The game night the bot is part of: the games, the public score and highlights (see <see cref="TeamContext"/>).
+    /// Null outside a game night. It never says which other seat is a bot.
     /// </summary>
     public TeamContext? Night { get; init; }
 }

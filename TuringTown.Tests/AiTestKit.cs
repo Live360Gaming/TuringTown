@@ -75,8 +75,8 @@ internal static class AiKit
         new(llm, store ?? new InMemoryBotMemoryStore(), new BotPrompts(), Options(configure), NullLogger<FoundryBotAgent>.Instance);
 
     /// <summary>A bot's context with a persona and some company. Each call gets its own game and bot id unless given.</summary>
-    public static BotContext Ctx(string alias = "Red Apple", string[]? others = null, int botCount = 1, Guid? game = null, Guid? bot = null) =>
-        TestContext.For(alias, botCount) with
+    public static BotContext Ctx(string alias = "Red Apple", string[]? others = null, Guid? game = null, Guid? bot = null) =>
+        TestContext.For(alias) with
         {
             Key = new BotKey(game ?? Guid.NewGuid(), bot ?? Guid.NewGuid()),
             AlivePlayers = others ?? ["Blue Kiwi", "Green Pear"],

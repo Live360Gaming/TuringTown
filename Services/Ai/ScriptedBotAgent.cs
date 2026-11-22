@@ -296,10 +296,20 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         "ok this is harder than I thought", "I genuinely have no idea who it is", "everyone sounds normal so far which is scary",
         "someone here is way too calm", "this round feels different", "i keep changing my mind", "someone is typing way too fast",
         "can we all agree to not vote me", "I need more chat before I decide", "nobody is acting weird yet and I hate it",
-        "this is the most suspicious group ever", "whoever it is is good", "i was so sure last round", "ask people about their answers",
+        "this is the most suspicious group ever", "whoever it is is good", "i was so sure last round",
         "alright who is being too perfect", "my brain is not braining today", "I trust like two people here", "the quiet ones worry me a bit",
         "this is fun but stressful", "someone said something earlier that stuck with me", "I feel like we are missing something obvious",
         "ok im paying attention now", "everyone is too normal", "hmm",
+    ];
+
+    /// <summary>What a relaxed person says while a chat is warming up: anything but detective work.</summary>
+    private static readonly string[] SmallTalk =
+    [
+        "ok my phone is on 4 percent so if I vanish thats why", "im so hungry rn", "I am bad at this kind of game, just warning everyone",
+        "that timer is way too short", "who picked these names lol", "cereal before milk, discuss", "honestly just here for the snacks",
+        "is anyone else lying on the couch for this", "pineapple on pizza is fine and I wont take questions", "ok I just got comfy",
+        "this music slaps tbh", "my brain is half asleep", "hi everyone", "already chaotic and nobody has said anything",
+        "whoever named me deserves a raise", "I had way too much coffee today", "best game night snack, go",
     ];
 
     private static readonly string[] MatureChat =
@@ -386,7 +396,8 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
         if (Accusing.IsMatch(said.Text))
         {
-            string defence = Pick(Defences, rng).TrimEnd('?');
+            string[] defences = rng.Next(100) < 70 ? BotPersonality.For(ctx.Key).Defences : Defences;
+            string defence = Pick(defences, rng).TrimEnd('?');
             // Now and then, point at someone else instead of just defending.
             if (others.Length > 0 && rng.Next(100) < 35)
                 return (said.Alias, $"{defence}. what about @{others[rng.Next(others.Length)]} though");
@@ -415,7 +426,7 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         return words.Any(w => Regex.IsMatch(message, $@"\b{Regex.Escape(w)}\b", RegexOptions.IgnoreCase));
     }
 
-    private static (string? Mention, string? Body) FreeLine(ChatRequest request, BotVoice voice, Random rng)
+    internal static (string? Mention, string? Body) FreeLine(ChatRequest request, BotVoice voice, Random rng)
     {
         BotContext ctx = request.Context;
         // ChatLine is a struct: cast first, or "none" would come back as an empty line instead of null.
@@ -432,6 +443,14 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         {
             string? mine = OwnAnswer(ctx, rng);
             if (mine is not null) return (null, string.Format(Pick(OwnAnswerLines, rng), mine));
+        }
+
+        // The chat is just warming up: small talk, like a person, not "who is the bot". Later, now and then too.
+        int fromOthers = request.Recent.Count(l => !l.Alias.Equals(request.BotAlias, StringComparison.OrdinalIgnoreCase));
+        if (fromOthers < 3 ? roll < 80 : roll < 23)
+        {
+            string[] openers = rng.Next(100) < 70 ? BotPersonality.For(ctx.Key).Openers : SmallTalk;
+            return (null, Pick(openers, rng));
         }
 
         // React to the last thing someone said.

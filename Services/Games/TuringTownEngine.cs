@@ -885,8 +885,8 @@ public sealed class TuringTownEngine : IGameEngine
             .Where(v => v.Length > 0));
 
     /// <summary>
-    /// Everything one bot is allowed to know. Call with the gate held. It carries the bot's own persona and lines,
-    /// how many bots there are, and what the Reveal showed everyone: <b>never</b> a role for any other player.
+    /// Everything one bot is allowed to know. Call with the gate held. It carries the bot's own persona and lines and
+    /// what the Reveal showed everyone: <b>never</b> a role for any other player, nor how many bots there are.
     /// </summary>
     private BotContext BuildContext(PlayerSeat bot, int round)
     {
@@ -898,7 +898,6 @@ public sealed class TuringTownEngine : IGameEngine
         return new BotContext(
             new BotKey(_gameId, bot.Id),
             bot.Alias,
-            seats.Count(s => s.IsBot),
             _personas.GetValueOrDefault(bot.Id, []),
             round,
             seats.Where(s => s.Alive && s.Id != bot.Id).Select(s => s.Alias).ToArray(),
