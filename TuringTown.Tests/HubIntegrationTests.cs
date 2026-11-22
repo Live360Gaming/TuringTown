@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TuringTown.Models;
+using TuringTown.Services.Ai;
 using TuringTown.Services.Games;
 
 namespace TuringTown.Tests;
@@ -23,11 +24,18 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public Task<bool> IsAllowedAsync(string text, ContentPolicy policy, CancellationToken ct) => Task.FromResult(false);
     }
 
+    /// <summary>Plays Turing Town first, then Witty Bits, so a test knows which game comes when.</summary>
+    private sealed class TuringTownFirst : IGameNightPlanner
+    {
+        public Task<GameNightPlan> PlanAsync(GameNightPlanRequest request, CancellationToken ct) =>
+            Task.FromResult(new GameNightPlan([GameIds.TuringTown, GameIds.WittyBits], "Bring it on."));
+    }
+
     private readonly WebApplicationFactory<Program> _factory;
 
     public HubIntegrationTests(WebApplicationFactory<Program> factory)
     {
-        _factory = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
+        _factory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(s => s.AddSingleton<IGameNightPlanner>(new TuringTownFirst())).ConfigureAppConfiguration((_, config) =>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["TuringTown:TutorialMaxSeconds"] = "30",
@@ -40,7 +48,20 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
                 ["TuringTown:BotMessagesPerRound"] = "0",
                 ["TuringTown:BotVoteMinDelayMs"] = "0",
                 ["TuringTown:BotVoteMaxDelayMs"] = "0",
-                ["TuringTown:ChatMinIntervalMs"] = "0"
+                ["TuringTown:ChatMinIntervalMs"] = "0",
+                ["GameNight:PlanRevealSeconds"] = "1",
+                ["GameNight:ScoreboardSeconds"] = "30",
+                ["GameNight:FinaleSeconds"] = "30",
+                ["WittyBits:TutorialMaxSeconds"] = "30",
+                ["WittyBits:WritingSeconds"] = "30",
+                ["WittyBits:LastBitWritingSeconds"] = "30",
+                ["WittyBits:MatchupSeconds"] = "30",
+                ["WittyBits:MatchupResultSeconds"] = "1",
+                ["WittyBits:ResultsSeconds"] = "30",
+                ["WittyBits:BotAnswerMinDelayMs"] = "0",
+                ["WittyBits:BotAnswerMaxDelayMs"] = "0",
+                ["WittyBits:BotVoteMinDelayMs"] = "0",
+                ["WittyBits:BotVoteMaxDelayMs"] = "0"
             })));
     }
 
@@ -57,12 +78,13 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public ConcurrentQueue<string> Errors { get; } = new();
         public JsonElement Joined { get; set; }
 
-        public async Task<JsonElement> WaitForStageAsync(string stage, int? round = null)
+        public async Task<JsonElement> WaitForStageAsync(string stage, int? round = null, string? gameId = null)
         {
             for (int i = 0; i < 600; i++)
             {
                 foreach (JsonElement state in States)
-                    if (state.GetProperty("stage").GetString() == stage && (round is null || state.GetProperty("round").GetInt32() == round))
+                    if (state.GetProperty("stage").GetString() == stage && (round is null || state.GetProperty("round").GetInt32() == round)
+                        && (gameId is null || state.GetProperty("gameId").GetString() == gameId))
                         return state;
                 await Task.Delay(25);
             }
@@ -220,7 +242,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 
         // The join result has what a screen needs to render straight away.
         Assert.Equal("Lobby", p1.Joined.GetProperty("state").GetProperty("stage").GetString());
-        Assert.Equal("turing-town", p1.Joined.GetProperty("state").GetProperty("gameId").GetString());
+        Assert.Equal("game-night", p1.Joined.GetProperty("state").GetProperty("gameId").GetString());
         Assert.Equal(joined[0].Alias, p1.Joined.GetProperty("you").GetProperty("alias").GetString());
         Assert.True(p1.Joined.GetProperty("serverTimeUtcMs").GetInt64() > 0);
         Assert.Equal(JsonValueKind.Null, host.Joined.GetProperty("you").ValueKind);
@@ -242,16 +264,24 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await WaitUntilAsync(() => host.Rosters.Count > 0 && host.Rosters.Last().EnumerateArray().All(p => p.GetProperty("ready").GetBoolean()));
         Assert.Single(host.Rosters.Last().EnumerateArray(), p => p.GetProperty("leader").GetBoolean());
 
-        // --- start: Tutorial, with a bot now seated that nobody can tell apart
+        // --- start: the AI plans the night, then the first game's Tutorial, with bots now seated that nobody can tell apart
         await host.Connection.InvokeAsync("StartGame");
+        await WaitUntilAsync(() => p1.States.Any(s => s.GetProperty("stage").GetString() == "Planning"
+                                                      && s.GetProperty("data").GetProperty("order").GetArrayLength() > 0));
+        JsonElement planning = p1.States.Last(s => s.GetProperty("stage").GetString() == "Planning");
+        Assert.Equal("game-night", planning.GetProperty("gameId").GetString());
+        Assert.Contains("turing-town", planning.GetProperty("data").GetProperty("order").EnumerateArray().Select(g => g.GetProperty("gameId").GetString()));
+
         JsonElement tutorial = await p1.WaitForStageAsync("Tutorial");
+        Assert.Equal("turing-town", tutorial.GetProperty("gameId").GetString());
         Assert.Equal(JsonValueKind.Null, tutorial.GetProperty("data").ValueKind);
 
         await host.Connection.InvokeAsync("TutorialStep", 2);
         await WaitUntilAsync(() => p2.States.Any(s => s.GetProperty("stage").GetString() == "Tutorial" && s.GetProperty("step").GetInt32() == 2));
 
         JsonElement roster = p1.Rosters.Last();
-        Assert.Equal(3, roster.GetArrayLength());
+        // Two humans get two bots, so the night always has at least four players.
+        Assert.Equal(4, roster.GetArrayLength());
         foreach (JsonElement player in roster.EnumerateArray())
             Assert.Equal(["alias", "alive", "characterId", "color", "connected", "id", "leader", "ready"], player.EnumerateObject().Select(p => p.Name).Order().ToArray());
 
@@ -322,14 +352,44 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         if (results.ValueKind == JsonValueKind.Undefined)
             results = await p1.WaitForStageAsync("Results");
 
-        // --- results are the first place roles appear: exactly one bot among three seats
-        Assert.Contains(results.GetProperty("data").GetProperty("winner").GetString(), new[] { "Humans", "Bots" });
+        // --- results are the first place roles appear: two bots among four seats
+        string? winner = results.GetProperty("data").GetProperty("winner").GetString();
+        Assert.Contains(winner, new[] { "Humans", "Bots" });
         JsonElement roles = results.GetProperty("data").GetProperty("roles");
-        Assert.Equal(3, roles.GetArrayLength());
-        Assert.Equal(1, roles.EnumerateArray().Count(r => r.GetProperty("wasBot").GetBoolean()));
+        Assert.Equal(4, roles.GetArrayLength());
+        Assert.Equal(2, roles.EnumerateArray().Count(r => r.GetProperty("wasBot").GetBoolean()));
 
-        // --- the host sends everyone back to the lobby, and the bot leaves
-        await host.Connection.InvokeAsync("ReturnToLobby");
+        // --- only the host or the leader moves the night on: to the scoreboard. Every bot was unmasked at the
+        // results, so the team totals are public, and the winning side has the bonus.
+        await Assert.ThrowsAnyAsync<HubException>(() => p2.Connection.InvokeAsync("ContinueNight"));
+        await host.Connection.InvokeAsync("ContinueNight");
+        JsonElement board = await p1.WaitForStageAsync("Scoreboard");
+        JsonElement boardTeams = board.GetProperty("data").GetProperty("teams");
+        Assert.Equal(winner == "Humans" ? 1000 : 0, boardTeams.GetProperty("humans").GetInt32());
+        Assert.Equal(winner == "Bots" ? 1000 : 0, boardTeams.GetProperty("ai").GetInt32());
+        Assert.Equal("witty-bits", board.GetProperty("data").GetProperty("next").GetProperty("gameId").GetString());
+
+        // --- Witty Bits on the same seats: everyone is back in, and players write and vote over the hub
+        await p1.Connection.InvokeAsync("ContinueNight");
+        await p1.WaitForStageAsync("Tutorial", gameId: "witty-bits");
+        await WaitUntilAsync(() => p1.Rosters.Last().EnumerateArray().All(p => p.GetProperty("alive").GetBoolean()));
+        await p1.Connection.InvokeAsync("TutorialDone");
+        await PlayWittyBitsAsync([(p1, joined[0].PlayerId), (p2, joined[1].PlayerId)]);
+
+        JsonElement wittyResults = await p1.WaitForStageAsync("Results", gameId: "witty-bits");
+        Assert.Equal(4, wittyResults.GetProperty("data").GetProperty("standings").GetArrayLength());
+
+        // --- the finale: the totals decide the winner, and every role is shown
+        await host.Connection.InvokeAsync("ContinueNight");
+        JsonElement finale = await p1.WaitForStageAsync("Finale");
+        JsonElement teams = finale.GetProperty("data").GetProperty("teams");
+        int humans = teams.GetProperty("humans").GetInt32(), ai = teams.GetProperty("ai").GetInt32();
+        Assert.True(humans + ai > 1000);
+        Assert.Equal(humans > ai ? "Humans" : ai > humans ? "AI" : "Tie", finale.GetProperty("data").GetProperty("winner").GetString());
+        Assert.Equal(4, finale.GetProperty("data").GetProperty("roles").GetArrayLength());
+
+        // --- the leader sends everyone back to the lobby, and the bots leave
+        await p1.Connection.InvokeAsync("ContinueNight");
         await WaitUntilAsync(() => host.States.Last().GetProperty("stage").GetString() == "Lobby");
         await WaitUntilAsync(() => host.Rosters.Last().GetArrayLength() == 2);
     }
@@ -348,6 +408,55 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
             string option = unknownOption ? "z" : q.GetProperty("options")[0].GetProperty("id").GetString()!;
             return new { questionId = id, text = textOnChoice ? text : "", optionIds = new[] { option } };
         }).ToArray();
+
+    /// <summary>
+    /// Plays Witty Bits the way the phones do, from the states alone: answer your own prompts in each Writing stage,
+    /// and vote for the first answer you did not write in each Matchup (sitting out a matchup you wrote).
+    /// </summary>
+    private static async Task PlayWittyBitsAsync(IReadOnlyList<(Client Client, Guid Id)> players)
+    {
+        HashSet<string> done = [];
+        for (int i = 0; i < 2400; i++)
+        {
+            JsonElement state = players[0].Client.States.Last();
+            if (state.GetProperty("gameId").GetString() != "witty-bits") { await Task.Delay(25); continue; }
+
+            string stage = state.GetProperty("stage").GetString()!;
+            if (stage == "Results") return;
+
+            string key = $"{stage}{state.GetProperty("round").GetInt32()}/{state.GetProperty("step").GetInt32()}";
+            if (done.Add(key))
+            {
+                JsonElement data = state.GetProperty("data");
+                foreach ((Client client, Guid id) in players)
+                {
+                    string mine = $"funny take {id.ToString()[..4]}";
+                    if (stage == "Writing")
+                    {
+                        foreach (JsonElement a in data.GetProperty("assignments").EnumerateArray())
+                            if (a.GetProperty("playerIds").EnumerateArray().Any(p => p.GetGuid() == id))
+                                await client.Connection.InvokeAsync("SubmitWittyAnswer", a.GetProperty("promptId").GetString(), $"{mine} {key}");
+                    }
+                    else if (stage == "Matchup")
+                    {
+                        bool lastBit = data.GetProperty("lastBit").GetBoolean();
+                        bool author = data.GetProperty("authors").EnumerateArray().Any(p => p.GetGuid() == id);
+                        if (author && !lastBit)
+                        {
+                            await Assert.ThrowsAnyAsync<HubException>(() => client.Connection.InvokeAsync("CastWittyVote", "a"));
+                            continue;
+                        }
+
+                        JsonElement pick = data.GetProperty("answers").EnumerateArray()
+                            .First(e => !e.GetProperty("missing").GetBoolean() && !e.GetProperty("text").GetString()!.StartsWith(mine));
+                        await client.Connection.InvokeAsync("CastWittyVote", pick.GetProperty("id").GetString());
+                    }
+                }
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException("Witty Bits never reached its results.");
+    }
 
     private static async Task VoteForSomeoneElseAsync(Client client, Guid myId)
     {

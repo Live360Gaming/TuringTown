@@ -16,8 +16,11 @@ public static partial class QuestionValidator
     public const int MinMultiOptions = 3;
     public const int MaxOptions = 6;
 
-    [GeneratedRegex(@"\b(your (full |real |first |last |sur)?name|how old|your age|birthday|where (do|did) you (live|work|go)|your (home )?address|phone|e-?mail|social media|username|instagram|which school|where do you work|years? old|your (job|city|town|school|employer)|job title|which (city|town)|\d{1,2}\s*-\s*\d{1,2}\s*(years|yrs)?|grade \d+)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(your (full |real |first |last |sur)?name|how old|your age|birthday|where (do|did) you (live|work|go)|your (home )?address|(phone|cell|mobile) (number|no\.?)|your (e-?mail|socials?|social media|user ?name|instagram|insta|tiktok|snapchat|handle)|e-?mail address|(social media|instagram|insta|tiktok|snapchat) (handle|account|name)|user ?name is|which school|where do you work|years? old|your (job|city|town|school|employer)|job title|which (city|town)|\d{1,2}\s*-\s*\d{1,2}\s*(years|yrs)?|grade \d+)\b", RegexOptions.IgnoreCase)]
     private static partial Regex PersonalDetail { get; }
+
+    /// <summary>True when the text asks for a name, age, place, school, workplace or contact detail.</summary>
+    public static bool AsksForPersonalDetail(string text) => PersonalDetail.IsMatch(text);
 
     /// <summary>
     /// Shape only: the right number of valid questions of any kind.

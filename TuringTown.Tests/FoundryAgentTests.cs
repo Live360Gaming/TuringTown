@@ -19,7 +19,8 @@ public class FoundryAgentTests
     public void Every_prompt_template_loads_and_has_a_version()
     {
         BotPrompts prompts = new();
-        string[] names = ["bot-system", "chat-task", "vote-task", "onboarding-task", "round-notes-task", "questions-system", "questions-task", "tone-family", "tone-mature"];
+        string[] names = ["bot-system", "chat-task", "vote-task", "onboarding-task", "round-notes-task", "questions-system", "questions-task", "tone-family", "tone-mature",
+            "planner-system", "planner-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task"];
 
         foreach (string name in names)
             Assert.True(prompts.Get(name).Version >= 1, name);

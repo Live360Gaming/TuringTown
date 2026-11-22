@@ -28,8 +28,28 @@ player's action. Clients never reach it, never see a prompt, a key or a role.
 - A failed or slow call is answered by a fallback, so a game never stalls: a vote or an onboarding answer by the scripted agent,
   a **chat** turn by **silence** (a canned line in the middle of an AI conversation is a tell), end-of-round notes by nothing.
 - The model and the game are separate: `ILlmClient`, `FoundryLlmClient`, `GuardedLlmClient`, `AiBudget`, `BotPrompts` and
-  `AiOptions` know nothing about Turing Town. `FoundryBotAgent`, its prompts and `BotContext` are Turing Town's. A second mini
-  game reuses the first group and writes its own agent and prompts.
+  `AiOptions` know nothing about Turing Town. `FoundryBotAgent`, its prompts and `BotContext` are Turing Town's. Witty Bits
+  reuses the first group with its own agent and prompts (below).
+
+### The game night agents
+
+The [game night](game-night.md) adds three, all in `Services/Ai/FoundryWittyBits.cs`, each with an offline version that is
+also its fallback:
+
+| Role | Real | Offline / fallback | When |
+|---|---|---|---|
+| The AI team's coach: the order of the games and a line for the TV | `FoundryGameNightPlanner` | `ScriptedGameNightPlanner` (random order); the night also replaces an invalid or slow plan | Planning |
+| Witty Bits prompts (not a player: no persona, no context) | `FoundryWittyPromptGenerator` in `FallbackWittyPromptGenerator` | `BuiltInWittyPrompts` | Witty Bits tutorial |
+| A Witty Bits bot: an answer, a vote | `FoundryWittyBotAgent` in `FallbackWittyBotAgent` | `ScriptedWittyBotAgent` | Writing, Matchup |
+
+- `AgentSelector` picks the agents **once per night** (`AgentSet` holds all of them, and the planner).
+- **The team context.** The bots are one team: every request in every game carries the night's `TeamContext` (the goal,
+  the games, the standings, the team totals only once they are public, and highlights the whole room saw), in a `<night>`
+  block, JSON-quoted because the highlights quote players. Turing Town's `chat`, `vote` and `round-notes` templates get it
+  too (`BotContext.Night`). It never names a bot, so the Turing Town knowledge rule below still holds.
+- A Witty Bits answer goes through `BotOutputGuard.IsBad` (admission, canary, prompt leak), then the same `ChatFilter` and
+  `IContentFilter` as a human's; a rejected one is replaced by a scripted answer. A vote must be one of the answers on
+  offer (the schema's enum), or the bot abstains.
 
 ## Configuration and secrets
 
@@ -54,7 +74,7 @@ Two sections, deliberately apart:
 | Key | Default | Meaning |
 |---|---|---|
 | `Provider` | `Scripted` | `Scripted` or `Foundry` |
-| `Calls:<Chat\|Vote\|Onboarding\|Questions\|RoundNotes>` | see file | `ReasoningEffort` (sent as `reasoning_effort`, empty sends nothing), `MaxOutputTokens` (`max_completion_tokens`, which for a reasoning model **includes the hidden reasoning**), `TimeoutMs` |
+| `Calls:<Chat\|Vote\|Onboarding\|Questions\|RoundNotes\|Plan\|WittyPrompts\|WittyAnswer\|WittyVote>` | see file | `ReasoningEffort` (sent as `reasoning_effort`, empty sends nothing), `MaxOutputTokens` (`max_completion_tokens`, which for a reasoning model **includes the hidden reasoning**), `TimeoutMs` |
 | `Limits:MaxConcurrentCalls` | 8 | calls in flight at once |
 | `Limits:MaxCallsPerGame` | 150 | per game |
 | `Limits:DailyTokenBudget` | 5,000,000 | input + output tokens per UTC day, from the model's own usage counts (about $5 on a small model) |
@@ -82,6 +102,8 @@ unused. Family Friendly picks `tone-family.md` or `tone-mature.md`; the safety r
   inside a tagged block, so it can neither close a tag nor start a line of instructions.
 - `questions-system.md` / `questions-task.md` are for the question generator: no bot framing, no game context. It writes
   opinion questions and hot takes, since everyone's answers are shown in the Discussion.
+- `planner-system.md` / `planner-task.md` are the AI team's coach; `witty-prompts-system.md` / `witty-prompts-task.md` the
+  Witty Bits prompt writer; `witty-system.md` with `witty-answer-task.md` / `witty-vote-task.md` the Witty Bits bot.
 - An OFF-mode form with at least one question includes a question flagged mature. If the model does not produce one,
   the engine tries a same-kind built-in replacement, without an extra model call.
 

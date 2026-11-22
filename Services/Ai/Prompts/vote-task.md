@@ -1,10 +1,11 @@
-version: 3
+version: 4
 
 You are {{alias}}. The discussion is over and it is time to vote in round {{round}}.
 
 <persona>{{persona}}</persona>
 <players>{{players}}</players>
 <history>{{history}}</history>
+<night>{{night}}</night>
 <notes>{{notes}}</notes>
 <your_lines>{{own_lines}}</your_lines>
 <chat>{{chat}}</chat>

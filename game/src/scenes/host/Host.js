@@ -49,7 +49,7 @@ export class Host extends Scene {
         this.placeholderOf = new Map();
         this.events.once('shutdown', () => this.cleanup());
 
-        // Lobby music. It keeps playing into the game and then follows the stages (see minigames/turing-town/music.js).
+        // Lobby music. It keeps playing into the game and then follows the stages (see minigames/stageMusic.js).
         playTrack(this.game, LOBBY_TRACK);
         loadStageMusic(this);
 
@@ -69,6 +69,9 @@ export class Host extends Scene {
         this.statusText = this.add.text(HOST_CENTER_X, MARQUEE_Y + MARQUEE_H + 14, '',
             textStyle('bodyOnArt', {fontSize: '20px', color: COLORS.pink})).setOrigin(0.5);
         createTextButton(this, SETTINGS_X, MARQUEE_Y + MARQUEE_H / 2, 'Settings', () => this.openOverlay('HostSettings'), {width: SETTINGS_W, height: 60, fontSize: '24px'});
+        // What tonight is: the AI picks the games, and the side with more points at the end wins.
+        this.add.text(HOST_CENTER_X, MARQUEE_Y + MARQUEE_H + 50, "GAME NIGHT: HUMANS VS AI. The AI picks tonight's games.",
+            textStyle('bodyOnArt', {fontSize: '22px', color: COLORS.cyan})).setOrigin(0.5);
 
         // Initialize the network manager
         this.network = new NetworkManager({baseUrl: window.location.origin});

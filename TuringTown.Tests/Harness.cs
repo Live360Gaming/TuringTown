@@ -133,6 +133,8 @@ internal sealed class Harness : IRoomBroadcaster
 
         Assert.Equal(RoomSettingsError.None, Room.TryUpdateSettings(null, familyFriendly));
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
+        // Outside a game night the engine is the whole game, so the room goes straight to its first stage.
+        Room.SetState(new GameState(GameIds.TuringTown, Stage.Tutorial, 0, 0, null, null));
         Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, contentFilter ?? new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
         Engine.Start();
     }

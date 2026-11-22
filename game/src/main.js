@@ -8,6 +8,8 @@ import {Host} from "./scenes/host/Host.js";
 import {Player} from "./scenes/player/Player.js";
 import {PlayerLobby} from "./scenes/player/PlayerLobby.js";
 import {TURING_TOWN_SCENES} from "./minigames/turing-town/index.js";
+import {WITTY_BITS_SCENES} from "./minigames/witty-bits/index.js";
+import {GAME_NIGHT_SCENES} from "./minigames/game-night/index.js";
 import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
 import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
 import {PresenceToast} from "./scenes/host/overlays/PresenceToast.js";
@@ -37,8 +39,11 @@ const config = {
         Host,
         Player,
         PlayerLobby,
-        // The game's own screens, one per stage; the director starts them as the server moves the game along.
+        // The night's own screens (Planning, Scoreboard, Finale) and each game's screens, one per stage; the director
+        // starts them as the server moves the night along.
+        ...GAME_NIGHT_SCENES,
         ...TURING_TOWN_SCENES,
+        ...WITTY_BITS_SCENES,
         // Overlays come after Host so they draw on top of it.
         HostSettings,
         QuitConfirm,

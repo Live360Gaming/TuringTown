@@ -10,6 +10,8 @@ namespace TuringTown.Hubs;
 /// Each room is a SignalR group named after its room code.
 ///
 /// Server to client: StateChanged(GameState), RosterChanged(PlayerInfo[]), ChatMessage(ChatMessage), Progress({done, total}).
+/// Calls every game shares (pause, tutorial, continue) go through the room's <see cref="GameNight"/>; a game's own
+/// calls go to its engine.
 /// Client to server: the methods below. See docs/game-flow.md.
 /// </summary>
 public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoomBroadcaster broadcaster, TimeProvider time) : Hub
@@ -27,9 +29,9 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
 
     private JoinResult BuildJoinResult(Room room, PlayerInfo? you)
     {
-        games.TryGetEngine(room, out TuringTownEngine? engine);
-        IReadOnlyList<ChatMessage> transcript = engine?.GetTranscript() ?? [];
-        IReadOnlyList<Guid> unmasked = engine?.GetUnmasked() ?? [];
+        games.TryGetNight(room, out GameNight? night);
+        IReadOnlyList<ChatMessage> transcript = night?.GetTranscript() ?? [];
+        IReadOnlyList<Guid> unmasked = night?.GetUnmasked() ?? [];
 
         return new JoinResult(room.State, room.GetRoster(), you, transcript, time.GetUtcNow().ToUnixTimeMilliseconds(), unmasked);
     }
@@ -80,7 +82,7 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         }
         else if (Context.Items.TryGetValue(RoleKey, out object? role) && role as string == "host"
                  && Context.Items.TryGetValue(RoomKey, out object? hr) && hr is Room hostRoom
-                 && games.TryGetEngine(hostRoom, out TuringTownEngine? engine) && engine is { IsPaused: true })
+                 && games.TryGetEngine(hostRoom, out IGameEngine? engine) && engine is { IsPaused: true })
         {
             // Only the host can resume, so a game it paused must not stay frozen after the host is gone.
             await engine.SetPausedAsync(false);
@@ -112,8 +114,8 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
     // A form or vote must not wait for a player who left.
     private async Task NotifyPresence(Room room)
     {
-        if (games.TryGetEngine(room, out TuringTownEngine? engine) && engine is not null)
-            await engine.NotifyPresenceChangedAsync();
+        if (games.TryGetNight(room, out GameNight? night) && night is not null)
+            await night.NotifyPresenceChangedAsync();
     }
 
     // ---------------------------------------------------------------- host
@@ -166,12 +168,18 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         return Task.CompletedTask;
     }
 
-    /// <summary>The host, or the leader (the first player), leaves the results screen: everyone goes back to the lobby to play again.</summary>
-    public Task ReturnToLobby()
+    /// <summary>
+    /// The host, or the leader (the first player), moves the night on: past a game's results, past the scoreboard to
+    /// the next game, or from the finale back to the lobby.
+    /// </summary>
+    public Task ContinueNight()
     {
-        Throw(RequireEngine(RequireHostOrLeader()).ReturnToLobby());
+        Throw(RequireNight(RequireHostOrLeader()).Continue());
         return Task.CompletedTask;
     }
+
+    /// <summary>The older name of <see cref="ContinueNight"/>, kept for clients that still send it.</summary>
+    public Task ReturnToLobby() => ContinueNight();
 
     // ---------------------------------------------------------------- players
 
@@ -179,26 +187,40 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
     public async Task SubmitOnboarding(OnboardingAnswer[] answers)
     {
         (Room room, Guid playerId) = RequirePlayer();
-        Throw(await RequireEngine(room).SubmitOnboardingAsync(playerId, answers));
+        Throw(await RequireEngine<TuringTownEngine>(room).SubmitOnboardingAsync(playerId, answers));
     }
 
     public async Task SendChat(string text)
     {
         (Room room, Guid playerId) = RequirePlayer();
-        Throw(await RequireEngine(room).SendChatAsync(playerId, text));
+        Throw(await RequireEngine<TuringTownEngine>(room).SendChatAsync(playerId, text));
     }
 
     /// <summary>The player started (true) or stopped (false) typing in the chat box. Shown to the room as a typing indicator.</summary>
     public async Task SetTyping(bool typing)
     {
         (Room room, Guid playerId) = RequirePlayer();
-        await RequireEngine(room).SetTypingAsync(playerId, typing);
+        await RequireEngine<TuringTownEngine>(room).SetTypingAsync(playerId, typing);
     }
 
     public async Task CastVote(Guid targetPlayerId)
     {
         (Room room, Guid playerId) = RequirePlayer();
-        Throw(await RequireEngine(room).CastVoteAsync(playerId, targetPlayerId));
+        Throw(await RequireEngine<TuringTownEngine>(room).CastVoteAsync(playerId, targetPlayerId));
+    }
+
+    /// <summary>Witty Bits: write (or rewrite) the answer to one of your prompts.</summary>
+    public async Task SubmitWittyAnswer(string promptId, string text)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(await RequireEngine<WittyBitsEngine>(room).SubmitAnswerAsync(playerId, promptId, text));
+    }
+
+    /// <summary>Witty Bits: vote for one answer in the current matchup (by its id, <c>a</c>, <c>b</c>, ...).</summary>
+    public async Task CastWittyVote(string answerId)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(await RequireEngine<WittyBitsEngine>(room).CastVoteAsync(playerId, answerId));
     }
 
     /// <summary>While waiting in the lobby, switch to a character nobody else has chosen.</summary>
@@ -260,10 +282,19 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         return (room, playerId);
     }
 
-    private TuringTownEngine RequireEngine(Room room) =>
-        games.TryGetEngine(room, out TuringTownEngine? engine) && engine is not null
+    private GameNight RequireNight(Room room) =>
+        games.TryGetNight(room, out GameNight? night) && night is not null
+            ? night
+            : throw new HubException("The game has not started.");
+
+    private IGameEngine RequireEngine(Room room) =>
+        games.TryGetEngine(room, out IGameEngine? engine) && engine is not null
             ? engine
             : throw new HubException("The game has not started.");
+
+    /// <summary>The running game, when it is the game a call belongs to.</summary>
+    private T RequireEngine<T>(Room room) where T : class, IGameEngine =>
+        RequireEngine(room) as T ?? throw new HubException("That is not part of this game.");
 
     private static void Throw(string? error)
     {

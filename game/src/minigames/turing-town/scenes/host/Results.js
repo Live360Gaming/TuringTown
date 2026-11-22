@@ -31,10 +31,11 @@ export class TuringTownHostResults extends HostStage {
         });
 
         this.statusText = this.add.text(HOST_CENTER_X, 560, '', {fontSize: '24px', color: '#ff4d4d'}).setOrigin(0.5);
-        createTextButton(this, HOST_CENTER_X, HOST_HEIGHT - 70, 'Back to lobby', () => this.backToLobby(), {width: 320, height: 64, fontSize: '30px'});
+        createTextButton(this, HOST_CENTER_X, HOST_HEIGHT - 70, 'Continue', () => this.continueNight(), {width: 320, height: 64, fontSize: '30px'});
     }
 
-    backToLobby() {
-        this.session.invoke('ReturnToLobby').catch(err => this.statusText.setText(hubErrorMessage(err)));
+    // On to the next game of the night (or the finale).
+    continueNight() {
+        this.session.invoke('ContinueNight').catch(err => this.statusText.setText(hubErrorMessage(err)));
     }
 }

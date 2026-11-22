@@ -2,7 +2,7 @@ import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {createTextButton} from '../../../../core/ui/Button.js';
 
-// The end of the game, on the phone. The host, or the leader (the first player), decides when everyone goes back to the lobby.
+// The end of the game, on the phone. The host, or the leader (the first player), decides when the night moves on.
 export class TuringTownPlayerResults extends PlayerStage {
     constructor() {
         super('TuringTownPlayerResults');
@@ -17,14 +17,14 @@ export class TuringTownPlayerResults extends PlayerStage {
         this.subText = this.addText(humansWon ? 'Every bot was voted out.' : 'The bots blended in perfectly.', {align: 'center'});
         this.hintText = this.addText('Look at the TV to see who was who.', {align: 'center'});
 
-        // Only the leader (the first player to join) can send everyone back to the lobby for another game.
+        // Only the leader (the first player to join) can move the night on to the next game.
         this.errorText = this.addText('', {align: 'center'}).setColor('#ff4d4d');
-        this.againBtn = createTextButton(this, 0, 0, 'Play again', () => this.playAgain(), {width: 300, height: 64, fontSize: '30px', variant: 'primary'});
+        this.againBtn = createTextButton(this, 0, 0, 'Continue', () => this.playAgain(), {width: 300, height: 64, fontSize: '30px', variant: 'primary'});
         this.againBtn.setVisible(!!this.session.you?.leader);
     }
 
     playAgain() {
-        this.session.invoke('ReturnToLobby').catch(err => this.errorText.setText(hubErrorMessage(err)));
+        this.session.invoke('ContinueNight').catch(err => this.errorText.setText(hubErrorMessage(err)));
     }
 
     layout(m) {

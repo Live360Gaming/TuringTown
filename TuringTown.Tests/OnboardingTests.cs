@@ -99,9 +99,22 @@ public class OnboardingTests
     [InlineData("Your email")]
     [InlineData("Your job")]
     [InlineData("Which city")]
+    [InlineData("Your phone number")]
+    [InlineData("Your Instagram handle")]
+    [InlineData("Email address")]
     public void No_option_may_offer_or_ask_for_personal_details(string option)
     {
         Assert.False(QuestionValidator.IsValid([Single(options: ["Fine", option])], Family, 1));
+    }
+
+    [Theory]
+    [InlineData("Constantly checks their phone")]
+    [InlineData("Sends a long email")]
+    [InlineData("Posts everything on social media")]
+    [InlineData("Too much Instagram")]
+    public void Mentioning_a_phone_or_an_app_is_not_a_personal_detail(string option)
+    {
+        Assert.True(QuestionValidator.IsValid([Single(options: ["Fine", option])], Family, 1));
     }
 
     [Fact]

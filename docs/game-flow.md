@@ -4,34 +4,39 @@ Turing Town is a social-deduction game. One or two **AI bots** hide among the hu
 onboarding form, chats anonymously for a timed discussion, then votes someone out. **Humans win by voting out every
 bot. The bots win by surviving until they match the humans.**
 
-The **server runs the game** (`Services/Games/TuringTownEngine`, one per room). Clients only render the state it
+The **server runs the game** (`Services/Games/TuringTownEngine`, one per game). Clients only render the state it
 broadcasts and send their own answers, chat lines and votes. For per-game content and AI generation see
 [game-data.md](game-data.md); for the Family Friendly toggle see [content-policy.md](content-policy.md).
+
+Turing Town is one game of a **[game night](game-night.md)**: the room plays it and [Witty Bits](witty-bits.md) in the
+order the AI team picks, on the same seats, Humans vs AI on points. Winning Turing Town gives the winning side a flat
+bonus. The lobby and the night's own stages (Planning, Scoreboard, Finale) are described there.
 
 ## Stages
 
 ```
-Lobby → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─ no winner → Discussion (next round)
-                                                              └─ winner    → Results → Lobby
+(night) → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─ no winner → Discussion (next round)
+                                                                └─ winner    → Results → (night: Scoreboard or Finale)
 ```
 
 | Stage | What happens | Ends when | `data` |
 |---|---|---|---|
-| Lobby | Players join and ready up; host changes settings | host, or the leader (first player to join), calls `StartGame` (needs `MinPlayers`, and every player ready) | none |
 | Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` when it ends or is skipped, or the leader skips it from their phone (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
 | Discussion | Anonymous chat. Form answers are never shown. | timer | none |
 | Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
 | Reveal | Who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally}` |
-| Results | Winner and every role | host or leader calls `ReturnToLobby`, or timer | `{winner, roles}` |
+| Results | Winner and every role | host or leader calls `ContinueNight`, or timer | `{winner, roles}` |
 
 - **Voting.** Plurality is eliminated. A **tie (or no votes) eliminates nobody.** Eliminated humans stay as read-only
   spectators. Bots vote through the agent and may pick **any living player but themselves** (see
   [What a bot knows](#what-a-bot-knows)).
 - **Winning.** Humans win when no bot is left. Bots win when living bots are at least as many as living humans, or when
   `MaxRounds` passes with a bot still alive (so a run of ties cannot stall the game).
-- **Bots.** 1 bot for 2-4 humans, 2 for 5 or more (`TuringTownEngine.BotCountFor`). Bots are seated when the game
-  starts, with an alias and character from the same pool as humans, and are removed when the room returns to the lobby.
+- **Bots.** The night seats them (`GameNight.BotCountFor`): Turing Town's own rule is 1 bot for 2-4 humans and 2 for 5
+  or more (`TuringTownEngine.BotCountFor`), and the night adds enough for four players in all, so 2 humans play with 2
+  bots (who then win at once unless the first vote finds one). Bots are seated when the night starts, with an alias and
+  character from the same pool as humans, and are removed when the night ends.
 - **Onboarding questions** are opinions and hot takes ("is a hot dog a sandwich?", "what is the most overrated food?"), and come in three kinds (`kind`): `Text` (free text), `SingleChoice` (pick exactly one of 2-6
   options, usually four, `minSelect = maxSelect = 1`) and `MultiChoice` (3-6 options, pick `minSelect`..`maxSelect`).
   A game asks a fixed mix, one of each by default (`TextQuestions`, `SingleChoiceQuestions`, `MultiChoiceQuestions`).
@@ -81,7 +86,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | Method | Who | When |
 |---|---|---|
 | `JoinAsHost(roomCode, hostToken)` / `JoinAsPlayer(roomCode, playerId, playerToken)` | host / player | any time. Returns `{state, roster, you, transcript, serverTimeUtcMs, unmasked}` |
-| `StartGame()` | host, or the leader player (first human to join) | Lobby. Refused until `MinPlayers` have joined and all are ready |
+| `StartGame()` | host, or the leader player (first human to join) | Lobby. Starts the game night. Refused until `MinPlayers` have joined and all are ready |
 | `SetReady(bool ready)` | player | Lobby. Shown on the TV as a green ring and badge |
 | `TutorialStep(step)` | host | Tutorial |
 | `TutorialDone()` | host, or the leader player (to skip the intro) | Tutorial |
@@ -89,7 +94,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `SendChat(text)` | living player | Discussion |
 | `SetTyping(bool typing)` | living player | Discussion. Sent while the chat box has text, repeated every 4 s, and `false` on send |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
-| `ReturnToLobby()` | host or leader | Results |
+| `ContinueNight()` | host or leader | Results: on to the night's Scoreboard or Finale (`ReturnToLobby()` is the older name) |
 
 `endsAtUtcMs` is the server's clock. Clients compute `serverTimeUtcMs - Date.now()` from the join result and count down
 with it, so every screen shows the same time even if a device clock is wrong (`GameSession.msLeft`).
@@ -221,8 +226,8 @@ brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprit
 ### Add a stage or a game
 
 - **New stage:** add it to `Stage` and the engine's flow, then add `<GameId>Host<Stage>` and `<GameId>Player<Stage>` scenes.
-- **New game:** add a `minigames/<id>/` folder with the same scenes and a `data/` folder (see [game-data.md](game-data.md)).
-  The engine is Turing Town specific today; extract the shared parts (timers, progress, chat) when a second game exists.
+- **New game:** see [game-night.md](game-night.md#adding-a-game). Engines share `GameClock` (time and pause),
+  `GameStages` (entering a stage, pausing) and implement `IGameEngine`.
 
 ## Known limits
 

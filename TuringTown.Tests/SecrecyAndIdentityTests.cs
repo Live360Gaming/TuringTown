@@ -30,7 +30,7 @@ public class SecrecyAndIdentityTests
         await h.ToAsync(Stage.Reveal, 1);
 
         // Everything broadcast up to and including the tutorial, onboarding, discussion and voting.
-        var beforeReveal = h.Messages.Where(m => m.StageAtSend is Stage.Lobby or Stage.Tutorial or Stage.Onboarding or Stage.Discussion or Stage.Voting).ToList();
+        var beforeReveal = h.Messages.Where(m => m.StageAtSend is Stage.Lobby or Stage.Planning or Stage.Tutorial or Stage.Onboarding or Stage.Discussion or Stage.Voting).ToList();
         Assert.NotEmpty(beforeReveal);
         foreach (var message in beforeReveal)
         {

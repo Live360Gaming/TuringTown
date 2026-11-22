@@ -13,7 +13,10 @@ export const TRACKS = {
 
 export const LOBBY_TRACK = 'tt_music_lobby';
 
-/** The track for a server state, or null for silence. The winner comes from the server's results, never the UI. */
+/**
+ * The track for a Turing Town state, or null for silence. The winner comes from the server's results, never the UI.
+ * minigames/stageMusic.js picks the right game's trackFor for each state.
+ */
 export function trackFor(state) {
     switch (state?.stage) {
         case 'Lobby':
@@ -45,14 +48,6 @@ export function playTrack(game, key) {
         return;
     }
     music.play(key, {loop: track.loop, volume: track.volume, fadeInMs: track.loop ? undefined : 300});
-}
-
-/** Music that follows the session's stage. Returns a function that stops following. */
-export function followStageMusic(game, session) {
-    const onState = state => playTrack(game, trackFor(state));
-    session.on('state', onState);
-    if (session.state) onState(session.state);
-    return () => session.off('state', onState);
 }
 
 /** Starts loading the tracks the Preloader skipped (it only loads the lobby track, since phones never play music). */

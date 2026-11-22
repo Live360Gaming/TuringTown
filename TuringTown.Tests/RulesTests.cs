@@ -179,7 +179,7 @@ public class RulesTests
         await h.ThroughOnboardingAsync();
         Assert.NotNull(await h.Engine.TutorialStepAsync(3));
         Assert.NotNull(h.Engine.TutorialDone());
-        Assert.NotNull(h.Engine.ReturnToLobby());
+        Assert.NotNull(h.Engine.EndResults());
     }
 
     // ---------------------------------------------------------------- @mentions

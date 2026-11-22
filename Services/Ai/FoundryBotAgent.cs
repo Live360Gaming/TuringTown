@@ -234,6 +234,8 @@ public sealed class FoundryBotAgent(
             wasBot = h.WasBot,
             votes = h.Tally.Select(t => new { player = t.Alias, votes = t.Votes })
         })),
+        // The game night as the room has seen it (its highlights quote players, so it is JSON like the rest).
+        ["night"] = FoundryWittyBotAgent.Night(ctx.Night),
         ["notes"] = notes is null ? "null" : PromptJson.Serialize(new { notes.Summary, notes.Suspicions, notes.Claims }),
         ["own_lines"] = PromptJson.Serialize(ctx.OwnLines.Select(l => l.Text))
     };

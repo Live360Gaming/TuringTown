@@ -3,7 +3,7 @@ import {connectGameHub} from './gameHub.js';
 import {GameDirector} from './director.js';
 import {ROBOT_KEYS} from '../constants.js';
 import {getMusic} from './music.js';
-import {followStageMusic} from '../minigames/turing-town/music.js';
+import {followStageMusic} from '../minigames/stageMusic.js';
 
 const REGISTRY_KEY = 'session';
 /** A typing indicator with no update for this long is dropped (a phone that went away mid-sentence). */
@@ -144,8 +144,8 @@ Thanks for playing. Goodbye!`);
         } else if (state.stage === 'Reveal') {
             // The first moment a bot is known: the one just voted out, if it was a bot.
             if (state.data?.wasBot && state.data.eliminated) this.unmasked.add(state.data.eliminated.id);
-        } else if (state.stage === 'Results') {
-            // The game is over, so every bot is shown.
+        } else if (state.stage === 'Results' || state.stage === 'Finale') {
+            // Turing Town's results and the night's finale show every role, so every bot is shown from then on.
             state.data?.roles?.forEach(role => {
                 if (role.wasBot) this.unmasked.add(role.playerId);
             });

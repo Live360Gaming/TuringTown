@@ -229,7 +229,7 @@ public class AiInfrastructureTests
 
     // ---------------------------------------------------------------- choosing the agents for a game
 
-    private static AgentSet Set(bool ai) => new(new ScriptedBotAgent(), new BuiltInQuestionGenerator(), ai);
+    private static AgentSet Set(bool ai) => new(new ScriptedBotAgent(), new BuiltInQuestionGenerator(), new ScriptedWittyBotAgent(), new BuiltInWittyPrompts(), ai);
 
     [Fact]
     public void A_game_gets_the_real_ai_while_the_limits_allow_and_the_scripted_bots_otherwise()

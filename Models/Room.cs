@@ -66,11 +66,6 @@ public readonly record struct RoomSnapshot(
 public class Room(RoomCode rc, GameOptions options)
 {
     /// <summary>
-    /// The only game that exists so far. Clients use it to pick the right scenes.
-    /// </summary>
-    public const string GameId = "turing-town";
-
-    /// <summary>
     /// The code used to join the room.
     /// </summary>
     public RoomCode Code { get; } = rc;
@@ -85,7 +80,7 @@ public class Room(RoomCode rc, GameOptions options)
     /// </summary>
     private readonly List<Player> _players = new();
 
-    private GameState _state = GameState.InLobby(GameId);
+    private GameState _state = GameState.InLobby(GameIds.Night);
 
     // New sessions default to the configured maximum.
     private RoomSettings _settings = new(options.MaxPlayers, FamilyFriendly: true);
@@ -237,7 +232,8 @@ public class Room(RoomCode rc, GameOptions options)
     }
 
     /// <summary>
-    /// Moves the room out of the lobby once enough humans have joined and all are ready, and seats the bots.
+    /// Moves the room out of the lobby once enough humans have joined and all are ready, and seats the bots. The same
+    /// seats play every game of the night.
     /// </summary>
     /// <param name="botCountFor">How many bots to add for the given number of humans.</param>
     public RoomStartError TryStart(Func<int, int> botCountFor)
@@ -254,7 +250,7 @@ public class Room(RoomCode rc, GameOptions options)
             for (int i = 0; i < bots; i++)
                 _players.Add(NewPlayer(isBot: true));
 
-            _state = new GameState(GameId, Stage.Tutorial, 0, 0, null, null);
+            _state = new GameState(GameIds.Night, Stage.Planning, 0, 0, null, null);
             return RoomStartError.None;
         }
     }
@@ -401,7 +397,19 @@ public class Room(RoomCode rc, GameOptions options)
     }
 
     /// <summary>
-    /// Ends the game: bots leave, everyone is alive again and the room is back in the lobby.
+    /// Brings every seat back into play, so a player voted out in one game plays the next.
+    /// </summary>
+    internal void ReviveAll()
+    {
+        lock (this)
+        {
+            foreach (Player player in _players)
+                player.Alive = true;
+        }
+    }
+
+    /// <summary>
+    /// Ends the game night: bots leave, everyone is alive again and the room is back in the lobby.
     /// </summary>
     internal void ResetToLobby()
     {
@@ -413,7 +421,7 @@ public class Room(RoomCode rc, GameOptions options)
                 player.Alive = true;
                 player.Ready = false;
             }
-            _state = GameState.InLobby(GameId);
+            _state = GameState.InLobby(GameIds.Night);
         }
     }
 

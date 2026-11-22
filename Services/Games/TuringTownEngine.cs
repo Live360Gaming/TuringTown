@@ -15,7 +15,7 @@ namespace TuringTown.Services.Games;
 /// Lock order is always engine gate first, then the room's lock (the room never calls back into the engine).
 /// Broadcasts are never sent while a lock is held.
 /// </summary>
-public sealed class TuringTownEngine : IDisposable
+public sealed class TuringTownEngine : IGameEngine
 {
     private sealed class ContentUnavailableException : Exception { }
 
@@ -32,11 +32,11 @@ public sealed class TuringTownEngine : IDisposable
     private readonly TuringTownOptions _opt;
     private readonly ILogger _logger;
     private readonly Action<TuringTownEngine>? _onFinished;
+    private readonly NightContext? _night;
     private readonly CancellationTokenSource _cts = new();
 
-    // Held while a new stage or a pause/resume is written to the room and broadcast, so the two can never be sent out
-    // of order (a client must never see a stage that hides the pause, or the reverse).
-    private readonly SemaphoreSlim _stateSend = new(1, 1);
+    // Writes stages to the room and pauses or resumes the game, never out of order.
+    private readonly GameStages _stages;
 
     // Everything below is guarded by _gate.
     private readonly object _gate = new();
@@ -75,7 +75,8 @@ public sealed class TuringTownEngine : IDisposable
         TimeProvider time,
         TuringTownOptions options,
         ILogger logger,
-        Action<TuringTownEngine>? onFinished = null)
+        Action<TuringTownEngine>? onFinished = null,
+        NightContext? night = null)
     {
         _room = room;
         _agent = agent;
@@ -86,9 +87,11 @@ public sealed class TuringTownEngine : IDisposable
         _broadcaster = broadcaster;
         _opt = options;
         _clock = new GameClock(time, _cts.Token);
+        _stages = new GameStages(room, broadcaster, _clock, GameIds.TuringTown, _cts.Token);
         _chat = new ChatLog(options.TranscriptLimit, options.ChatMinIntervalMs);
         _logger = logger;
         _onFinished = onFinished;
+        _night = night;
     }
 
     /// <summary>
@@ -99,15 +102,33 @@ public sealed class TuringTownEngine : IDisposable
     /// <summary>Identifies this game in the bot memory store.</summary>
     internal Guid GameId => _gameId;
 
+    public string GameKey => GameIds.TuringTown;
+
     /// <summary>
-    /// Completes when the game has ended and the room is back in the lobby.
+    /// Completes when a game started with <see cref="Start"/> has ended and the room is back in the lobby.
     /// </summary>
     public Task Completion => _loop ?? Task.CompletedTask;
 
     /// <summary>
-    /// Starts the game loop. The room must already be out of the lobby (see <see cref="Room.TryStart"/>).
+    /// Plays this one game on its own (outside a game night, as the tests do) and puts the room back in the lobby
+    /// at the end. The room must already be out of the lobby (see <see cref="Room.TryStart"/>).
     /// </summary>
-    public void Start() => _loop = Task.Run(RunAsync);
+    public void Start() => _loop = Task.Run(async () =>
+    {
+        await PlayAsync();
+        try
+        {
+            _room.ResetToLobby();
+            await _broadcaster.StateChanged(_room, _room.State);
+            await _broadcaster.RosterChanged(_room);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not reset room {Room}", _room.Code);
+        }
+
+        _onFinished?.Invoke(this);
+    });
 
     /// <summary>
     /// Stops the game early (the host closed the room). The loop winds down and calls <c>onFinished</c>, which disposes the engine.
@@ -132,8 +153,9 @@ public sealed class TuringTownEngine : IDisposable
 
     // ---------------------------------------------------------------- the game loop
 
-    private async Task RunAsync()
+    public async Task<GameOutcome> PlayAsync()
     {
+        string? won = null;
         try
         {
             await _broadcaster.RosterChanged(_room);
@@ -155,6 +177,7 @@ public sealed class TuringTownEngine : IDisposable
             } while (winner is null);
 
             await RunResultsAsync(winner);
+            won = winner;
         }
         catch (OperationCanceledException)
         {
@@ -171,13 +194,16 @@ public sealed class TuringTownEngine : IDisposable
         }
         finally
         {
-            await EndAsync();
+            await ClearMemoryAsync();
         }
+
+        if (won is null) return GameOutcome.Failed;
+        return new GameOutcome(true, won, new Dictionary<Guid, int>(), GetUnmasked());
     }
 
-    private async Task EndAsync()
+    // A bot's memory only lives for one game.
+    private async Task ClearMemoryAsync()
     {
-        // A bot's memory only lives for one game.
         try
         {
             await _memory.DeleteGameAsync(_gameId, CancellationToken.None);
@@ -186,19 +212,6 @@ public sealed class TuringTownEngine : IDisposable
         {
             _logger.LogWarning(ex, "Could not clear the bot memory of room {Room}", _room.Code);
         }
-
-        try
-        {
-            _room.ResetToLobby();
-            await _broadcaster.StateChanged(_room, _room.State);
-            await _broadcaster.RosterChanged(_room);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not reset room {Room}", _room.Code);
-        }
-
-        _onFinished?.Invoke(this);
     }
 
     private async Task RunTutorialAsync()
@@ -301,6 +314,10 @@ public sealed class TuringTownEngine : IDisposable
         lock (_gate)
         {
             _history.Add(new RoundOutcome(round, reveal.Eliminated?.Alias, reveal.WasBot, reveal.Tally));
+            // The whole room saw the reveal, so the AI team may remember it for the rest of the night.
+            _night?.AddHighlight(reveal.Eliminated is { } gone
+                ? $"Turing Town round {round}: {gone.Alias} was voted out and was {(reveal.WasBot == true ? "an AI" : "a human")}."
+                : $"Turing Town round {round}: the vote tied and nobody was voted out.");
             long since = _roundStartedMs;
             transcript = _chat.Snapshot().Where(m => m.SentAtUtcMs >= since).Select(m => new ChatLine(m.Alias, m.Text)).ToArray();
         }
@@ -398,28 +415,8 @@ public sealed class TuringTownEngine : IDisposable
 
     // ---------------------------------------------------------------- stage helpers
 
-    private async Task EnterStageAsync(Stage stage, int round, int step, TimeSpan? duration, object? data)
-    {
-        // A paused game does not move on: the next stage starts once the host resumes.
-        while (true)
-        {
-            await _clock.WhenRunning(_cts.Token);
-            await _stateSend.WaitAsync(_cts.Token);
-            try
-            {
-                if (_clock.IsPaused) continue;
-
-                long? endsAt = duration is { } d ? _clock.EndsAt(d) : null;
-                GameState state = _room.SetState(new GameState(Room.GameId, stage, round, step, endsAt, data));
-                await _broadcaster.StateChanged(_room, state);
-                return;
-            }
-            finally
-            {
-                _stateSend.Release();
-            }
-        }
-    }
+    private Task EnterStageAsync(Stage stage, int round, int step, TimeSpan? duration, object? data) =>
+        _stages.EnterAsync(stage, round, step, duration, data);
 
     private Task CurrentSignal()
     {
@@ -499,37 +496,7 @@ public sealed class TuringTownEngine : IDisposable
     /// players cannot chat or vote. The state carries <see cref="GameState.PausedAtUtcMs"/> so every screen can show it,
     /// and on resume the deadline moves back by however long the pause lasted.
     /// </summary>
-    public async Task<string?> SetPausedAsync(bool paused)
-    {
-        await _stateSend.WaitAsync(_cts.Token);
-        try
-        {
-            Stage stage = _room.State.Stage;
-            if (stage == Stage.Lobby) return "The game is not running.";
-
-            long now = _clock.ToUnixMs(_clock.UtcNow);
-            GameState state;
-            if (paused)
-            {
-                if (!_clock.Pause()) return null;
-                _room.TryUpdateState(stage, s => s with { PausedAtUtcMs = now }, out state);
-            }
-            else
-            {
-                if (!_clock.Resume()) return null;
-                _room.TryUpdateState(stage, s => s.PausedAtUtcMs is { } at
-                    ? s with { PausedAtUtcMs = null, EndsAtUtcMs = s.EndsAtUtcMs + (now - at) }
-                    : s, out state);
-            }
-
-            await _broadcaster.StateChanged(_room, state);
-            return null;
-        }
-        finally
-        {
-            _stateSend.Release();
-        }
-    }
+    public Task<string?> SetPausedAsync(bool paused) => _stages.SetPausedAsync(paused);
 
     public bool IsPaused => _clock.IsPaused;
 
@@ -551,7 +518,7 @@ public sealed class TuringTownEngine : IDisposable
         return null;
     }
 
-    public string? ReturnToLobby()
+    public string? EndResults()
     {
         if (_room.State.Stage != Stage.Results) return "The game is not over yet.";
         _resultsDone.TrySetResult();
@@ -939,7 +906,10 @@ public sealed class TuringTownEngine : IDisposable
             own,
             // Round 0 is the bot's own form, which may model the humans' answers. After that, style numbers only.
             round == 0 ? _style : _style.WithoutAnswers(),
-            _opt.ChatMaxLength);
+            _opt.ChatMaxLength)
+        {
+            Night = _night?.Snapshot()
+        };
     }
 
     private async Task BotChatLoopAsync(PlayerSeat bot, int round, CancellationToken ct)

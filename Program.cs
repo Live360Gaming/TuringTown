@@ -30,6 +30,8 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<SeasonOptions>(builder.Configuration.GetSection(SeasonOptions.SectionName));
 builder.Services.AddSingleton<SeasonProvider>();
 builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
+builder.Services.Configure<GameNightOptions>(builder.Configuration.GetSection(GameNightOptions.SectionName));
+builder.Services.Configure<WittyBitsOptions>(builder.Configuration.GetSection(WittyBitsOptions.SectionName));
 
 // The AI. The tunables are in the "Ai" section of appsettings.json. Where the model lives (Endpoint, Deployment, ApiKey) is the
 // "Foundry" section: user secrets in Development, the same keys as environment variables (Foundry__Endpoint) in production.
@@ -48,6 +50,8 @@ builder.Services.AddSingleton<ScriptedBotAgent>();
 builder.Services.AddSingleton<IBotAgent>(sp => sp.GetRequiredService<ScriptedBotAgent>());
 builder.Services.AddSingleton<BuiltInQuestionGenerator>();
 builder.Services.AddSingleton<IQuestionGenerator>(sp => sp.GetRequiredService<BuiltInQuestionGenerator>());
+builder.Services.AddSingleton<ScriptedWittyBotAgent>();
+builder.Services.AddSingleton<BuiltInWittyPrompts>();
 builder.Services.AddSingleton<IBotMemoryStore, InMemoryBotMemoryStore>();
 builder.Services.AddSingleton<BotPrompts>();
 builder.Services.AddSingleton<AiBudget>();
@@ -56,7 +60,8 @@ builder.Services.AddSingleton<AiBudget>();
 builder.Services.AddSingleton(sp =>
 {
     AiOptions ai = sp.GetRequiredService<IOptions<AiOptions>>().Value;
-    AgentSet scripted = new(sp.GetRequiredService<ScriptedBotAgent>(), sp.GetRequiredService<BuiltInQuestionGenerator>(), UsesAi: false);
+    AgentSet scripted = new(sp.GetRequiredService<ScriptedBotAgent>(), sp.GetRequiredService<BuiltInQuestionGenerator>(),
+        sp.GetRequiredService<ScriptedWittyBotAgent>(), sp.GetRequiredService<BuiltInWittyPrompts>(), UsesAi: false);
     AiBudget budget = sp.GetRequiredService<AiBudget>();
     if (ai.Provider != AiProvider.Foundry) return new AgentSelector(scripted, null, budget);
 
@@ -76,7 +81,16 @@ builder.Services.AddSingleton(sp =>
         new FoundryQuestionGenerator(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
         scripted.Questions, Wait(ai.Calls.Questions), logs.CreateLogger<FallbackQuestionGenerator>());
 
-    return new AgentSelector(scripted, new AgentSet(bot, questions, UsesAi: true), budget);
+    IWittyBotAgent witty = new FallbackWittyBotAgent(
+        new FoundryWittyBotAgent(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
+        scripted.WittyAgent, Wait(ai.Calls.WittyAnswer), Wait(ai.Calls.WittyVote), logs.CreateLogger<FallbackWittyBotAgent>());
+    IWittyPromptGenerator wittyPrompts = new FallbackWittyPromptGenerator(
+        new FoundryWittyPromptGenerator(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
+        Wait(ai.Calls.WittyPrompts), logs.CreateLogger<FallbackWittyPromptGenerator>());
+    // The night's own timeout (GameNight:PlanningMaxSeconds) and its random-order fallback cover the planner.
+    IGameNightPlanner planner = new FoundryGameNightPlanner(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>());
+
+    return new AgentSelector(scripted, new AgentSet(bot, questions, witty, wittyPrompts, UsesAi: true, Planner: planner), budget);
 });
 
 // The opt-in transcript archive (off by default).
@@ -96,6 +110,8 @@ builder.Services.AddSingleton<IContentFilter>(sp =>
         : new AllowAllContentFilter();
 });
 
+// The AI team's coach, which picks the order of the night's games (a random order offline).
+builder.Services.AddSingleton<IGameNightPlanner, ScriptedGameNightPlanner>();
 builder.Services.AddSingleton<IRoomBroadcaster, SignalRRoomBroadcaster>();
 builder.Services.AddSingleton<GameCoordinator>();
 

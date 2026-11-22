@@ -1,9 +1,18 @@
 namespace TuringTown.Services.Ai;
 
 /// <summary>
-/// The agents one game runs on. <paramref name="Lease"/> (when set) must be disposed when the game ends.
+/// The agents one game night runs on: Turing Town's bot and question generator, and Witty Bits' bot and prompt
+/// generator. <paramref name="Lease"/> (when set) must be disposed when the night ends. <paramref name="Planner"/> is the
+/// AI's planner for the night; null uses the default one.
 /// </summary>
-public sealed record AgentSet(IBotAgent Agent, IQuestionGenerator Questions, bool UsesAi, IDisposable? Lease = null);
+public sealed record AgentSet(
+    IBotAgent Agent,
+    IQuestionGenerator Questions,
+    IWittyBotAgent WittyAgent,
+    IWittyPromptGenerator WittyPrompts,
+    bool UsesAi,
+    IDisposable? Lease = null,
+    IGameNightPlanner? Planner = null);
 
 /// <summary>
 /// Picks the agents for each new game: the real AI while the limits allow, otherwise the offline scripted ones. A game

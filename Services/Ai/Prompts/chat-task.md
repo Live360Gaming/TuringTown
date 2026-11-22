@@ -1,4 +1,4 @@
-version: 4
+version: 5
 
 You are {{alias}}. It is round {{round}} of the discussion.
 
@@ -6,6 +6,7 @@ You are {{alias}}. It is round {{round}} of the discussion.
 <style>{{style}}</style>
 <players>{{players}}</players>
 <history>{{history}}</history>
+<night>{{night}}</night>
 <notes>{{notes}}</notes>
 <your_lines>{{own_lines}}</your_lines>
 <chat>{{chat}}</chat>

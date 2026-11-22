@@ -35,9 +35,17 @@ public sealed class AiCalls
     public AiCallOptions Questions { get; set; } = new() { ReasoningEffort = "medium", MaxOutputTokens = 5000, TimeoutMs = 30000 };
     public AiCallOptions RoundNotes { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
 
+    // The game night: the AI's plan (during the Planning stage), Witty Bits prompts (during its tutorial), and a Witty
+    // Bits bot's answer and vote (each inside a timed stage, with the scripted bot as the fallback).
+    public AiCallOptions Plan { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 800, TimeoutMs = 12000 };
+    public AiCallOptions WittyPrompts { get; set; } = new() { ReasoningEffort = "medium", MaxOutputTokens = 4000, TimeoutMs = 30000 };
+    public AiCallOptions WittyAnswer { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 600, TimeoutMs = 12000 };
+    public AiCallOptions WittyVote { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 300, TimeoutMs = 8000 };
+
     public IEnumerable<(string Name, AiCallOptions Options)> All =>
     [
-        (nameof(Chat), Chat), (nameof(Vote), Vote), (nameof(Onboarding), Onboarding), (nameof(Questions), Questions), (nameof(RoundNotes), RoundNotes)
+        (nameof(Chat), Chat), (nameof(Vote), Vote), (nameof(Onboarding), Onboarding), (nameof(Questions), Questions), (nameof(RoundNotes), RoundNotes),
+        (nameof(Plan), Plan), (nameof(WittyPrompts), WittyPrompts), (nameof(WittyAnswer), WittyAnswer), (nameof(WittyVote), WittyVote)
     ];
 }
 

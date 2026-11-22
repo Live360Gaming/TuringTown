@@ -142,4 +142,11 @@ public sealed record BotContext(
     IReadOnlyList<RoundOutcome> History,
     IReadOnlyList<ChatLine> OwnLines,
     StyleProfile Style,
-    int ChatMaxLength = 200);
+    int ChatMaxLength = 200)
+{
+    /// <summary>
+    /// The game night the bot is part of: the AI team's goal, the games, the public score and highlights (see
+    /// <see cref="TeamContext"/>). Null outside a game night. It never says which other seat is a bot.
+    /// </summary>
+    public TeamContext? Night { get; init; }
+}

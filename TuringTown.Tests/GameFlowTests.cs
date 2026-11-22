@@ -144,7 +144,7 @@ public class GameFlowTests
         foreach (Player human in h.Humans) await h.VoteAsync(human, h.BotId);
         await h.ToAsync(Stage.Results);
 
-        Assert.Null(h.Engine.ReturnToLobby());
+        Assert.Null(h.Engine.EndResults());
         await h.Engine.Completion.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal(Stage.Lobby, h.Room.State.Stage);

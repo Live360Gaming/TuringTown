@@ -51,14 +51,21 @@ served under a sub-path).
   then calls `JoinAsPlayer`. The host calls `JoinAsHost` with its `HostToken`. Joins return the current state, roster
   and chat so a late or refreshed client can render at once. The lobby player count and settings are still **polled**
   (`GET /api/room/<code>`).
-- **The game** (Turing Town, a social-deduction game: AI bots hide among humans, then chat and vote) is run by
-  `Services/Games/TuringTownEngine` (one per room, started by `GameCoordinator`). It walks the stages
+- **The game night.** `StartGame` starts a `Services/Games/GameNight` (one per room, started by `GameCoordinator`):
+  Planning (the AI team picks the order of the games) → each game → Scoreboard → ... → Finale → Lobby, Humans vs AI on
+  points, on the same seats (`GameNight.BotCountFor`). Each game is an `IGameEngine` that returns a `GameOutcome` and never
+  resets the room; the night keeps the score and hides the team totals until every bot is unmasked. Details in
+  [docs/game-night.md](docs/game-night.md).
+- **The games.** Turing Town (a social-deduction game: AI bots hide among humans, then chat and vote) is run by
+  `Services/Games/TuringTownEngine`. It walks the stages
   Tutorial → Onboarding → Discussion → Voting → Reveal (repeat) → Results and broadcasts a full `GameState` on every
-  change. **Roles (`Player.IsBot`) never leave the server before the reveal**: clients only get `PlayerInfo`, and
+  change. Witty Bits (prompts, funny answers, head-to-head votes) is `Services/Games/WittyBitsEngine`, see
+  [docs/witty-bits.md](docs/witty-bits.md). Both share `GameClock` and `GameStages`. **Roles (`Player.IsBot`) never leave the server before the reveal**: clients only get `PlayerInfo`, and
   `SecrecyAndIdentityTests` guards this. Do not add a role or token to any DTO. Bots use `IBotAgent`
   (`Services/Ai/`); `ScriptedBotAgent` works offline and is the fallback when the real AI is not available.
-  Timings are the `TuringTown` config section (`TuringTownOptions`, all optional). Full details, hub contract and win
-  rules are in [docs/game-flow.md](docs/game-flow.md).
+  Timings are the `TuringTown`, `WittyBits` and `GameNight` config sections (all optional). Full details, hub contract
+  and win rules are in [docs/game-flow.md](docs/game-flow.md). The bots of a night are one team: every bot request carries
+  the night's public `TeamContext` (`NightContext`), which never names a bot.
 - Non-GET requests get `no-store` cache headers via middleware in `Program.cs`.
 - Room create/join are rate limited per client address (`RateLimits:RoomRequestsPerMinute`, the `rooms` policy).
 - `Services/Storage/`: `IBotMemoryStore` is per-bot memory keyed by `BotKey` (one game only, no way to list keys, never
@@ -70,11 +77,12 @@ served under a sub-path).
 **Client** (`game/src/`):
 - One Phaser `Game` (`main.js`) with all scenes registered up front: `Boot` → `Preloader` → `MainMenu` → `Host` (the TV
   lobby), or `Player` (join) → `PlayerLobby`. The game's own screens, one per stage and role, come from
-  `minigames/turing-town/index.js`. `HostSettings` and `QuitConfirm` are overlay scenes registered after `Host` so they draw on top.
+  `minigames/<game>/index.js` (`turing-town`, `witty-bits`, and `game-night` for Planning/Scoreboard/Finale). `HostSettings` and
+  `QuitConfirm` are overlay scenes registered after `Host` so they draw on top.
 - `core/session.js` `GameSession` owns the hub connection, roster, state and chat, and lives on `game.registry`. Scenes
   read and listen to it; they **never create or stop the connection** (only `leaveToMenu` does). `core/director.js`
   starts the scene for each stage the server announces, found **by name**, `<GameId><Role><Stage>` (for example
-  `TuringTownHostDiscussion`), so there is no scene registry. After a game the director brings everyone back to
+  `TuringTownHostDiscussion`), so there is no scene registry. After a game night the director brings everyone back to
   `Host`/`PlayerLobby`, which reuse the same session. A player's credentials are kept in `sessionStorage` so a page
   refresh rejoins the same seat.
 - Game screens extend `core/stage/HostStage.js` (TV, fixed 16:9) or `core/stage/PlayerStage.js` (phone card layout) and
@@ -99,7 +107,7 @@ served under a sub-path).
   `main.js`) makes every `add.text` use the UI font. Player names on the TV use `core/ui/Nameplate.js`.
 - `core/hostSettings.js` stores the host volume in `localStorage` and applies it as Phaser's global sound volume.
 - Music is **TV only**: `core/music.js` (`getMusic(game)`, one crossfading player per game, not tied to a scene) plays
-  the track `minigames/turing-town/music.js` picks for each stage (`trackFor`). The host session follows the stage
+  the track each game's `music.js` picks for its stages (`trackFor`, looked up by `gameId` in `minigames/stageMusic.js`). The host session follows the stage
   (`GameSession.attachDirector`); phones never play music. The Preloader loads only the lobby track, and `Host` loads
   the rest in the background. Files are in `game/public/audio/turing-town/music/`.
 

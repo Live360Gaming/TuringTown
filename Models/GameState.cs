@@ -1,7 +1,21 @@
 namespace TuringTown.Models;
 
 /// <summary>
-/// The stages of a Turing Town game. See docs/game-flow.md for the flow between them.
+/// The ids clients use to pick the scenes for a state (<c>&lt;GameId&gt;&lt;Role&gt;&lt;Stage&gt;</c>, see core/director.js).
+/// </summary>
+public static class GameIds
+{
+    /// <summary>The game night itself: the lobby, Planning, the Scoreboard between games and the Finale.</summary>
+    public const string Night = "game-night";
+
+    public const string TuringTown = "turing-town";
+
+    public const string WittyBits = "witty-bits";
+}
+
+/// <summary>
+/// Every stage any game can be in. The game night owns Lobby, Planning, Scoreboard and Finale; each game uses its own
+/// stages in between (Turing Town: Tutorial to Results). See docs/game-night.md and docs/game-flow.md.
 /// </summary>
 public enum Stage
 {
@@ -11,7 +25,19 @@ public enum Stage
     Discussion,
     Voting,
     Reveal,
-    Results
+    Results,
+    Planning,
+    Scoreboard,
+    Finale,
+
+    /// <summary>Witty Bits: players write their answers to the prompts they were given.</summary>
+    Writing,
+
+    /// <summary>Witty Bits: the answers to one prompt, with no authors, and everyone else votes.</summary>
+    Matchup,
+
+    /// <summary>Witty Bits: who wrote which answer, the votes and the points.</summary>
+    MatchupResult
 }
 
 /// <summary>
@@ -109,6 +135,79 @@ public readonly record struct RoleReveal(Guid PlayerId, string Alias, bool WasBo
 
 /// <summary>Data for the Results stage. This is the first point where every role is public.</summary>
 public readonly record struct ResultsData(string Winner, IReadOnlyList<RoleReveal> Roles);
+
+/// <summary>One game of the night, as the screens name it.</summary>
+public readonly record struct NightGame(string GameId, string Title);
+
+/// <summary>
+/// Data for the Planning stage. <paramref name="Order"/> is empty while the AI is still choosing, then the games in
+/// the order they will be played. <paramref name="Line"/> is the AI team's short public line about its choice.
+/// </summary>
+public readonly record struct PlanningData(IReadOnlyList<NightGame> Order, string? Line);
+
+/// <summary>A player's points so far tonight, by alias. Says nothing about roles.</summary>
+public readonly record struct Standing(Guid PlayerId, string Alias, int Points);
+
+/// <summary>The Humans vs AI totals.</summary>
+public readonly record struct TeamTotals(int Humans, int Ai);
+
+/// <summary>
+/// Data for the Scoreboard between two games. <paramref name="Teams"/> is null while any bot is still hidden: a
+/// team total could point at the bot whose points it matches.
+/// </summary>
+public readonly record struct ScoreboardData(
+    IReadOnlyList<NightGame> Played,
+    NightGame? Next,
+    IReadOnlyList<Standing> Standings,
+    TeamTotals? Teams);
+
+/// <summary>Data for the Finale: who won the night (<c>Humans</c>, <c>AI</c> or <c>Tie</c>) and every role.</summary>
+public readonly record struct FinaleData(
+    string Winner,
+    TeamTotals Teams,
+    IReadOnlyList<Standing> Standings,
+    IReadOnlyList<RoleReveal> Roles);
+
+/// <summary>A Witty Bits prompt and the players who answer it (two in rounds 1 and 2, everyone in the Last Bit).</summary>
+public readonly record struct WittyAssignment(string PromptId, string Text, IReadOnlyList<Guid> PlayerIds);
+
+/// <summary>Data for the Witty Bits Writing stage. Answers are never in it.</summary>
+public readonly record struct WritingData(int Round, bool LastBit, IReadOnlyList<WittyAssignment> Assignments);
+
+/// <summary>
+/// One answer in a matchup, without its author. <paramref name="Missing"/> marks a player who did not answer: it
+/// cannot be voted for.
+/// </summary>
+public readonly record struct WittyEntry(string Id, string Text, bool Missing);
+
+/// <summary>
+/// Data for a Witty Bits Matchup. <paramref name="Authors"/> are the players who wrote these answers and so cannot
+/// vote (for the Last Bit that is everyone, and a player just cannot vote for their own answer). Which author wrote
+/// which answer is only told in the result.
+/// </summary>
+public readonly record struct MatchupData(
+    int Round,
+    bool LastBit,
+    int Index,
+    int Count,
+    string Prompt,
+    IReadOnlyList<WittyEntry> Answers,
+    IReadOnlyList<Guid> Authors);
+
+/// <summary>An answer with its author, votes and points, once the matchup is over.</summary>
+public readonly record struct WittyEntryResult(string Id, string Text, bool Missing, Guid AuthorId, string Alias, int Votes, int Points, bool Sweep);
+
+/// <summary>Data for a Witty Bits MatchupResult.</summary>
+public readonly record struct MatchupResultData(
+    int Round,
+    bool LastBit,
+    int Index,
+    int Count,
+    string Prompt,
+    IReadOnlyList<WittyEntryResult> Answers);
+
+/// <summary>Data for the Witty Bits Results stage: everyone's points this game, by alias.</summary>
+public readonly record struct WittyResultsData(IReadOnlyList<Standing> Standings);
 
 /// <summary>
 /// What a client gets back when it connects to the hub, enough to render the current screen immediately.

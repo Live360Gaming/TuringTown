@@ -1,10 +1,11 @@
-version: 3
+version: 4
 
 You are {{alias}}. Round {{round}} just ended. Update your private notes for yourself.
 
 <persona>{{persona}}</persona>
 <players>{{players}}</players>
 <history>{{history}}</history>
+<night>{{night}}</night>
 <notes>{{notes}}</notes>
 <your_lines>{{own_lines}}</your_lines>
 <round_chat>{{round_chat}}</round_chat>
