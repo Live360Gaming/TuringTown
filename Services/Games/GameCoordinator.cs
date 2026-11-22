@@ -13,6 +13,7 @@ namespace TuringTown.Services.Games;
 public sealed class GameCoordinator(
     AgentSelector agents,
     IGameNightPlanner planner,
+    GameDefinitions definitions,
     IBotMemoryStore memory,
     IGameArchive archive,
     IContentFilter contentFilter,
@@ -47,13 +48,16 @@ public sealed class GameCoordinator(
         return RoomStartError.None;
     }
 
-    /// <summary>Every game a night can play, each making a fresh engine on the night's agents.</summary>
+    /// <summary>
+    /// Every enabled game a night can play (see <see cref="GameDefinitions"/>), each making a fresh engine on the
+    /// night's agents.
+    /// </summary>
     private IReadOnlyList<NightGameEntry> Catalog(Room room, AgentSet set, NightContext context)
     {
         TuringTownOptions tuned = turingTown.Value.Clone();
         tuned.BotPaceToHumans ??= set.UsesAi;
 
-        return
+        NightGameEntry[] all =
         [
             new NightGameEntry(
                 new PlannableGame(GameIds.TuringTown, "Turing Town",
@@ -69,6 +73,7 @@ public sealed class GameCoordinator(
                 () => new WittyBitsEngine(room, set.WittyAgent, set.WittyPrompts, contentFilter, broadcaster, time, wittyBits.Value.Clone(),
                     loggerFactory.CreateLogger<WittyBitsEngine>(), context))
         ];
+        return all.Where(e => definitions.IsEnabled(e.Info.GameId)).ToArray();
     }
 
     public bool TryGetNight(Room room, out GameNight? gameNight) => _nights.TryGetValue(room.Code, out gameNight);

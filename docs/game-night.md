@@ -2,8 +2,13 @@
 
 A room plays a **game night**: several mini games in a row, **Humans vs AI**. When the host (or the leader) presses
 Start, the AI team chooses the order of the games, the same seats play every game, and at the end the side with more
-points wins the night. Today the night has two games, [Turing Town](game-flow.md) and [Witty Bits](witty-bits.md), and
-plays both; the AI only chooses the order.
+points wins the night. There are two games, [Turing Town](game-flow.md) and [Witty Bits](witty-bits.md); the night
+plays every **enabled** one and the AI only chooses the order.
+
+**Turning a game off.** Each game's `game/src/minigames/<id>/data/game.json` has an `"enabled"` flag (true when missing).
+The server embeds these files (`GameDefinitions`) and leaves a disabled game out of the night. **Witty Bits is disabled for
+now**, so a night is just Turing Town (Planning, Turing Town, Finale). Set the flag to `true` to bring it back; a rebuild is
+needed, since the files are compiled into the server.
 
 The server runs the night (`Services/Games/GameNight`, one per room, started by `GameCoordinator`). Each game is an
 `IGameEngine`; the night plays them one after another and keeps the score.
@@ -93,7 +98,7 @@ The optional `GameNight` section (`GameNightOptions`):
 1. Write an `IGameEngine` (see `WittyBitsEngine` for a small one; `GameStages` and `GameClock` do the stage and pause
    plumbing). Its `PlayAsync` ends when its Results stage is over and returns a `GameOutcome`: a `Winner` for a team game,
    or `SeatPoints` for a points game. It never resets the room.
-2. Add a `GameIds` constant, any new `Stage` values and data records (no role in any of them), and a `NightGameEntry` in
+2. Give it a `data/game.json` with `"id"` and `"enabled"`. Add a `GameIds` constant, any new `Stage` values and data records (no role in any of them), and a `NightGameEntry` in
    `GameCoordinator.Catalog` with a description the planner can read.
 3. Add `minigames/<id>/` on the client: `index.js` with the scenes (`<GameId>Host<Stage>`, `<GameId>Player<Stage>`),
    `music.js` (`trackFor`, registered in `minigames/stageMusic.js`) and `data/`. Spread the scenes in `main.js`.

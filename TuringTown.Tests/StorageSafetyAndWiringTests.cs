@@ -209,6 +209,19 @@ public class StorageSafetyAndWiringTests
             b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings)));
 
     [Fact]
+    public void The_game_data_turns_witty_bits_off_for_now()
+    {
+        // The "enabled" flag in each minigame's data/game.json, embedded in the server.
+        GameDefinitions data = GameDefinitions.FromEmbeddedData();
+        Assert.True(data.IsEnabled(GameIds.TuringTown));
+        Assert.False(data.IsEnabled(GameIds.WittyBits));
+        Assert.True(GameDefinitions.AllEnabled().IsEnabled(GameIds.WittyBits));
+
+        using WebApplicationFactory<Program> app = App(new());
+        Assert.False(app.Services.GetRequiredService<GameDefinitions>().IsEnabled(GameIds.WittyBits));
+    }
+
+    [Fact]
     public void By_default_every_game_runs_on_the_scripted_bots_with_no_keys()
     {
         using WebApplicationFactory<Program> app = App(new() { ["Foundry:Endpoint"] = "", ["Foundry:Deployment"] = "", ["Foundry:ApiKey"] = "" });

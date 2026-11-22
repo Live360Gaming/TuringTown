@@ -112,6 +112,8 @@ builder.Services.AddSingleton<IContentFilter>(sp =>
 
 // The AI team's coach, which picks the order of the night's games (a random order offline).
 builder.Services.AddSingleton<IGameNightPlanner, ScriptedGameNightPlanner>();
+// Which games a night may play: the "enabled" flag in each minigame's data/game.json.
+builder.Services.AddSingleton(GameDefinitions.FromEmbeddedData());
 builder.Services.AddSingleton<IRoomBroadcaster, SignalRRoomBroadcaster>();
 builder.Services.AddSingleton<GameCoordinator>();
 

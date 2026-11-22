@@ -1,5 +1,8 @@
 # Witty Bits
 
+> **Disabled for now** (`"enabled": false` in `game/src/minigames/witty-bits/data/game.json`): nights do not play it
+> until the flag is set back to `true`. See [game-night.md](game-night.md).
+
 A comedy-writing game played as part of the [game night](game-night.md). Everyone, humans and the hidden AI players
 alike, writes short funny answers to prompts. The answers to a prompt go head to head with no names shown, and everyone
 who did not write them votes for the funnier one. Points go to each player, and through them to their team.

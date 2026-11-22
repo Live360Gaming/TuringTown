@@ -35,7 +35,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 
     public HubIntegrationTests(WebApplicationFactory<Program> factory)
     {
-        _factory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(s => s.AddSingleton<IGameNightPlanner>(new TuringTownFirst())).ConfigureAppConfiguration((_, config) =>
+        _factory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(s => s.AddSingleton<IGameNightPlanner>(new TuringTownFirst()).AddSingleton(GameDefinitions.AllEnabled())).ConfigureAppConfiguration((_, config) =>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["TuringTown:TutorialMaxSeconds"] = "30",

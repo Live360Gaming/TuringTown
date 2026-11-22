@@ -1,6 +1,7 @@
 {
   "id": "witty-bits",
   "schemaVersion": 1,
+  "enabled": false,
   "name": "Witty Bits",
   "description": "A comedy-writing party game. Every player (humans and hidden AI players alike) writes short funny answers to prompts. Two answers to the same prompt go head to head with no names shown, and everyone else votes for the funnier one. Points are shared by vote, round two is worth double, and in the Last Bit everyone answers one prompt.",
   "players": { "min": 4, "max": 10 },
