@@ -1,0 +1,10 @@
+# A short discussion: opening, a mention, a vote and a round end.
+/bots
+hey all
+lol this timer
+/as 2
+honestly I have no clue yet
+/players
+/vote
+/round
+/persona

@@ -180,7 +180,9 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
 - **The real agent and generator** (`FoundryBotAgent`, `FoundryQuestionGenerator`) run on Azure AI Foundry when `Ai:Provider=Foundry`. They are
   off by default. Everything about them (configuration, secrets, prompts, limits, abuse protections, testing) is in [ai-agents.md](ai-agents.md).
 - At the Results stage the engine can hand the finished game (aliases and game text only) to an opt-in `IGameArchive` (`Storage:ArchiveTranscripts`),
-  for tuning the bots. It is off by default and no bot ever reads it.
+  for tuning the bots. Development enables local JSON files with bot/human labels; other environments default to
+  archiving off, and local-file archiving cannot be enabled outside Development. See [ai-agents.md](ai-agents.md#local-training-transcripts).
+  No bot ever reads the archive.
 
 ## Configuration
 
@@ -191,7 +193,8 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `TutorialMaxSeconds` / `OnboardingSeconds` | 180 / 60 | |
 | `DiscussionSeconds` / `VotingSeconds` | 120 / 30 | |
 | `RevealSeconds` / `ResultsSeconds` | 8 / 30 | |
-| `MaxRounds` | 5 | bots win if one is still alive after this many rounds |
+| `MaxRounds` | 3 | bots win if one is still alive after this many rounds |
+| `RoundPoints` | 100 | what round 1 is worth; each round doubles it (100, 200, 400). Voting out a bot earns the humans that value, voting out a human earns the AI team it, a tie earns nobody. Added to the win bonus |
 | `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind (the form length is their sum) |
 | `ChatMaxLength` / `AnswerMaxLength` | 200 / 300 | |
 | `ChatMinIntervalMs` | 1500 | per-player chat rate limit |

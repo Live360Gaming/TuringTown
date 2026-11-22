@@ -11,7 +11,8 @@ namespace TuringTown.Services.Storage;
 public enum StorageProvider
 {
     InMemory,
-    AzureBlob
+    AzureBlob,
+    LocalFile
 }
 
 public sealed class BlobStorageOptions
@@ -27,7 +28,7 @@ public sealed class BlobStorageOptions
 
 /// <summary>
 /// The "Storage" section. Bot memory is always in memory (rooms are, too). Only the opt-in transcript archive can go to
-/// Azure Blob, and it is off by default.
+/// Azure Blob or local files, and it is off by default.
 /// </summary>
 public sealed class StorageOptions
 {
@@ -59,7 +60,7 @@ public sealed record ArchivedPlayer(string Alias, string Role);
 
 public sealed record ArchivedQuestion(string Text, QuestionKind Kind, IReadOnlyList<string> Options);
 
-public sealed record ArchivedLine(string Alias, string Text, DateTimeOffset SentAtUtc);
+public sealed record ArchivedLine(string Alias, string Text, DateTimeOffset SentAtUtc, bool IsBot, int Round);
 
 /// <summary>
 /// A finished game, for tuning the bots. It is written once, at the Results stage, when every role is public anyway, and
@@ -109,6 +110,28 @@ public sealed class InMemoryGameArchive : IGameArchive
         lock (_archives)
             _archives.Add(archive);
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>Writes completed games outside the public web root, one JSON file per game.</summary>
+public sealed class FileGameArchive(string directory, ILogger<FileGameArchive> logger) : IGameArchive
+{
+    public async Task ArchiveAsync(GameArchive archive, CancellationToken ct)
+    {
+        string path = Path.Combine(directory, archive.EndedUtc.ToString("yyyy-MM-dd"), $"{archive.GameId:N}.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporary, BlobGameArchive.Serialize(archive), ct);
+            ct.ThrowIfCancellationRequested();
+            File.Move(temporary, path);
+            logger.LogInformation("Saved game transcript to {Path}", path);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
     }
 }
 

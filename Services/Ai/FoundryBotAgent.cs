@@ -41,6 +41,7 @@ public sealed class FoundryBotAgent(
         values["target_length"] = TargetLength(request.Recent, ctx).ToString();
         values["mood"] = BotPrompts.RandomMood();
         values["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description);
+        values["since"] = SinceLastLine(request);
         values["idea"] = SmallTalkIdea(request, prompts.RandomSmallTalk(), Random.Shared.Next(100));
         string user = prompts.Render("chat-task", values);
 
@@ -267,8 +268,19 @@ public sealed class FoundryBotAgent(
         int fromOthers = request.Recent.Count(l => !l.Alias.Equals(request.BotAlias, StringComparison.OrdinalIgnoreCase));
         bool opening = fromOthers < 3;
         if (!opening && (request.Mentions.Count > 0 || roll >= SmallTalkPercent)) return "";
-        return $"<idea>{PromptJson.Serialize(idea)}</idea>";
+        string line = $"<idea>{PromptJson.Serialize(idea)}</idea>";
+        // A bot's first line into a quiet chat tends to read the silence as suspicious ("someone's hiding"). Tell it the fact.
+        return opening ? line + "\nThe chat has barely started, so nobody has said anything to suspect yet." : line;
     }
+
+    /// <summary>
+    /// A note when the bot spoke last and nobody has written since. A bot's turn comes round on a timer whether or not
+    /// anyone spoke, and given a turn the model tends to say something anyway, often a second defence.
+    /// </summary>
+    internal static string SinceLastLine(ChatRequest request) =>
+        request.Recent.Count > 0 && request.Recent[^1].Alias.Equals(request.BotAlias, StringComparison.OrdinalIgnoreCase)
+            ? "Nobody has written anything since your last line. Usually reply SKIP. Only write if you have a new thought, never a second defence or a repeat of your last point."
+            : "";
 
     private static string Scope(BotContext ctx) => ctx.Key.GameId.ToString("N");
 

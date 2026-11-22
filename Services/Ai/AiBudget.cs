@@ -208,7 +208,12 @@ public sealed class GuardedLlmClient(ILlmClient inner, AiBudget budget, ILogger<
 
         try
         {
-            LlmResult result = await inner.CompleteAsync(call, limit.Token);
+            // WaitAsync as well as the token: the SDK does not always honour cancellation (a failing connection was seen to
+            // hang for over a minute), and a bot whose call hangs shows "typing" and misses its turns. The abandoned call's
+            // error is observed so it is not reported as unobserved.
+            Task<LlmResult> pending = inner.CompleteAsync(call, limit.Token);
+            _ = pending.ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            LlmResult result = await pending.WaitAsync(limit.Token);
             budget.RecordUsage((long)result.InputTokens + result.OutputTokens);
             budget.RecordSuccess();
 

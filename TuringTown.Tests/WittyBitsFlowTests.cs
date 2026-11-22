@@ -248,9 +248,10 @@ public class WittyBitsFlowTests
     public async Task Points_are_shared_by_vote_a_sweep_earns_a_bonus_and_round_two_is_worth_double()
     {
         WittyHarness h = new(3);
+        // Set before the answers: the last answer opens the first matchup, and the bot votes at once.
+        h.Agent.Vote = r => r.Answers[0].Id;
         await h.ToWritingAsync();
         await h.AnswerAllAsync((p, a) => $"{p.Alias} on {a.PromptId}");
-        h.Agent.Vote = r => r.Answers[0].Id;
 
         // Round 1, first matchup: every voter picks answer "a".
         await h.ToAsync(Stage.Matchup, 1, 0);

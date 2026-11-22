@@ -164,6 +164,24 @@ public class AiInfrastructureTests
     }
 
     [Fact]
+    public async Task A_call_that_ignores_cancellation_still_times_out_on_time()
+    {
+        (AiBudget budget, _) = Budget();
+        // Like the SDK on a failing connection: the token is passed but never honoured.
+        StubLlm inner = new(async (_, _) =>
+        {
+            await Task.Delay(Timeout.Infinite);
+            return new LlmResult("", 0, 0, 0, 0);
+        });
+
+        Task<LlmResult> call = Guarded(inner, budget).CompleteAsync(Call(TimeSpan.FromMilliseconds(50)), default);
+
+        Task first = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(call, first);
+        await Assert.ThrowsAsync<TimeoutException>(() => call);
+    }
+
+    [Fact]
     public async Task A_caller_that_gives_up_is_not_a_failure_of_the_model()
     {
         (AiBudget budget, _) = Budget(l => l.CircuitFailures = 1);

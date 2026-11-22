@@ -44,10 +44,12 @@ public sealed class TuringTownEngine : IGameEngine
     private readonly Dictionary<Guid, PersonaAnswer[]> _personas = [];
     private readonly Dictionary<Guid, OnboardingAnswer[]> _botAnswers = [];
     private readonly List<RoundOutcome> _history = [];
+    private readonly List<ArchivedLine> _archiveChat = [];
     private readonly Dictionary<Guid, List<string>> _ownLines = [];
     private readonly Dictionary<Guid, double> _latencyMs = [];
     private StyleProfile _style = StyleProfile.Empty;
     private long _roundStartedMs;
+    private int _humanPoints, _aiPoints;
     private readonly Dictionary<Guid, Guid?> _votes = [];
     private readonly HashSet<Guid> _unmasked = [];
 
@@ -63,6 +65,7 @@ public sealed class TuringTownEngine : IGameEngine
     private readonly TaskCompletionSource _tutorialDone = GameClock.NewSignal();
     private readonly TaskCompletionSource _resultsDone = GameClock.NewSignal();
     private Task? _loop;
+    private Task _archiveTask = Task.CompletedTask;
 
     public TuringTownEngine(
         Room room,
@@ -194,11 +197,13 @@ public sealed class TuringTownEngine : IGameEngine
         }
         finally
         {
+            await _archiveTask;
             await ClearMemoryAsync();
         }
 
         if (won is null) return GameOutcome.Failed;
-        return new GameOutcome(true, won, new Dictionary<Guid, int>(), GetUnmasked());
+        return new GameOutcome(true, won, new Dictionary<Guid, int>(), GetUnmasked(),
+            new TeamTotals(_humanPoints, _aiPoints));
     }
 
     // A bot's memory only lives for one game.
@@ -288,6 +293,14 @@ public sealed class TuringTownEngine : IGameEngine
         RevealData reveal = TallyVotes();
         RecordRound(round, reveal);
 
+        // Each round is worth double the one before, so a late vote matters most.
+        if (reveal.WasBot is { } removedBot)
+        {
+            int value = _opt.RoundPoints << Math.Min(round - 1, 20);
+            if (removedBot) _humanPoints += value;
+            else _aiPoints += value;
+        }
+
         // Tell everyone who is out before the reveal, so no phone offers a dead player to vote for next round
         // and the voted-out player's own screen switches to watching.
         await _broadcaster.RosterChanged(_room);
@@ -362,18 +375,19 @@ public sealed class TuringTownEngine : IGameEngine
                 roles.Select(r => new ArchivedPlayer(r.Alias, r.WasBot ? "Bot" : "Human")).ToArray(),
                 _questions.Select(q => new ArchivedQuestion(q.Text, q.Kind, q.Options.Select(o => o.Text).ToArray())).ToArray(),
                 _history.ToArray(),
-                _chat.Snapshot().Select(m => new ArchivedLine(m.Alias, m.Text, DateTimeOffset.FromUnixTimeMilliseconds(m.SentAtUtcMs))).ToArray());
+                _archiveChat.ToArray());
         }
 
-        _ = Task.Run(async () =>
+        _archiveTask = Task.Run(async () =>
         {
+            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
             try
             {
-                await _archive.ArchiveAsync(archive, _cts.Token);
+                await _archive.ArchiveAsync(archive, timeout.Token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                // The game was disposed.
+                _logger.LogWarning(ex, "Room {Room}: archiving the finished game was canceled or timed out", _room.Code);
             }
             catch (Exception ex)
             {
@@ -616,6 +630,9 @@ public sealed class TuringTownEngine : IGameEngine
             message = new ChatMessage(Guid.NewGuid(), sender.Id, sender.Alias, sender.Color, sender.CharacterId, cleaned,
                 _clock.ToUnixMs(_clock.UtcNow), mentioned.Select(s => s.Id).ToArray());
             _chat.Add(message);
+            if (_archive is not NullGameArchive)
+                _archiveChat.Add(new ArchivedLine(sender.Alias, cleaned,
+                    DateTimeOffset.FromUnixTimeMilliseconds(message.SentAtUtcMs), sender.IsBot, _room.State.Round));
 
             // A bot that was spoken to will answer, rather than waiting for its usual turn.
             foreach (PlayerSeat seat in mentioned.Where(s => s.IsBot))

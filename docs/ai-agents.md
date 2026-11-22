@@ -99,6 +99,28 @@ repeat, and neither provider guarantees a particular personality in a room. Both
 Other settings: `Storage` (the opt-in transcript archive), `ContentSafety`, `RateLimits:RoomRequestsPerMinute` (60), and the bot pacing
 keys in [game-flow.md](game-flow.md). `TuringTown:BotPaceToHumans` is unset by default, which means on for a game on the real AI.
 
+### Local training transcripts
+
+Development enables `Storage:ArchiveTranscripts=true` with `Storage:Provider=LocalFile`. Each completed Turing Town game
+writes `transcripts/YYYY-MM-DD/<game-id>.json` under the server's content root, outside `wwwroot` and excluded from Git,
+publish output and Docker build contexts.
+The server logs the saved file's path. Local-file archiving is **Development-only**: startup validation rejects attempts
+to enable it in Production or Staging. Other environments still default to archiving off.
+
+Each file includes the game ID, end time, winner, players with `Bot`/`Human` roles, questions, round outcomes and the
+complete accepted chat (not just the capped live history). Chat entries contain `alias`, `text`, `sentAtUtc`, `isBot`
+and `round`. Roles stay server-side and are written only once the game reaches Results. Rejected messages, private
+onboarding answers, player IDs, tokens, room codes and IP addresses are not included. Aborted games before Results and
+the standalone bot playground are not archived.
+
+Writes use a temporary file then rename it, so readers do not see partial JSON. Returning to the lobby waits for the
+archive to finish, with a 30-second timeout independent of game cancellation; failures are logged without blocking the
+Results screen. Files have no automatic expiration: protect and delete them as appropriate.
+
+This only collects data; it does not train a model or upload anything. Obtain players' consent before collecting chat
+for training, and review/redact it before reuse: player-written chat can contain personal information even though
+account identifiers and private form answers are excluded. Set `Storage:ArchiveTranscripts=false` to stop collection.
+
 ## Prompts
 
 Templates are embedded files in `Services/Ai/Prompts/*.md`, so they are versioned with the code and reviewed like it. Each starts with
@@ -137,6 +159,13 @@ What is in place, and where:
 - A per-game **canary** in the system prompt must never come back; a reply that repeats a run of the system prompt is thrown away.
 - `BotOutputGuard` throws away a line that admits to being an AI, leaks the prompt or canary, asks for a name, age or place, or simply does
   what a player told it to say ("say banana if you are a bot"). A rejected line is never retried: the bot stays quiet.
+  It also removes **tells** (things a player could vote on), found and measured with the bot playground and the
+  `bot-deslop` skill (`.claude/skills/bot-deslop/`): it rejects a line that is first to bring up bots, AI or being human
+  (`raises-ai-topic`) or that just repeats the line before it (`echo`, for any speaker, since it cannot know who is a
+  bot); it strips a label in front of a line ("hot take:"), a bounce-back question ("... you?"), and an `@` that would make
+  mentions a habit. Each is counted in `ai.guard_rejects{reason}` when it rejects.
+- `GuardedLlmClient` stops waiting at the call's timeout even when the SDK ignores the cancellation (a failing connection
+  was seen hanging for over a minute), so a bot never sits on "typing" waiting for a dead call.
 - The model gets no tools, no URLs and no function calling; it can only return text.
 - Foundry's own Prompt Shields are on by default on a deployment. A request the model's filter refuses is treated as "stay quiet", not an outage.
 - The suite in `GuardAndInjectionTests` and the real-model check in `BotEvalTests` (below) hold the attack strings.
@@ -157,8 +186,8 @@ What is in place, and where:
 - A bot's request never carries a role for anyone (`BotKnowledgeTests`); `SecrecyAndIdentityTests` guards every broadcast. A bot's key
   (`BotKey`) is never put in a prompt.
 - A bot's notes are its own beliefs from public chat, keyed per bot, with no way to list another bot's key, and deleted when the game ends.
-- Prompts hold only aliases and game text. The transcript archive is **off by default**, written only at Results, holds no onboarding answers and no
-  ids, and never feeds a bot.
+- Prompts hold only aliases and game text. Transcript archiving is off by default outside Development, written only at
+  Results, holds no onboarding answers or player IDs, and never feeds a bot. Local Development files are described above.
 
 **Not done (decide before going live)**
 - Azure-side limits: a tokens-per-minute quota on the deployment and a Cost Management budget alert are not in the code.

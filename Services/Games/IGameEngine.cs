@@ -51,11 +51,13 @@ public interface IGameEngine : IDisposable
 /// <param name="Winner">The side that won a team game (<c>Humans</c> or <c>Bots</c>), or null for a points game.</param>
 /// <param name="SeatPoints">Points per seat for a points game (empty for a team game).</param>
 /// <param name="Unmasked">Bots whose reveal was announced during the game.</param>
+/// <param name="TeamPoints">Points a game earned each side directly (on top of any win bonus), or null.</param>
 public sealed record GameOutcome(
     bool Completed,
     string? Winner,
     IReadOnlyDictionary<Guid, int> SeatPoints,
-    IReadOnlyList<Guid> Unmasked)
+    IReadOnlyList<Guid> Unmasked,
+    TeamTotals? TeamPoints = null)
 {
     public static GameOutcome Failed { get; } = new(false, null, new Dictionary<Guid, int>(), []);
 }

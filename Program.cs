@@ -39,7 +39,10 @@ builder.Services.Configure<WittyBitsOptions>(builder.Configuration.GetSection(Wi
 builder.Services.AddOptions<AiOptions>().Bind(builder.Configuration.GetSection(AiOptions.SectionName)).ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<AiOptions>, AiOptionsValidator>();
 builder.Services.AddOptions<FoundryOptions>().Bind(builder.Configuration.GetSection(FoundryOptions.SectionName));
-builder.Services.AddOptions<StorageOptions>().Bind(builder.Configuration.GetSection(StorageOptions.SectionName)).ValidateOnStart();
+builder.Services.AddOptions<StorageOptions>().Bind(builder.Configuration.GetSection(StorageOptions.SectionName))
+    .Validate(o => !o.ArchiveTranscripts || o.Provider != StorageProvider.LocalFile || builder.Environment.IsDevelopment(),
+        "Storage:Provider=LocalFile is only available in Development.")
+    .ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
 builder.Services.AddOptions<ContentSafetyOptions>().Bind(builder.Configuration.GetSection(ContentSafetyOptions.SectionName))
     .Validate(o => o.Provider != ContentSafetyProvider.Azure || Uri.TryCreate(o.Endpoint, UriKind.Absolute, out _),
@@ -98,7 +101,14 @@ builder.Services.AddSingleton<IGameArchive>(sp =>
 {
     StorageOptions storage = sp.GetRequiredService<IOptions<StorageOptions>>().Value;
     if (!storage.ArchiveTranscripts) return new NullGameArchive();
-    return storage.Provider == StorageProvider.AzureBlob ? BlobGameArchive.Create(storage.Blob) : new InMemoryGameArchive();
+    return storage.Provider switch
+    {
+        StorageProvider.AzureBlob => BlobGameArchive.Create(storage.Blob),
+        StorageProvider.LocalFile => new FileGameArchive(
+            Path.Combine(sp.GetRequiredService<IHostEnvironment>().ContentRootPath, "transcripts"),
+            sp.GetRequiredService<ILogger<FileGameArchive>>()),
+        _ => new InMemoryGameArchive()
+    };
 });
 
 // Content safety for every chat line, answer and generated question (Azure AI Content Safety when configured).

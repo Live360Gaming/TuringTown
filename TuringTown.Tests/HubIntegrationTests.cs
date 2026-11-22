@@ -230,7 +230,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.All(joined, j =>
         {
             Assert.Matches(@"^[A-Z][a-z]+ [A-Z][a-z]+$", j.Alias);
-            Assert.Matches(@"^character_0[1-6]$", j.CharacterId);
+            Assert.Matches(@"^character_0[1-7]$", j.CharacterId);
             Assert.Matches("^#[0-9a-f]{6}$", j.Color);
         });
         Assert.NotEqual(joined[0].Alias, joined[1].Alias);
@@ -365,8 +365,10 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await host.Connection.InvokeAsync("ContinueNight");
         JsonElement board = await p1.WaitForStageAsync("Scoreboard");
         JsonElement boardTeams = board.GetProperty("data").GetProperty("teams");
-        Assert.Equal(winner == "Humans" ? 1000 : 0, boardTeams.GetProperty("humans").GetInt32());
-        Assert.Equal(winner == "Bots" ? 1000 : 0, boardTeams.GetProperty("ai").GetInt32());
+        // Round points (100, 200, 400 ...) come on top of the bonus, so the winner has at least the bonus.
+        int humanTotal = boardTeams.GetProperty("humans").GetInt32(), aiTotal = boardTeams.GetProperty("ai").GetInt32();
+        Assert.True((winner == "Humans" ? humanTotal : aiTotal) >= 1000);
+        Assert.True((winner == "Humans" ? aiTotal : humanTotal) < 1000);
         Assert.Equal("witty-bits", board.GetProperty("data").GetProperty("next").GetProperty("gameId").GetString());
 
         // --- Witty Bits on the same seats: everyone is back in, and players write and vote over the hub

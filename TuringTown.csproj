@@ -35,7 +35,17 @@
       <InternalsVisibleTo Include="TuringTown.Tests" />
     </ItemGroup>
 
+    <!-- The bot playground (see TuringTown.Playground/README.md) lives in a subfolder too. -->
     <ItemGroup>
+      <Compile Remove="TuringTown.Playground\**" />
+      <Content Remove="TuringTown.Playground\**" />
+      <None Remove="TuringTown.Playground\**" />
+      <EmbeddedResource Remove="TuringTown.Playground\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Remove="transcripts\**" />
+      <None Remove="transcripts\**" />
       <None Remove="game\public\assets\preloader.png" />
     </ItemGroup>
 

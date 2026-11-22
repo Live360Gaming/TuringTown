@@ -43,6 +43,8 @@ With 2 humans and 2 bots, Turing Town's parity rule means the bots win it unless
 ## Score
 
 - **A team game** (Turing Town) gives its winning side a flat bonus, `GameNight:TuringTownWinPoints` (1000).
+- Turing Town also pays **per round**, doubling each round (`TuringTown:RoundPoints`, 100/200/400 over 3 rounds): the
+  humans earn the round's value when the vote removes a bot, the AI team when it removes a human (`GameOutcome.TeamPoints`).
 - **A points game** (Witty Bits) gives each team the **average** points of its seats, so a table of four humans does not
   beat one bot just by having more players.
 - The Finale names the side with the higher total.

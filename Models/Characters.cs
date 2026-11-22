@@ -9,7 +9,7 @@ public static class Characters
     // client) is never assigned: it is only shown once a bot has been found, which is the whole point of the game.
     // With more seats than characters (up to 6 humans + 2 bots) some faces repeat; the aliases still differ.
     public static readonly string[] All =
-        ["character_01", "character_02", "character_03", "character_04", "character_05", "character_06"];
+        ["character_01", "character_02", "character_03", "character_04", "character_05", "character_06", "character_07"];
 
     /// <summary>
     /// Picks a random character, preferring ones not in <paramref name="taken"/>.

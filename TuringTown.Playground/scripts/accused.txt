@@ -1,0 +1,12 @@
+# Is the bot accused? Opening small talk, then pressure on a bot, then a vote and the round notes.
+# Run with --bots 1 --humans 3. Use /who to see who the bot is.
+/bots
+lol hi everyone
+/as 2
+ok who here would actually eat pineapple pizza
+/as 3
+honestly whoever answered first sounded way too polished
+/bots 2
+/vote
+/round
+/notes

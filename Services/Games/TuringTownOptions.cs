@@ -20,7 +20,13 @@ public sealed class TuringTownOptions
     public int ResultsSeconds { get; set; } = 30;
 
     /// <summary>After this many rounds with a bot still alive, the bots win.</summary>
-    public int MaxRounds { get; set; } = 5;
+    public int MaxRounds { get; set; } = 3;
+
+    /// <summary>
+    /// What round 1 is worth. Each round doubles it (100, 200, 400 ...). A vote that removes a bot earns the humans that
+    /// round's value, and a vote that removes a human earns the AI team the same. A tied vote earns nobody anything.
+    /// </summary>
+    public int RoundPoints { get; set; } = 100;
 
     /// <summary>How many onboarding questions of each kind a game asks (a fixed mix, so the form length is predictable).</summary>
     public int TextQuestions { get; set; } = 1;
@@ -85,7 +91,7 @@ public sealed class TuringTownOptions
     public int BotVoteMaxDelayMs { get; set; } = 15000;
 
     /// <summary>How many recent chat lines a bot is shown when it decides what to say or who to vote for.</summary>
-    public int BotContextLines { get; set; } = 12;
+    public int BotContextLines { get; set; } = 25;
 
     /// <summary>The most chat lines kept for late joiners and bot context.</summary>
     public int TranscriptLimit { get; set; } = 300;

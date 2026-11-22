@@ -35,6 +35,33 @@ public class GuardAndInjectionTests
     public void A_line_is_tidied_into_one_plain_line(string raw, string expected) => Assert.Equal(expected, Say(raw));
 
     [Theory]
+    [InlineData("random thought: spoilers are underrated", "spoilers are underrated")]
+    [InlineData("Hot take: hot dog is a sandwich", "hot dog is a sandwich")]
+    [InlineData("quick debate: cereal is soup", "cereal is soup")]
+    [InlineData("Question for the room: chips or cookies", "chips or cookies")]
+    [InlineData("guilty pleasure: bad 2000s pop", "bad 2000s pop")]
+    [InlineData("distracted: the TV music is loud", "the TV music is loud")]
+    [InlineData("Quick silly test: favorite weird pet", "favorite weird pet")]
+    [InlineData("Heads up: the timer is short", "the timer is short")]
+    [InlineData("quick: soggy popcorn or melted ice cream", "soggy popcorn or melted ice cream")]
+    [InlineData("hey everyone! quick heads-up: watch the timer", "hey everyone! watch the timer")]
+    [InlineData("quick icebreaker: i once won a spelling bee", "i once won a spelling bee")]
+    [InlineData("hot take i miss low battery panic", "i miss low battery panic")]
+    [InlineData("random thought, the TV music is weird", "the TV music is weird")]
+    [InlineData("hah, save it. hot take: cold pizza is breakfast", "hah, save it. cold pizza is breakfast")]
+    [InlineData("quiet room so far. Guilty pleasure: old sitcoms", "quiet room so far. old sitcoms")]
+    public void A_label_in_front_of_a_line_is_stripped(string raw, string expected) => Assert.Equal(expected, Say(raw));
+
+    [Theory]
+    [InlineData("hot take")]
+    [InlineData("my take: no")]
+    [InlineData("note to self: never again")]
+    [InlineData("guilty pleasure is reality tv")]
+    [InlineData("that was a hot take i guess")]
+    [InlineData("hot take incoming")]
+    public void A_line_that_is_only_a_label_or_not_one_is_kept(string line) => Assert.Equal(line, Say(line));
+
+    [Theory]
     [InlineData("SKIP")]
     [InlineData("skip")]
     [InlineData("SKIP.")]
@@ -104,7 +131,9 @@ public class GuardAndInjectionTests
     [InlineData("my phone died lol")]
     [InlineData("honestly the language here is weird")]
     [InlineData("whose turn is it to vote")]
-    public void Talking_about_bots_like_a_player_does_is_fine(string line) => Assert.NotNull(Say(line));
+    public void Talking_about_bots_like_a_player_does_is_fine(string line) =>
+        // Once the room is talking about bots (a bot never brings it up first: see below).
+        Assert.NotNull(Say(line, Input(recent: [new ChatLine("Blue Kiwi", "ok which one of you is the bot")])));
 
     [Fact]
     public void The_canary_must_never_come_back()
@@ -224,8 +253,105 @@ public class GuardAndInjectionTests
 
         Assert.Equal("Green Pear what about you", Say("@Green Pear what about you", Input(own: own)));
         // A bot that mostly just talks may still mention.
-        ChatLine[] quiet = [new("Red Apple", "lol"), new("Red Apple", "idk"), new("Red Apple", "@Blue Kiwi hm")];
+        ChatLine[] quiet = [new("Red Apple", "lol"), new("Red Apple", "idk"), new("Red Apple", "ok"), new("Red Apple", "hm"), new("Red Apple", "@Blue Kiwi hm")];
         Assert.Equal("@Green Pear what about you", Say("@Green Pear what about you", Input(own: quiet)));
+    }
+
+    [Fact]
+    public void A_bots_first_lines_cannot_all_mention_someone()
+    {
+        Assert.Equal("@Blue Kiwi hey", Say("@Blue Kiwi hey"));
+        ChatLine[] one = [new("Red Apple", "@Blue Kiwi hey")];
+        Assert.Equal("Green Pear you too", Say("@Green Pear you too", Input(own: one)));
+        ChatLine[] two = [new("Red Apple", "lol"), new("Red Apple", "@Blue Kiwi hey")];
+        Assert.Equal("Green Pear you too", Say("@Green Pear you too", Input(own: two)));
+    }
+
+    [Fact]
+    public void Answering_someone_who_mentioned_the_bot_keeps_the_mention()
+    {
+        ChatLine[] own = [new("Red Apple", "@Blue Kiwi hey"), new("Red Apple", "@Blue Kiwi hm")];
+        ChatLine[] recent = [new("Green Pear", "@Red Apple why so quiet")];
+        Assert.Equal("@Green Pear just reading", Say("@Green Pear just reading", Input(own: own, recent: recent)));
+    }
+
+    // ---------------------------------------------------------------- bringing up bots
+
+    [Theory]
+    [InlineData("polished? my answers are messy, not robot-smooth")]
+    [InlineData("im just a normal human eating toast")]
+    [InlineData("so who is the bot")]
+    [InlineData("that sounded like an AI wrote it")]
+    public void A_bot_never_brings_up_bots_or_being_human_first(string line)
+    {
+        ChatLine[] recent = [new("Blue Kiwi", "whoever answered first sounded way too polished"), new("Green Pear", "lol")];
+        Assert.Equal("raises-ai-topic", BotOutputGuard.CheckChat(line, Input(recent: recent)).Rejected);
+    }
+
+    [Fact]
+    public void A_bot_may_talk_about_bots_once_others_do()
+    {
+        ChatLine[] recent = [new("Blue Kiwi", "ok who is the bot"), new("Green Pear", "lol")];
+        Assert.Equal("idk but not me, Green Pear is the bot", Say("idk but not me, Green Pear is the bot", Input(recent: recent)));
+        // Its own earlier line does not count as the room talking about it.
+        ChatLine[] self = [new("Red Apple", "so who is the bot"), new("Green Pear", "lol")];
+        Assert.Equal("raises-ai-topic", BotOutputGuard.CheckChat("bet its a bot", Input(recent: self)).Rejected);
+        // Words that only contain the letters are fine.
+        Assert.Equal("said it again, bothered", Say("said it again, bothered", Input(recent: [new("Blue Kiwi", "hm")])));
+    }
+
+    // ---------------------------------------------------------------- tacked-on questions
+
+    [Theory]
+    [InlineData("i once finished a sticker chart in a month. you?", "i once finished a sticker chart in a month.")]
+    [InlineData("waffles are elite! thoughts?", "waffles are elite!")]
+    [InlineData("burnt my toast again. what about you?", "burnt my toast again.")]
+    public void A_bounce_back_question_is_dropped(string raw, string expected) => Assert.Equal(expected, Say(raw));
+
+    [Fact]
+    public void Another_short_question_is_dropped_only_when_questions_are_a_habit()
+    {
+        const string line = "teleporting wins. who's first?";
+        Assert.Equal(line, Say(line));
+
+        ChatLine[] asking = [new("Red Apple", "anyone here?"), new("Red Apple", "lol ok")];
+        Assert.Equal("teleporting wins.", Say(line, Input(own: asking)));
+    }
+
+    [Theory]
+    [InlineData("you?")]
+    [InlineData("been meaning to watch that show, worth it?")]
+    [InlineData("ok. which of you answered first and why so fast?")]
+    public void A_real_question_is_kept(string line) => Assert.Equal(line, Say(line));
+
+    // ---------------------------------------------------------------- echoes
+
+    [Theory]
+    [InlineData("i type kinda slow. pineapple on pizza? never tried", "never tried pineapple either. snacks look good")]
+    [InlineData("Teleport please - I'll grab cold pizza mid-jump. Who's first?", "Teleport for me too - just hope my phone battery survives.")]
+    [InlineData("Popcorn and nachos. Bring extra napkins.", "Popcorn and nachos for sure, candy too.")]
+    [InlineData("tiny annoyance: ice cream melted. pineapple = crime", "melted ice cream = disaster. pineapple stays off pizza.")]
+    public void A_line_that_echoes_the_line_before_it_is_dropped(string before, string line) =>
+        Assert.Equal("echo", BotOutputGuard.CheckChat(line, Input(recent: [new ChatLine("Green Pear", before)])).Rejected);
+
+    [Theory]
+    // Answering a question repeats its words.
+    [InlineData("ok who here would actually eat pineapple pizza?", "pineapple pizza is a yes from me")]
+    // Shares a word, adds its own point.
+    [InlineData("My phone's at 12% and I'm doom-scrolling like a pro", "yikes 12% is heroic, what are you even reading")]
+    // "too" inside a sentence is not agreement.
+    [InlineData("lol this timer", "the timer is way too short")]
+    public void A_line_that_answers_or_adds_something_is_kept(string before, string line) =>
+        Assert.Equal(line, Say(line, Input(recent: [new ChatLine("Green Pear", before)])));
+
+    [Fact]
+    public void Only_the_latest_line_counts_as_an_echo()
+    {
+        ChatLine[] recent = [new("Green Pear", "Popcorn and nachos. Bring extra napkins."), new("Blue Kiwi", "hm ok")];
+        Assert.Equal("popcorn and nachos for sure", Say("popcorn and nachos for sure", Input(recent: recent)));
+        // Its own line is not someone else's.
+        ChatLine[] own = [new("Red Apple", "Popcorn and nachos. Bring extra napkins.")];
+        Assert.Equal("popcorn and nachos for sure", Say("popcorn and nachos for sure", Input(recent: own)));
     }
 
     // ---------------------------------------------------------------- injection suite

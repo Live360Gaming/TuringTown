@@ -20,7 +20,7 @@ export const PLAYER_CENTER_Y = PLAYER_HEIGHT / 2;
 // CHARACTER_KEYS are the human-looking characters. The server hands these out (Models/Characters.cs lists the
 // same keys), to humans and bots alike, so nobody can tell a bot from how it looks.
 // ROBOT_KEYS are only ever shown once a bot has been found out (see GameSession.spriteKey).
-export const CHARACTER_KEYS = Array.from({length: 6}, (_, i) => `character_${String(i + 1).padStart(2, '0')}`);
+export const CHARACTER_KEYS = Array.from({length: 7}, (_, i) => `character_${String(i + 1).padStart(2, '0')}`);
 export const ROBOT_KEYS = Array.from({length: 3}, (_, i) => `robot_${String(i + 1).padStart(2, '0')}`);
 
 // The host lobby shows these mystery silhouettes instead of a joined player's real character.

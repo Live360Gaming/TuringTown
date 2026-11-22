@@ -148,13 +148,25 @@ public class FoundryAgentTests
         ChatLine[] busy = [new("Blue Kiwi", "a"), new("Green Pear", "b"), new("Blue Kiwi", "c")];
 
         Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: []), "x", 99));
+        Assert.Contains("nobody has said anything to suspect yet", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: []), "x", 99));
         Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: quiet), "x", 99));
         // Spoken to while the chat is just starting: still small talk is welcome.
         Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: quiet, mentions: [quiet[0]]), "x", 99));
 
         Assert.Equal("", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy), "x", FoundryBotAgent.SmallTalkPercent));
         Assert.Contains("<idea>", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy), "x", FoundryBotAgent.SmallTalkPercent - 1));
+        Assert.DoesNotContain("to suspect", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy), "x", 0));
         Assert.Equal("", FoundryBotAgent.SmallTalkIdea(AiKit.Chat(ctx, recent: busy, mentions: [busy[0]]), "x", 0));
+    }
+
+    [Fact]
+    public void A_bot_that_spoke_last_is_told_nobody_has_written_since()
+    {
+        BotContext ctx = AiKit.Ctx();
+        Assert.Contains("Nobody has written anything since your last line",
+            FoundryBotAgent.SinceLastLine(AiKit.Chat(ctx, recent: [new("Blue Kiwi", "you sound polished"), new(ctx.BotAlias, "polished? hardly")])));
+        Assert.Equal("", FoundryBotAgent.SinceLastLine(AiKit.Chat(ctx, recent: [new(ctx.BotAlias, "hm"), new("Blue Kiwi", "hm what")])));
+        Assert.Equal("", FoundryBotAgent.SinceLastLine(AiKit.Chat(ctx, recent: [])));
     }
 
     [Fact]

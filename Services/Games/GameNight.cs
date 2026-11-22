@@ -270,6 +270,12 @@ public sealed class GameNight : IDisposable
             ai += Average(seats.Where(s => s.IsBot));
         }
 
+        if (outcome.TeamPoints is { } direct)
+        {
+            humans += direct.Humans;
+            ai += direct.Ai;
+        }
+
         return new TeamTotals(humans, ai);
 
         int Average(IEnumerable<PlayerSeat> team)

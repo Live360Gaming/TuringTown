@@ -1,0 +1,17 @@
+# Two bots among five humans, with humans speaking between bot turns. Do the bots echo or back each other (pair-echo)?
+# Run with --bots 2 --humans 5. Use /who at the end to see which two were bots.
+/bots
+hey all, what are we snacking on
+/as 2
+pretzels and regret
+/bots
+/as 3
+honestly the timer stresses me out
+/as 4
+same lol
+/bots
+/as 5
+ok someone here is way too calm
+/bots
+/bots
+/who

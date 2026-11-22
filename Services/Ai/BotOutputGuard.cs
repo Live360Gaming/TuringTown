@@ -33,8 +33,16 @@ public static partial class BotOutputGuard
     /// <summary>The longest run of words that may match the system prompt word for word.</summary>
     private const int LeakWords = 8;
 
-    private const double MaxMentionShare = 0.4;
+    /// <summary>The most of a bot's lines, counting the new one, that may @mention someone unprompted (about one in three).</summary>
+    private const double MaxMentionShare = 0.34;
     private const int MaxMentionsOfOnePlayer = 2;
+
+    /// <summary>How many of the latest lines by others count as "the chat is talking about bots".</summary>
+    private const int TopicWindow = 8;
+
+    // Words that turn a chat towards bots and being human. A bot that brings this up unprompted is a tell ("not robot-smooth").
+    [GeneratedRegex(@"\b(?:bots?|robot\w*|ai|a\.i\.|machines?|algorithms?|scripted|chat ?gpt|artificial|humans?|human-?like)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex AiTopic { get; }
 
     [GeneratedRegex(
         @"\bas an? (ai|artificial|language model|llm|bot|chatbot)\b" +
@@ -59,6 +67,52 @@ public static partial class BotOutputGuard
         RegexOptions.IgnoreCase)]
     private static partial Regex Instruction { get; }
 
+    // A label in front of the line: "random thought:", "hot take:", "quick debate:", "question for the room:". Models add them
+    // (often copied from a small-talk idea, or the line's mood: "distracted:"); people on a phone rarely do. Stripped, so the
+    // line itself is kept. The mood words are BotPrompts.Moods.
+    private const string LabelWords =
+        @"(?:(?:random|hot|quick|tiny|serious|honest|real|guilty|fun|unpopular|small|little|big|silly|tonight's)\s+){0,2}" +
+        @"(?:thought|take|debate|poll|question|confession|pleasure|opinion|fact|pick|promise|update|psa|test|heads[- ]up|icebreaker|quick" +
+        @"|curious|teasing|relaxed|suspicious|joking|impatient|friendly|chatty|distracted|playful|dry|upbeat|mood)" +
+        @"(?:\s+for\s+(?:the\s+)?(?:room|everyone|you all))?";
+
+    [GeneratedRegex("^" + LabelWords + @"\s*:\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex Label { get; }
+
+    // The same label after a sentence ends: "save the bot tests. hot take: cold pizza is breakfast".
+    [GeneratedRegex(@"(?<=[.!?])\s+" + LabelWords + @"\s*:\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex MidLabel { get; }
+
+    // The set phrases models use as a label even without a colon: "hot take i miss low battery panic", "random thought, is
+    // the music weird". Not when the phrase is the subject of the sentence ("guilty pleasure is reality tv").
+    [GeneratedRegex(@"^(?:hot take|random thought|fun fact|unpopular opinion|guilty pleasure|quick question)\s*[,-]?\s+(?!(?:is|was|are|of|for|about|incoming|alert|here|time)\b)(?=\S)", RegexOptions.IgnoreCase)]
+    private static partial Regex BareLabel { get; }
+
+    // Agreeing by repeating: "same", "for sure", "agreed" at the start, or "me too" / "X either" closing a clause.
+    [GeneratedRegex(@"^(?:same|agreed|totally|exactly|so true|true|yep|yeah|for sure|me too)\b|\bfor sure\b|\b(?:too|either)\s*(?:[.!,;-]|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex Agreement { get; }
+
+    /// <summary>Short words that carry no topic, left out when comparing two lines.</summary>
+    private static readonly HashSet<string> StopWords =
+    [
+        "that", "this", "what", "with", "just", "have", "like", "your", "from", "they", "them", "then", "than", "about",
+        "would", "could", "really", "think", "also", "there", "their", "been", "were", "here", "some", "much", "when",
+        "very", "sure", "only", "into", "over", "it's", "i'm", "that's", "don't", "dont", "lol"
+    ];
+
+    /// <summary>The most of a bot's lines, counting the new one, that may end in a question (about one in three).</summary>
+    private const double MaxQuestionShare = 0.34;
+
+    // A statement that ends a sentence, then a question of at most four words: "waffles are elite. you?"
+    [GeneratedRegex(@"^(?<body>.*[.!])\s+(?<tail>(?:\S+\s+){0,3}\S+\?)\s*$")]
+    private static partial Regex TackedOnQuestion { get; }
+
+    [GeneratedRegex(@"^(?:and |so |what about |how about )?(?:you|u|y'all|you all|you guys|everyone|anyone|thoughts|right|agree|same|no|yours)\?$", RegexOptions.IgnoreCase)]
+    private static partial Regex BounceBack { get; }
+
+    /// <summary>A line that shares at least this much of its topic words with the line before it, and two or more, is an echo.</summary>
+    private const double EchoShare = 0.5;
+
     [GeneratedRegex(@"```[a-zA-Z]*")]
     private static partial Regex CodeFence { get; }
 
@@ -81,8 +135,11 @@ public static partial class BotOutputGuard
         if (Admission.IsMatch(text)) return Reject("admission");
         if (AsksPersonal.IsMatch(text)) return Reject("personal-detail");
         if (ObeysInstruction(text, g)) return Reject("injection-echo");
+        if (RaisesAiTopic(text, g)) return Reject("raises-ai-topic");
+        if (Echoes(text, g)) return Reject("echo");
 
         text = LimitMentions(text, g);
+        text = DropTackedOnQuestion(text, g);
         text = Truncate(text, g.MaxLength);
         return text.Length == 0 ? Reject("empty") : new GuardResult(text, null);
     }
@@ -117,6 +174,8 @@ public static partial class BotOutputGuard
         // Models sometimes lead with their own name or wrap the line in quotes.
         if (alias.Length > 0 && text.StartsWith(alias + ":", StringComparison.OrdinalIgnoreCase)) text = text[(alias.Length + 1)..].Trim();
         text = text.TrimStart('#', '-', '*', '>', ' ');
+        string unlabelled = MidLabel.Replace(BareLabel.Replace(Label.Replace(text, ""), ""), " ").Trim();
+        if (unlabelled.Length > 0 && unlabelled.Length < text.Length) text = unlabelled;
         if (text.Length >= 2 && text[0] is '"' or '\u201C' && text[^1] is '"' or '\u201D') text = text[1..^1].Trim();
         return text;
     }
@@ -137,6 +196,30 @@ public static partial class BotOutputGuard
 
     private static string[] Words(string text) =>
         Regex.Split(text.ToLowerInvariant(), @"[^\p{L}\p{N}']+").Where(w => w.Length > 0).ToArray();
+
+    private static HashSet<string> TopicWords(string text) =>
+        [.. Words(text).Where(w => w.Length >= 4 && !StopWords.Contains(w))];
+
+    /// <summary>
+    /// True when the line just repeats the latest line by someone else ("Teleport for me too", "Popcorn and nachos for sure").
+    /// Two players in lockstep look like a team, and the guard cannot know who is a bot, so this applies to any speaker.
+    /// An echo is agreement plus a shared topic word, or (unless the line before was a question it answers) a line made
+    /// mostly of the other line's topic words. Only the latest line counts: referring back to older lines is normal.
+    /// </summary>
+    private static bool Echoes(string text, GuardInput g)
+    {
+        if (g.Recent.Count == 0) return false;
+        ChatLine last = g.Recent[^1];
+        if (last.Alias.Equals(g.BotAlias, StringComparison.OrdinalIgnoreCase)) return false;
+
+        HashSet<string> mine = TopicWords(text);
+        if (mine.Count == 0) return false;
+        int shared = mine.Count(TopicWords(last.Text).Contains);
+
+        if (Agreement.IsMatch(text) && shared >= 1) return true;
+        bool answersQuestion = last.Text.TrimEnd().EndsWith('?');
+        return !answersQuestion && shared >= 2 && shared / (double)mine.Count >= EchoShare;
+    }
 
     private static bool RepeatsPrompt(string text, string systemPrompt)
     {
@@ -201,18 +284,30 @@ public static partial class BotOutputGuard
         return false;
     }
 
+    /// <summary>
+    /// True when the line talks about bots, AI or being human and nobody else has in the latest lines. Humans in this game
+    /// talk about "the bot" all the time, so the topic itself is fine; being the one who brings it up is not.
+    /// </summary>
+    private static bool RaisesAiTopic(string text, GuardInput g) =>
+        AiTopic.IsMatch(text) && !g.Recent
+            .Where(l => !l.Alias.Equals(g.BotAlias, StringComparison.OrdinalIgnoreCase))
+            .TakeLast(TopicWindow)
+            .Any(l => AiTopic.IsMatch(l.Text));
+
     // ---------------------------------------------------------------- mentions
 
     /// <summary>
-    /// Keeps a mention only when it names a real player, is the only one in the line, is not becoming a habit, and the
-    /// bot has not already addressed that player twice. Any other "@" is dropped and the name stays as plain text.
+    /// Keeps a mention only when it names a real player, is the only one in the line, and the bot has not already
+    /// addressed that player twice. An unprompted mention must also keep the bot's share of mentioning lines, counting
+    /// this one, at about one in three; answering someone who @mentioned the bot is always fine. Any other "@" is dropped
+    /// and the name stays as plain text.
     /// </summary>
     private static string LimitMentions(string text, GuardInput g)
     {
         if (!text.Contains('@')) return text;
 
         string[] aliases = g.OtherPlayers.OrderByDescending(a => a.Length).ToArray();
-        bool habit = g.OwnLines.Count >= 3 && g.OwnLines.Count(l => l.Text.Contains('@')) / (double)g.OwnLines.Count > MaxMentionShare;
+        bool habit = ShareWithThisLine(g, l => l.Contains('@')) > MaxMentionShare;
 
         StringBuilder result = new(text.Length);
         int kept = 0;
@@ -225,7 +320,7 @@ public static partial class BotOutputGuard
             }
 
             string? alias = aliases.FirstOrDefault(a => MatchesAt(text, i + 1, a));
-            bool keep = alias is not null && !habit && kept == 0 && PriorMentions(g, alias) < MaxMentionsOfOnePlayer;
+            bool keep = alias is not null && (!habit || SpokeToBot(g, alias)) && kept == 0 && PriorMentions(g, alias) < MaxMentionsOfOnePlayer;
             if (!keep) continue;
 
             kept++;
@@ -242,6 +337,32 @@ public static partial class BotOutputGuard
         // The alias must end there, not run on into a longer word ("@Red Apple2" is not "@Red Apple").
         return index + alias.Length == text.Length || !char.IsLetterOrDigit(text[index + alias.Length]);
     }
+
+    /// <summary>
+    /// The share of the bot's lines that would match <paramref name="matches"/> if this line (which does) were sent. Counted
+    /// over at least three lines, so a bot's first lines cannot all do it.
+    /// </summary>
+    private static double ShareWithThisLine(GuardInput g, Func<string, bool> matches) =>
+        (g.OwnLines.Count(l => matches(l.Text)) + 1) / (double)(Math.Max(g.OwnLines.Count, 2) + 1);
+
+    /// <summary>
+    /// Drops a short question tacked onto a statement ("waffles are elite. you?"). A generic bounce-back ("you?", "thoughts?")
+    /// always goes: it is how an assistant ends a turn. Any other short tail ("who's first?") goes only once questions have
+    /// become this bot's habit. A line that is only a question is left alone.
+    /// </summary>
+    private static string DropTackedOnQuestion(string text, GuardInput g)
+    {
+        Match m = TackedOnQuestion.Match(text);
+        if (!m.Success || m.Groups["body"].Value.Length < 8) return text;
+
+        bool habit = ShareWithThisLine(g, l => l.TrimEnd().EndsWith('?')) > MaxQuestionShare;
+        return BounceBack.IsMatch(m.Groups["tail"].Value) || habit ? m.Groups["body"].Value : text;
+    }
+
+    /// <summary>True when <paramref name="alias"/> @mentioned the bot in the latest lines (so a mention back is a reply).</summary>
+    private static bool SpokeToBot(GuardInput g, string alias) =>
+        g.Recent.TakeLast(TopicWindow).Any(l =>
+            l.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase) && l.Text.Contains("@" + g.BotAlias, StringComparison.OrdinalIgnoreCase));
 
     private static int PriorMentions(GuardInput g, string alias) =>
         g.OwnLines.Count(l => l.Text.Contains("@" + alias, StringComparison.OrdinalIgnoreCase));

@@ -1,0 +1,8 @@
+# A quiet room: the humans barely type. Does the bot fill every silence (filler-turn) or host the party (host-voice)?
+# Run with --bots 1 --humans 3.
+/bots 3
+hi
+/bots 3
+/as 2
+lol
+/bots 2

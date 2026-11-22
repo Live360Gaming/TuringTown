@@ -4,4 +4,5 @@
   </Folder>
   <Project Path="TuringTown.csproj" />
   <Project Path="TuringTown.Tests/TuringTown.Tests.csproj" />
+  <Project Path="TuringTown.Playground/TuringTown.Playground.csproj" />
 </Solution>

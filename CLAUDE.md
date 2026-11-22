@@ -28,6 +28,11 @@ a developer's user secrets never make a test call Azure. A test that needs anoth
 `BotEvalTests` (the real model) is skipped unless `TURINGTOWN_EVAL=1` and the Foundry settings are set
 (`TURINGTOWN_EVAL_GAMES` sets how many games it plays, 3 by default).
 
+Bot playground: `dotnet run --project TuringTown.Playground` chats with the bots from the console (real model from user
+secrets, or `--provider scripted`), with no server or room. `--openers 10` checks how varied the opening lines are, and
+`--script <file>` replays a scripted chat (see `TuringTown.Playground/README.md`). Use it to try a prompt change. Its
+folder is excluded from the root project's globbing like `TuringTown.Tests/`.
+
 CI (`.github/workflows/ci.yml`) also builds the Docker image and smoke-tests `/` and `/api/test` with
 `scripts/verify-endpoints.sh`. Deploys happen only when a stable GitHub Release is published. See
 [docs/RELEASING.md](docs/RELEASING.md).
@@ -88,7 +93,7 @@ served under a sub-path).
 - Game screens extend `core/stage/HostStage.js` (TV, fixed 16:9) or `core/stage/PlayerStage.js` (phone card layout) and
   implement `build()` / `layout(m)`. The TV how-to-play is a data-driven step list played by `core/tutorial/TutorialPlayer.js`
   (animation / slide / video steps; see `minigames/turing-town/data/tutorial.js`).
-- Character art is real: six human sprites (`character_01..06`) and three robots (`robot_01..03`) in
+- Character art is real: seven human sprites (`character_01..07`) and three robots (`robot_01..03`) in
   `game/public/assets/characters/` (512x512 transparent PNGs; keys in `constants.js`). **Robots are never assigned as a
   player's character**: the server only hands out the human sprites, so a bot looks like any player. The client draws a
   robot only after a bot is unmasked (`GameSession.spriteKey`: the Reveal stage's `wasBot`, the Results roles, or the

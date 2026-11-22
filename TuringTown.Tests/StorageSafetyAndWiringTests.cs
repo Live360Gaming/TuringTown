@@ -1,5 +1,7 @@
 using System.Net;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,6 +75,122 @@ public class StorageSafetyAndWiringTests
     private sealed class BrokenArchive : IGameArchive
     {
         public Task ArchiveAsync(GameArchive archive, CancellationToken ct) => throw new IOException("storage down");
+    }
+
+    [Fact]
+    public async Task Local_files_keep_the_full_chat_with_bot_labels_even_after_the_live_transcript_is_trimmed()
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("turingtown-archive-");
+        try
+        {
+            FileGameArchive store = new(directory.FullName, NullLogger<FileGameArchive>.Instance);
+            Harness h = new(humans: 2, o =>
+            {
+                o.BotMessagesPerRound = 1;
+                o.TranscriptLimit = 1;
+                o.ChatMinIntervalMs = 0;
+            }, archive: store);
+            h.Agent.Chat = _ => "hello from the bot";
+            await h.ThroughOnboardingAsync();
+            await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.Text == "hello from the bot"), "the bot's chat");
+
+            foreach (string text in new[] { "first human line", "second human line", "last human line" })
+                Assert.Null(await h.Engine.SendChatAsync(h.Humans[0].Id, text));
+            Assert.NotNull(await h.Engine.SendChatAsync(h.Humans[0].Id, ""));
+            Assert.Single(h.Engine.GetTranscript());
+            Assert.Empty(Directory.GetFiles(directory.FullName, "*.json", SearchOption.AllDirectories));
+
+            await h.ToAsync(Stage.Voting, 1);
+            foreach (Player human in h.Humans) await h.VoteAsync(human, h.BotId);
+            await h.ToAsync(Stage.Lobby);
+            await h.Engine.Completion;
+
+            string path = Assert.Single(Directory.GetFiles(directory.FullName, "*.json", SearchOption.AllDirectories));
+            using JsonDocument json = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            JsonElement archive = json.RootElement;
+            Assert.Equal(h.Engine.GameId, archive.GetProperty("gameId").GetGuid());
+            Assert.Equal("Humans", archive.GetProperty("winner").GetString());
+            JsonElement[] chat = archive.GetProperty("chat").EnumerateArray().ToArray();
+            Assert.Equal(4, chat.Length);
+            Assert.True(chat[0].GetProperty("isBot").GetBoolean());
+            Assert.Equal("hello from the bot", chat[0].GetProperty("text").GetString());
+            foreach (JsonElement line in chat.Skip(1))
+                Assert.False(line.GetProperty("isBot").GetBoolean());
+            Assert.All(chat, line => Assert.Equal(1, line.GetProperty("round").GetInt32()));
+            Assert.All(chat, line => Assert.NotEqual(default, line.GetProperty("sentAtUtc").GetDateTimeOffset()));
+            Assert.Empty(Directory.GetFiles(directory.FullName, "*.tmp", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_local_archive_cancellation_or_duplicate_never_leaves_a_partial_file_or_overwrites_a_game()
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("turingtown-archive-");
+        try
+        {
+            FileGameArchive store = new(directory.FullName, NullLogger<FileGameArchive>.Instance);
+            GameArchive archive = new(Guid.NewGuid(), DateTimeOffset.UtcNow, "Humans", [], [], [], []);
+            using CancellationTokenSource canceled = new();
+            canceled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.ArchiveAsync(archive, canceled.Token));
+            Assert.Empty(Directory.GetFiles(directory.FullName, "*", SearchOption.AllDirectories));
+
+            await store.ArchiveAsync(archive, default);
+            string path = Assert.Single(Directory.GetFiles(directory.FullName, "*.json", SearchOption.AllDirectories));
+            string original = await File.ReadAllTextAsync(path);
+            await Assert.ThrowsAsync<IOException>(() => store.ArchiveAsync(archive with { Winner = "Bots" }, default));
+            Assert.Equal(original, await File.ReadAllTextAsync(path));
+            Assert.Empty(Directory.GetFiles(directory.FullName, "*.tmp", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Finishing_a_game_waits_for_its_archive_even_when_the_engine_is_stopped()
+    {
+        WaitingArchive store = new();
+        Harness h = new(humans: 2, archive: store);
+        try
+        {
+            await h.ThroughOnboardingAsync();
+            await h.ToAsync(Stage.Voting, 1);
+            foreach (Player human in h.Humans) await h.VoteAsync(human, h.BotId);
+            await h.ToAsync(Stage.Results);
+            await store.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            h.Engine.Cancel();
+            await h.SettleAsync();
+            Assert.False(h.Engine.Completion.IsCompleted);
+            Assert.False(store.Token.IsCancellationRequested);
+            store.Release.TrySetResult();
+            await h.Engine.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            store.Release.TrySetResult();
+            h.Engine.Cancel();
+            await h.Engine.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private sealed class WaitingArchive : IGameArchive
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken Token { get; private set; }
+
+        public async Task ArchiveAsync(GameArchive archive, CancellationToken ct)
+        {
+            Token = ct;
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+        }
     }
 
     [Fact]
@@ -286,6 +404,32 @@ public class StorageSafetyAndWiringTests
 
         Assert.IsType<InMemoryGameArchive>(app.Services.GetRequiredService<IGameArchive>());
         Assert.IsType<SeverityContentFilter>(app.Services.GetRequiredService<IContentFilter>());
+    }
+
+    [Fact]
+    public void Local_file_archiving_is_chosen_from_configuration()
+    {
+        using WebApplicationFactory<Program> app = App(new()
+        {
+            ["Storage:ArchiveTranscripts"] = "true",
+            ["Storage:Provider"] = "LocalFile"
+        });
+        Assert.IsType<FileGameArchive>(app.Services.GetRequiredService<IGameArchive>());
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    public void Local_file_archiving_cannot_be_enabled_outside_development(string environment)
+    {
+        using WebApplicationFactory<Program> app = App(new()
+        {
+            ["Storage:ArchiveTranscripts"] = "true",
+            ["Storage:Provider"] = "LocalFile"
+        }).WithWebHostBuilder(b => b.UseEnvironment(environment));
+
+        Exception ex = Assert.ThrowsAny<Exception>(() => app.CreateClient());
+        Assert.Contains("Storage:Provider=LocalFile is only available in Development", ex.ToString());
     }
 
     [Fact]
