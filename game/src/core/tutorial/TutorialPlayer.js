@@ -2,6 +2,7 @@ import {HOST_CENTER_X, HOST_CENTER_Y, HOST_WIDTH} from '../../constants.js';
 import {ensurePlaceholderImage} from '../placeholders.js';
 import {TUTORIAL_ANIMATIONS} from './animations.js';
 import {AUDIO_MIX, getMusic} from '../music.js';
+import {getNarration} from '../narration/index.js';
 import {COLORS, HEX, textStyle} from '../theme.js';
 
 /**
@@ -98,33 +99,20 @@ export class TutorialPlayer {
     }
 
     /**
-     * Plays a narration line, ducking the music. Calls `onEnd` a short pause after the line ends. Returns false (and
-     * never calls `onEnd`) if there is nothing to play, so the step keeps its visual timing.
+     * Speaks a narration line (a key of narration/manifest.json), ducking the music. Calls `onEnd` once it has been
+     * said. Returns false (and never calls `onEnd`) if it cannot be played, so the step keeps its visual timing.
      */
     speak(key, onEnd) {
-        if (!key || !this.scene.cache.audio.exists(key)) return false;
+        const narration = getNarration(this.scene.game);
+        if (!key || !narration.canPlay(key)) return false;
 
-        let sound;
-        try {
-            sound = this.scene.sound.add(key, {volume: AUDIO_MIX.narrationVolume});
-        } catch (err) {
-            console.warn(`Narration "${key}" cannot play`, err);
-            return false;
-        }
-        this.narration = sound;
+        // Held for the whole tutorial, so the music does not bob up and down between lines.
         getMusic(this.scene.game).duck(true, this.duckOwner);
-
-        let ended = false;
-        const end = () => {
-            if (ended) return;
-            ended = true;
-            this.later(AUDIO_MIX.narrationGapMs, onEnd);
-        };
-        sound.once('complete', end);
-        // A line that never reports its end (blocked audio, a broken file) must not hold the tutorial up.
-        const lengthMs = (sound.duration || 0) * 1000;
-        this.later((lengthMs > 0 ? lengthMs : 10000) + 1500, end);
-        if (sound.play() === false) end();
+        this.narration = key;
+        narration.play(key).then(result => {
+            // A short pause after the voice before moving on.
+            if (result !== 'cancelled' && this.narration === key) this.later(AUDIO_MIX.narrationGapMs, onEnd);
+        });
         return true;
     }
 
@@ -151,9 +139,11 @@ export class TutorialPlayer {
         this.timers = [];
         this.stopAnimation?.();
         this.stopAnimation = null;
-        this.narration?.stop();
-        this.narration?.destroy();
-        this.narration = null;
+        if (this.narration) {
+            const key = this.narration;
+            this.narration = null;
+            getNarration(this.scene.game).stopKey(key);
+        }
         this.layer.removeAll(true);
     }
 

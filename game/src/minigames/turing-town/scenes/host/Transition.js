@@ -2,10 +2,10 @@ import {HOST_CENTER_X, HOST_HEIGHT, HOST_WIDTH} from '../../../../constants.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {HostStage} from '../../../../core/stage/HostStage.js';
-import {textStyle} from '../../../../core/theme.js';
+import {COLORS, textStyle} from '../../../../core/theme.js';
 import {TutorialPlayer} from '../../../../core/tutorial/TutorialPlayer.js';
 import {createTextButton} from '../../../../core/ui/Button.js';
-import {narrationKey, TRANSITIONS} from '../../data/transitions.js';
+import {TRANSITIONS} from '../../data/transitions.js';
 
 // The announcer explains the next part. The TV plays the line, then tells the server to move on.
 export class TuringTownHostTransition extends HostStage {
@@ -44,11 +44,12 @@ export class TuringTownHostTransition extends HostStage {
 
         this.setTitle(step.title);
         this.setInstruction(data.hostLine ?? '');
+        this.instructionText.setColor(COLORS.gold).setFontStyle('italic');
 
         const hasCard = !!data.hotSeat;
         const beat = data.beat;
         this.player = new TutorialPlayer(this, [{
-            id: beat, type: 'animation', animation: hasCard ? 'blank' : step.animation, narration: narrationKey(beat),
+            id: beat, type: 'animation', animation: hasCard ? 'blank' : step.animation, narration: beat,
             caption: step.caption, durationMs: step.durationMs,
         }], {
             onDone: () => this.session.invoke('TransitionDone', beat).catch(err => console.warn(hubErrorMessage(err))),

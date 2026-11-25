@@ -1,3 +1,4 @@
+import {followNarration} from './narration/index.js';
 import * as Phaser from 'phaser';
 import {connectGameHub} from './gameHub.js';
 import {GameDirector} from './director.js';
@@ -108,6 +109,11 @@ Thanks for playing. Goodbye!`);
     /** Starts moving the screen along with the game. Call once, after connect(). */
     attachDirector() {
         this.director?.stop();
+        // Before the director: it can create the next screen inside the same event, and that screen's line must survive.
+        if (this.role === 'host') {
+            this.stopNarration?.();
+            this.stopNarration = followNarration(this.game, this);
+        }
         this.director = new GameDirector(this.game, this, this.lobbyKey);
         this.director.start();
         // The TV shows a banner whenever someone drops, on every screen (see scenes/host/overlays/PresenceToast).
@@ -258,6 +264,7 @@ Thanks for playing. Goodbye!`);
             this.game.scene.stop('PresenceToast');
             this.stopMusic?.();
             getMusic(this.game).stop(400);
+            this.stopNarration?.();
         }
         const connection = this.connection;
         this.connection = null;

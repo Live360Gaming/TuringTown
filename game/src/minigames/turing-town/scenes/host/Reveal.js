@@ -1,7 +1,9 @@
 import {HOST_CENTER_X} from '../../../../constants.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {HostStage} from '../../../../core/stage/HostStage.js';
-import {ENDINGS, sayLine} from '../../data/transitions.js';
+import {getNarration} from '../../../../core/narration/index.js';
+import {endingKey} from '../../../../core/narration/scopes.js';
+import {narrationEntry} from '../../../../narration/registry.js';
 import {addMeter} from './meter.js';
 
 // The result of the vote. This is the first time anyone learns whether a player was a bot.
@@ -20,9 +22,10 @@ export class TuringTownHostReveal extends HostStage {
             return;
         }
 
-        const ending = !eliminated ? ENDINGS.no_verdict : wasBot ? ENDINGS.humans_win : ENDINGS.bots_win;
-        this.setInstruction(ending.caption);
-        sayLine(this, Object.keys(ENDINGS).find(id => ENDINGS[id] === ending));
+        // Exactly one ending line, chosen from the server's result; its words show under the verdict.
+        const ending = endingKey(this.session.state.data);
+        this.add.text(HOST_CENTER_X, 500, narrationEntry(ending).transcript, {fontSize: '28px', color: '#ffd476', align: 'center', wordWrap: {width: 1100}}).setOrigin(0.5);
+        getNarration(this.game).enqueue([ending], {occurrence: 'ending'});
 
         if (eliminated) {
             createAvatar(this, HOST_CENTER_X, 230, 190, eliminated);

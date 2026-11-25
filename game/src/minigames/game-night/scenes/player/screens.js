@@ -1,4 +1,4 @@
-import {rotateQuips} from '../../quips.js';
+import {goodbyeText} from '../../quips.js';
 import {NightScreen} from './NightScreen.js';
 
 // The night's own stages on the phone. The TV shows the detail; the phone says where things stand.
@@ -44,7 +44,7 @@ export class GameNightPlayerFinale extends NightScreen {
     build() {
         super.build();
         this.quipText = this.addText('', {align: 'center'});
-        rotateQuips(this, this.quipText);
+        this.quipText.setText(goodbyeText(this.session.state.data?.goodbye));
     }
 
     layout(m) {

@@ -218,7 +218,11 @@ public readonly record struct FinaleData(
     string Winner,
     TeamTotals Teams,
     IReadOnlyList<Standing> Standings,
-    IReadOnlyList<RoleReveal> Roles);
+    IReadOnlyList<RoleReveal> Roles)
+{
+    /// <summary>The goodbye line after "Thanks for playing!" (a narration key), the same on every screen.</summary>
+    public string? Goodbye { get; init; }
+}
 
 /// <summary>A Witty Bits prompt and the players who answer it (two in rounds 1 and 2, everyone in the Last Bit).</summary>
 public readonly record struct WittyAssignment(string PromptId, string Text, IReadOnlyList<Guid> PlayerIds);

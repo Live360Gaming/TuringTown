@@ -4,7 +4,8 @@ import {HostStage} from '../../../../core/stage/HostStage.js';
 import {COLORS, textStyle} from '../../../../core/theme.js';
 import {addNameplate} from '../../../../core/ui/Nameplate.js';
 import {addContinueButton} from '../../continue.js';
-import {rotateQuips} from '../../quips.js';
+import {getNarration} from '../../../../core/narration/index.js';
+import {goodbyeKeys, goodbyeText} from '../../quips.js';
 import {drawTeamTotals} from '../../standings.js';
 
 const HEADLINES = {
@@ -37,8 +38,10 @@ export class GameNightHostFinale extends HostStage {
             this.add.text(x, 500, role.wasBot ? 'AI' : 'HUMAN', textStyle('meta', {fontSize: '24px', color: role.wasBot ? COLORS.green : COLORS.text})).setOrigin(0.5);
         });
 
-        rotateQuips(this, this.add.text(HOST_CENTER_X, 560, '', textStyle('instruction', {fontSize: '28px', color: COLORS.gold, align: 'center'}))
-            .setOrigin(0.5));
+        const {goodbye} = this.session.state.data ?? {};
+        this.add.text(HOST_CENTER_X, 560, goodbyeText(goodbye), textStyle('instruction', {fontSize: '28px', color: COLORS.gold, align: 'center'}))
+            .setOrigin(0.5);
+        getNarration(this.game).enqueue(goodbyeKeys(goodbye), {occurrence: 'finale'});
 
         addContinueButton(this, HOST_CENTER_X, HOST_HEIGHT - 80, 'Back to lobby', {width: 340});
     }

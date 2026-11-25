@@ -10,6 +10,8 @@ export class TuringTownPlayerReveal extends PlayerStage {
     }
 
     build() {
+        // The screen object is reused, so the last reveal's avatar (now destroyed) must be forgotten.
+        this.avatar = null;
         const {eliminated, wasBot, final, meter} = this.session.state.data ?? {};
         this.title = this.addText(`Round ${this.session.state.round}`, {fontStyle: 'bold'});
 

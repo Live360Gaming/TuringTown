@@ -3,7 +3,9 @@ import {createAvatar} from '../../../../core/characters.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {HostStage} from '../../../../core/stage/HostStage.js';
 import {createTextButton} from '../../../../core/ui/Button.js';
-import {ENDINGS, sayLine} from '../../data/transitions.js';
+import {getNarration} from '../../../../core/narration/index.js';
+import {truthKey} from '../../../../core/narration/scopes.js';
+import {narrationEntry} from '../../../../narration/registry.js';
 
 // The end of the game: who won, and who was a bot all along.
 export class TuringTownHostResults extends HostStage {
@@ -31,10 +33,11 @@ export class TuringTownHostResults extends HostStage {
             this.add.text(x, 415, role.wasBot ? 'BOT' : 'HUMAN', {fontSize: '26px', color: role.wasBot ? '#39ff14' : '#ffffff'}).setOrigin(0.5);
         });
 
-        if (hotSeatWasTheirs !== null && hotSeatWasTheirs !== undefined) {
-            const truth = hotSeatWasTheirs ? ENDINGS.truth_theirs : ENDINGS.truth_not_theirs;
-            this.add.text(HOST_CENTER_X, 490, truth.caption, {fontSize: '30px', color: '#ffd476'}).setOrigin(0.5);
-            sayLine(this, hotSeatWasTheirs ? 'truth_theirs' : 'truth_not_theirs');
+        // Queued behind the ending line, if that is still being said.
+        const truth = truthKey(hotSeatWasTheirs);
+        if (truth) {
+            this.add.text(HOST_CENTER_X, 490, narrationEntry(truth).transcript, {fontSize: '30px', color: '#ffd476'}).setOrigin(0.5);
+            getNarration(this.game).enqueue([truth], {occurrence: 'truth'});
         }
 
         this.statusText = this.add.text(HOST_CENTER_X, 560, '', {fontSize: '24px', color: '#ff4d4d'}).setOrigin(0.5);

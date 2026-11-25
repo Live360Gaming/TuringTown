@@ -14,7 +14,7 @@ Frontend (run from `game/`):
   `vite` alone the `/api/*` calls will not reach the server.
 - `npm run build` : outputs straight into the repo-root `wwwroot/` (`outDir: '../wwwroot'`, `emptyOutDir`). `wwwroot/`
   is git-ignored.
-- There is no lint script and no frontend tests.
+- `npm test` : the frontend tests (`node --test`, `game/test/`). There is no lint script, and CI does not run these.
 
 Full stack: `cd game && npm run build`, then from the repo root `dotnet run` (http://localhost:5278, profile `http`).
 The server serves `wwwroot/` through `UseDefaultFiles`/`UseStaticFiles`.
@@ -118,7 +118,9 @@ served under a sub-path).
   (`GameSession.attachDirector`); phones never play music. The Preloader loads only the lobby track, and `Host` loads
   the rest in the background. Files are in `game/public/audio/turing-town/music/`. The TV tutorial's announcer lines
   (`game/public/audio/turing-town/narration/`) load with them; the music ducks under the voice (`MusicPlayer.duck`), and
-  the mix is `AUDIO_MIX` in `core/music.js`.
+  the mix is `AUDIO_MIX` in `core/music.js`. All recorded narration (listed in `game/src/narration/manifest.json`, shared
+  with the server) plays through `core/narration/`, see [docs/narration.md](docs/narration.md); `npm test` in `game/`
+  covers it.
 
 **Content policy.** Anything that produces game content for a room must take a `ContentPolicy` (Family Friendly,
 default ON). See [docs/content-policy.md](docs/content-policy.md). The design for per-game data and AI-generated

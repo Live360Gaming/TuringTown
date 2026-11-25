@@ -19,6 +19,8 @@ export class TuringTownPlayerVoting extends PlayerStage {
         this.title = this.addText(roundTitle(this.session.state), {fontStyle: 'bold'});
         this.statusText = this.addText('', {align: 'center'});
         this.cards = [];
+        // The screen object is reused, so the last vote's list (now destroyed) must be forgotten.
+        this.answerList = null;
 
         if (this.session.spectating) {
             this.statusText.setText('You were voted out. You can only watch now.');

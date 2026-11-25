@@ -24,6 +24,8 @@
         <EmbeddedResource Include="Services\Ai\Prompts\*.md" />
         <!-- Each minigame's definition (game/src/minigames/<id>/data/game.json): the server reads its "enabled" flag. -->
         <EmbeddedResource Include="game\src\minigames\*\data\game.json" />
+        <!-- The recorded narration list, shared with the client. -->
+        <EmbeddedResource Include="game\src\narration\manifest.json" />
     </ItemGroup>
 
     <!-- The test project lives in a subfolder, so keep its sources out of this project's globbing. -->

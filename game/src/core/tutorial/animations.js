@@ -201,7 +201,7 @@ export const TUTORIAL_ANIMATIONS = {
         const residents = [1, 3, 0, 5].map((k, i) => sprite(scene, layer, CHARACTER_KEYS[k], xs[i], cy + 50, 140));
         residents.forEach((r, i) => bob(run, r, i, 6));
 
-        const lines = ['hi everyone!', 'lol same', 'where r u from?', 'beep. I mean: hi!', 'pizza > tacos', 'hmm, sus…'];
+        const lines = ['hi everyone!', 'lol same', 'cats or dogs?', 'beep. I mean: hi!', 'pizza > tacos', 'hmm, sus…'];
         const speakers = [0, 2, 1, 3, 2, 0];
         const shown = [];
         let i = 0;

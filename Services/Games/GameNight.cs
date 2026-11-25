@@ -326,7 +326,9 @@ public sealed class GameNight : IDisposable
 
         TimeSpan duration = TimeSpan.FromSeconds(_opt.FinaleSeconds);
         Task signal = NewContinueSignal();
-        await EnterStageAsync(Stage.Finale, duration, new FinaleData(winner, totals, Standings(), roles));
+        string goodbye = NarrationManifest.PickGoodbye(_room.LastGoodbye);
+        _room.LastGoodbye = goodbye;
+        await EnterStageAsync(Stage.Finale, duration, new FinaleData(winner, totals, Standings(), roles) { Goodbye = goodbye });
         await _clock.WaitAsync(duration, signal);
     }
 

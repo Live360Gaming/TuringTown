@@ -1,5 +1,5 @@
 import {getMusic} from '../../core/music.js';
-import {NARRATION} from './data/transitions.js';
+import {NARRATION_FILES} from '../../narration/registry.js';
 
 // Turing Town's soundtrack and which track goes with each stage. Played on the TV only (see core/music.js).
 
@@ -60,7 +60,7 @@ export function playTrack(game, key) {
  * simply not played (the tutorial keeps its visual timing).
  */
 export function loadStageMusic(scene) {
-    const files = [...Object.entries(TRACKS).map(([key, {file}]) => [key, file]), ...Object.entries(NARRATION)];
+    const files = [...Object.entries(TRACKS).map(([key, {file}]) => [key, file]), ...Object.entries(NARRATION_FILES)];
     const missing = files.filter(([key]) => !scene.cache.audio.exists(key));
     if (missing.length === 0) return;
     scene.load.setPath('audio');

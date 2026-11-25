@@ -1,3 +1,5 @@
+import {listen} from './stage/listen.js';
+
 /** 75000 -> "1:15" */
 export function formatMs(ms) {
     const seconds = Math.ceil(ms / 1000);
@@ -16,8 +18,7 @@ export function attachCountdown(scene, session, text) {
 
     // The scene's clock is cleaned up with the scene, so only the session listener needs removing.
     scene.time.addEvent({delay: 250, loop: true, callback: update});
-    session.on('state', update);
-    scene.events.once('shutdown', () => session.off('state', update));
+    listen(scene, session, 'state', update);
 
     update();
     return update;

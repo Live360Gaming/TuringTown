@@ -196,7 +196,16 @@ app.Use(async (context, next) =>
 });
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+// The page names the current build's hashed files, so a browser must check it every time; otherwise a rebuilt server
+// can be driving yesterday's client.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        if (context.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+            context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 
 app.UseRouting();
 app.UseRateLimiter();

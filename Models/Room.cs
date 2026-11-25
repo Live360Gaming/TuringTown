@@ -70,6 +70,9 @@ public class Room(RoomCode rc, GameOptions options)
     /// </summary>
     public RoomCode Code { get; } = rc;
 
+    /// <summary>The goodbye line the last game night here ended on, so the next one picks another.</summary>
+    internal string? LastGoodbye { get; set; }
+
     /// <summary>
     /// Secret identifying the host. Required to change settings.
     /// </summary>
