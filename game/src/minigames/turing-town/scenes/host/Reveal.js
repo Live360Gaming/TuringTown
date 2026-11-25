@@ -1,6 +1,7 @@
 import {HOST_CENTER_X} from '../../../../constants.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {HostStage} from '../../../../core/stage/HostStage.js';
+import {ENDINGS, sayLine} from '../../data/transitions.js';
 import {addMeter} from './meter.js';
 
 // The result of the vote. This is the first time anyone learns whether a player was a bot.
@@ -11,13 +12,17 @@ export class TuringTownHostReveal extends HostStage {
 
     build() {
         const {eliminated, wasBot, tally = [], final, meter = []} = this.session.state.data ?? {};
-        this.setTitle(`Round ${this.session.state.round}: ${final ? 'The verdict' : 'Suspicion meter'}`);
+        this.setTitle(final ? 'The verdict' : 'Suspicion meter');
 
         // Before the final vote nobody leaves: the votes only move the meter.
         if (!final) {
             addMeter(this, meter, {y: 200, rowHeight: Math.min(60, 420 / Math.max(meter.length, 1))});
             return;
         }
+
+        const ending = !eliminated ? ENDINGS.no_verdict : wasBot ? ENDINGS.humans_win : ENDINGS.bots_win;
+        this.setInstruction(ending.caption);
+        sayLine(this, Object.keys(ENDINGS).find(id => ENDINGS[id] === ending));
 
         if (eliminated) {
             createAvatar(this, HOST_CENTER_X, 230, 190, eliminated);

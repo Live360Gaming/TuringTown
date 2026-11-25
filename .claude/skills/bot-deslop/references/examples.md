@@ -154,6 +154,15 @@ do the accusing. Reproduced with `accused-pair.txt`, `/votes 5`, 2 humans and 2 
 The accused-pair humans act confused and hostile, so the bots rating them higher is judgement a human would share. The
 control is the test for knowledge.
 
+Follow-up (bot-system v15, 3 more `accused-pair` runs): no "us" for the pair and no vote announcements (the prompt rules
+held; the guard backstops did not need to fire), and votes on humans after the accusation fell to 21/30 (70%), near
+chance, with the bots now suspecting each other too:
+
+```
+Silver Peach: what makes you call me sus, @Teal Banana? the sushi hill or just vibes?
+Purple Guava (BOT): Silver Peach (BOT) x3, Teal Banana (human) x1, Silver Lemon (human) x1
+```
+
 ## Good lines to calibrate against
 
 ```

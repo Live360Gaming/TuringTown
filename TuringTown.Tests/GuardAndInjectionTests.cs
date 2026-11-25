@@ -330,7 +330,7 @@ public class GuardAndInjectionTests
     [InlineData("you're lumping us without reasons", "you're lumping me without reasons")]
     [InlineData("Hungry rn. what makes us sus?", "Hungry rn. what makes me sus?")]
     [InlineData("accusing us of being sus over a hot dog debate is bold", "accusing me of being sus over a hot dog debate is bold")]
-    [InlineData("why are you calling us bots", "why are you calling me bots")]
+    [InlineData("why are you calling us out", "why are you calling me out")]
     public void Answering_for_a_pair_becomes_answering_for_itself(string raw, string expected) => Assert.Equal(expected, Say(raw));
 
     [Theory]

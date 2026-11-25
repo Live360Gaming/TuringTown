@@ -196,7 +196,10 @@ public class WittyBitsFlowTests
         DateTimeOffset start = h.Time.GetUtcNow();
         await h.ToAsync(Stage.Matchup, 1, 0);
         Assert.True(h.Time.GetUtcNow() - start < TimeSpan.FromSeconds(5));
-        Assert.Contains(h.ProgressEvents, p => p.Done == p.Total && p.Total == 8);
+        // A snapshot under the broadcaster's lock: the engine may still be adding events.
+        (int Done, int Total)[] events;
+        lock (h.ProgressEvents) events = h.ProgressEvents.ToArray();
+        Assert.Contains(events, p => p.Done == p.Total && p.Total == 8);
     }
 
     [Fact]

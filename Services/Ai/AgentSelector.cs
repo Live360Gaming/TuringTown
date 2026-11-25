@@ -12,7 +12,8 @@ public sealed record AgentSet(
     IWittyPromptGenerator WittyPrompts,
     bool UsesAi,
     IDisposable? Lease = null,
-    IGameNightPlanner? Planner = null);
+    IGameNightPlanner? Planner = null,
+    IShowHost? Host = null);
 
 /// <summary>
 /// Picks the agents for each new game: the real AI while the limits allow, otherwise the offline scripted ones. A game

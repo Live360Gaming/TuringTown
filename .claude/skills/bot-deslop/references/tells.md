@@ -70,14 +70,17 @@ there, not here.
 - **team-talk**: speculates about how many bots there are, or protects or signals another player. Each bot plays alone.
   Fixed by: no bot count anywhere (`BotContext`), prompt, `FoundryAgentTests` wording test.
 - **pair-defend**: lumped in with the other bot ("you two are sus"), answers as "us" or "we", or vouches for the other
-  player ("Brown Apple suggested a show, research, not sabotage"). Fixed by: prompt ("Speak only for yourself, as I").
-  Still seen now and then ("you're lumping us").
+  player ("Brown Apple suggested a show, research, not sabotage"). Fixed by: prompt ("Speak only for yourself, as I"),
+  guard `PairObject` (rewrites "lumping us", "makes us sus" to "me") and `PairTalk` (rejects "both of us", "we're both",
+  reason `pair-talk`). "we" for the whole room ("we're just chatting") is fine.
 - **knows-the-humans**: votes as if it knew who is human: votes back at whoever accused it (humans do the accusing), or
   two bots vote for the same human in lockstep. Measured with `/votes`. Fixed by: `VoteChoice` (the model rates, the
   vote is drawn with chance), vote-task ("accusing or being accused is not evidence", "never rate a player higher because
   they write differently from you"), no accuser bonus in the scripted vote. Bots still rate humans who act confused or
   hostile as more AI-like; a human player would too, so that is judgement, not knowledge.
-- **vote-announce**: says in chat who it will vote for ("I'll vote Green Apple"). Not fixed.
+- **vote-announce**: says in chat who it will vote for ("I'll vote Green Apple"). Votes are drawn with chance, so the real
+  vote can contradict it in public. Fixed by: prompt ("Say who you suspect and why, and keep your vote to yourself"),
+  guard `VoteAnnouncement` (reason `vote-announce`; saying when, "I'll vote at the end", is fine).
 
 ## Form answers (`/persona`)
 

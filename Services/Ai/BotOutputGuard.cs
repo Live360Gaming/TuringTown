@@ -104,7 +104,7 @@ public static partial class BotOutputGuard
     // Announcing a vote: "I'll vote Green Apple", "I'm voting for you", "my vote goes to ...". Votes are drawn with chance
     // (VoteChoice), so an announced vote can be contradicted by the real one, and announcing is a tell of its own. Saying
     // when ("I'll vote at the end") is fine.
-    [GeneratedRegex(@"\bi(?:'ll| will|'m| am|'d| would)?(?: gonna| going to| probably| prob| definitely| def)?\s+(?:vote|voting)\b(?!\s+(?:at the end|later|last|soon|carefully|once|when|after)\b)|\bmy vote(?:'s|\s+is|\s+goes|\s+will)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(?:im|i(?:'ll| will|'m| am|'d| would)?)(?: gonna| going to| probably| prob| definitely| def)?\s+(?:vote|voting)\b(?!\s+(?:at the end|later|last|soon|carefully|once|when|after)\b)|\bmy vote(?:'s|\s+is|\s+goes|\s+will)\b", RegexOptions.IgnoreCase)]
     private static partial Regex VoteAnnouncement { get; }
 
     /// <summary>Short words that carry no topic, left out when comparing two lines.</summary>

@@ -42,10 +42,15 @@ public sealed class AiCalls
     public AiCallOptions WittyAnswer { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 600, TimeoutMs = 12000 };
     public AiCallOptions WittyVote { get; set; } = new() { ReasoningEffort = "minimal", MaxOutputTokens = 300, TimeoutMs = 8000 };
 
+    // The show host: the run sheet (during the tutorial) and the hot topic (while the room judges the five answers).
+    public AiCallOptions Show { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 3000, TimeoutMs = 25000 };
+    public AiCallOptions ShowTopic { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 800, TimeoutMs = 15000 };
+
     public IEnumerable<(string Name, AiCallOptions Options)> All =>
     [
         (nameof(Chat), Chat), (nameof(Vote), Vote), (nameof(Onboarding), Onboarding), (nameof(Questions), Questions), (nameof(RoundNotes), RoundNotes),
-        (nameof(Plan), Plan), (nameof(WittyPrompts), WittyPrompts), (nameof(WittyAnswer), WittyAnswer), (nameof(WittyVote), WittyVote)
+        (nameof(Plan), Plan), (nameof(WittyPrompts), WittyPrompts), (nameof(WittyAnswer), WittyAnswer), (nameof(WittyVote), WittyVote),
+        (nameof(Show), Show), (nameof(ShowTopic), ShowTopic)
     ];
 }
 

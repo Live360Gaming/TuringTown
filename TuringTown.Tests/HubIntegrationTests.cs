@@ -44,8 +44,14 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
                 ["TuringTown:VotingSeconds"] = "30",
                 ["TuringTown:RevealSeconds"] = "1",
                 ["TuringTown:ResultsSeconds"] = "30",
-                ["TuringTown:MaxRounds"] = "2",
-                ["TuringTown:QuickFireSeconds"] = "30",
+                ["TuringTown:RapidFireSeconds"] = "30",
+                ["TuringTown:HotTopicSeconds"] = "30",
+                ["TuringTown:HotSeatSeconds"] = "1",
+                ["TuringTown:TransitionMaxSeconds"] = "1",
+                ["TuringTown:BotRapidMinDelayMs"] = "0",
+                ["TuringTown:BotRapidMaxDelayMs"] = "0",
+                ["TuringTown:BotTopicMinDelayMs"] = "0",
+                ["TuringTown:BotTopicMaxDelayMs"] = "0",
                 ["TuringTown:BotMessagesPerRound"] = "0",
                 ["TuringTown:BotVoteMinDelayMs"] = "0",
                 ["TuringTown:BotVoteMaxDelayMs"] = "0",
@@ -307,20 +313,33 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "I like pasta"));
         await p2.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "Tacos"));
 
-        // --- Quick Fire: everyone answers one prompt, and the answers open the chat together
-        JsonElement quickFire = await p1.WaitForStageAsync("QuickFire", 1);
-        Assert.False(string.IsNullOrWhiteSpace(quickFire.GetProperty("data").GetProperty("prompt").GetString()));
-        await p1.Connection.InvokeAsync("SubmitQuickFire", "purple waffles");
-        await p2.Connection.InvokeAsync("SubmitQuickFire", "grumpy toast");
+        // --- five questions: everyone answers, and the answers are shown at the first vote
+        JsonElement rapid = await p1.WaitForStageAsync("RapidFire", 1);
+        Assert.Equal(5, rapid.GetProperty("data").GetProperty("questions").GetArrayLength());
+        for (int i = 1; i <= 5; i++)
+        {
+            await p1.Connection.InvokeAsync("SubmitRapidAnswer", $"q{i}", $"purple waffles {i}");
+            await p2.Connection.InvokeAsync("SubmitRapidAnswer", $"q{i}", $"grumpy toast {i}");
+        }
 
-        // --- discussion: chat shows aliases, and a name leak is refused
-        await p1.WaitForStageAsync("Discussion", 1);
-        await WaitUntilAsync(() => host.Chat.Count == 4 && p1.Chat.Count == 4 && p2.Chat.Count == 4);
+        JsonElement tap = await p1.WaitForStageAsync("Voting", 1);
+        Assert.Equal(4, tap.GetProperty("data").GetProperty("answers").GetArrayLength());
+        await VoteForSomeoneElseAsync(p1, joined[0].PlayerId);
+        await VoteForSomeoneElseAsync(p2, joined[1].PlayerId);
+
+        // --- the hot topic and the hot seat
+        await p1.WaitForStageAsync("HotTopic", 2);
+        await p1.Connection.InvokeAsync("SubmitHotTopic", "cold pizza");
+        await p2.Connection.InvokeAsync("SubmitHotTopic", "warm soda");
+        await WaitUntilAsync(() => p1.States.Any(s => s.GetProperty("stage").GetString() == "Discussion" && s.GetProperty("round").GetInt32() == 2));
+
+        // --- the big discussion: chat shows aliases, and a name leak is refused
+        await p1.WaitForStageAsync("Discussion", 3);
         await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SendChat", "my name is Sam"));
         await p1.Connection.InvokeAsync("SendChat", "hello everyone");
 
-        await WaitUntilAsync(() => host.Chat.Count == 5 && p2.Chat.Count == 5);
-        JsonElement line = host.Chat.Last();
+        await WaitUntilAsync(() => host.Chat.Count == 1 && p2.Chat.Count == 1);
+        JsonElement line = host.Chat.Single();
         Assert.Equal(joined[0].Alias, line.GetProperty("alias").GetString());
         Assert.Equal("hello everyone", line.GetProperty("text").GetString());
         Assert.Equal(joined[0].CharacterId, line.GetProperty("characterId").GetString());
@@ -328,37 +347,18 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 
         // An @mention arrives as the ids of the players it names.
         await p2.Connection.InvokeAsync("SendChat", $"@{joined[0].Alias} hi back");
-        await WaitUntilAsync(() => host.Chat.Count == 6 && p1.Chat.Count == 6);
+        await WaitUntilAsync(() => host.Chat.Count == 2 && p1.Chat.Count == 2);
         JsonElement reply = host.Chat.Last();
         Assert.Equal(joined[1].Alias, reply.GetProperty("alias").GetString());
         Assert.Equal([joined[0].PlayerId], reply.GetProperty("mentions").EnumerateArray().Select(m => m.GetGuid()).ToArray());
 
-        // --- voting rounds until the game ends (two rounds at most)
-        JsonElement results = default;
-        for (int round = 1; round <= 2; round++)
-        {
-            JsonElement voting = await p1.WaitForStageAsync("Voting", round);
-            Assert.NotEqual(JsonValueKind.Undefined, voting.ValueKind);
-
-            await VoteForSomeoneElseAsync(p1, joined[0].PlayerId);
-            await VoteForSomeoneElseAsync(p2, joined[1].PlayerId);
-
-            JsonElement reveal = await p1.WaitForStageAsync("Reveal", round);
-            Assert.Equal(JsonValueKind.Array, reveal.GetProperty("data").GetProperty("tally").ValueKind);
-
-            // The bot's vote is random, so the game either ends here (a side won) or carries on to the next round.
-            await WaitUntilAsync(() => p1.States.Any(s =>
-                s.GetProperty("stage").GetString() == "Results"
-                || (s.GetProperty("stage").GetString() == "Discussion" && s.GetProperty("round").GetInt32() == round + 1)));
-            if (p1.States.Any(s => s.GetProperty("stage").GetString() == "Results"))
-            {
-                results = await p1.WaitForStageAsync("Results");
-                break;
-            }
-        }
-
-        if (results.ValueKind == JsonValueKind.Undefined)
-            results = await p1.WaitForStageAsync("Results");
+        // --- the one deciding vote
+        await p1.WaitForStageAsync("Voting", 3);
+        await VoteForSomeoneElseAsync(p1, joined[0].PlayerId);
+        await VoteForSomeoneElseAsync(p2, joined[1].PlayerId);
+        JsonElement reveal = await p1.WaitForStageAsync("Reveal", 3);
+        Assert.Equal(JsonValueKind.Array, reveal.GetProperty("data").GetProperty("tally").ValueKind);
+        JsonElement results = await p1.WaitForStageAsync("Results");
 
         // --- results are the first place roles appear: two bots among four seats
         string? winner = results.GetProperty("data").GetProperty("winner").GetString();

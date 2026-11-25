@@ -1,4 +1,5 @@
 using TuringTown.Models;
+using TuringTown.Services.Ai;
 using TuringTown.Services.Games;
 
 namespace TuringTown.Tests;
@@ -75,13 +76,19 @@ public class GameFlowTests
         Assert.Equal("Bots", h.Results().Winner);
     }
 
-    [Fact]
-    public async Task An_early_vote_eliminates_nobody_and_only_fills_the_suspicion_meter()
+    /// <summary>The survey, answered, which leaves the game at the first beat after it.</summary>
+    private static async Task<Harness> ShowAsync(Action<TuringTownOptions> configure, int humans = 3, IShowHost? host = null)
     {
-        Harness h = new(humans: 3, o => o.MaxRounds = 2);
-        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
-
+        Harness h = new(humans, configure, host: host);
         await h.ThroughOnboardingAsync();
+        return h;
+    }
+
+    [Fact]
+    public async Task The_first_vote_eliminates_nobody_and_only_fills_the_suspicion_meter()
+    {
+        Harness h = await ShowAsync(o => o.RapidFireSeconds = 30);
+        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
         await h.ToAsync(Stage.Voting, 1);
         await h.VoteAsync(a, c.Id);
         await h.VoteAsync(b, c.Id);
@@ -102,17 +109,14 @@ public class GameFlowTests
     [Fact]
     public async Task A_tied_final_vote_is_settled_by_the_suspicion_meter()
     {
-        Harness h = new(humans: 2, o => o.MaxRounds = 2);
+        Harness h = await ShowAsync(o => o.RapidFireSeconds = 30, humans: 2);
         Player a = h.Humans[0], b = h.Humans[1];
-        Guid bot = Guid.Empty;
-
-        await h.ThroughOnboardingAsync();
         await h.ToAsync(Stage.Voting, 1);
-        bot = h.BotId;
+        Guid bot = h.BotId;
         await h.VoteAsync(a, bot);
         await h.VoteAsync(b, bot);
 
-        // One vote each in the Final: the bot was the most suspected before, so it goes.
+        // One vote each in the final: the bot was the most suspected before, so it goes.
         await h.ToAsync(Stage.Voting, 2);
         await h.VoteAsync(a, bot);
         await h.VoteAsync(b, a.Id);
@@ -120,53 +124,129 @@ public class GameFlowTests
 
         Assert.Equal(bot, h.LastReveal().Eliminated!.Value.Id);
         Assert.Equal("Humans", h.Results().Winner);
+        Assert.Equal(new TeamTotals(300, 0), h.Engine.RoundPointTotals);
+        Assert.Null(h.Results().HotSeatWasTheirs);
     }
 
     [Fact]
-    public async Task Quick_Fire_hides_the_answers_until_the_chat_opens_and_the_bot_answers_too()
+    public async Task The_five_answers_are_shown_only_once_everyone_is_done_and_the_bot_answers_too()
     {
-        Harness h = new(humans: 2, o => { o.MaxRounds = 2; o.QuickFireSeconds = 10; });
-        Assert.Null(h.Engine.TutorialDone());
-        await h.ToAsync(Stage.Onboarding);
-        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers()));
-        await h.ToAsync(Stage.QuickFire, 1);
+        Harness h = await ShowAsync(o => o.RapidFireSeconds = 60, humans: 2);
+        await h.ToAsync(Stage.RapidFire, 1);
+        RoundData asking = (RoundData)h.Room.State.Data!;
+        Assert.Equal(5, asking.Questions!.Count);
+        Assert.Null(asking.Answers);
 
-        Assert.False(string.IsNullOrEmpty(((RoundData)h.Room.State.Data!).Prompt));
-        Assert.NotNull(await h.Engine.SubmitQuickFireAsync(h.Humans[0].Id, "my name is Sam"));
-        Assert.Null(await h.Engine.SubmitQuickFireAsync(h.Humans[0].Id, "purple waffles"));
-        Assert.Empty(h.Engine.GetTranscript());
-        Assert.Null(await h.Engine.SubmitQuickFireAsync(h.Humans[1].Id, "grumpy toast"));
+        Assert.NotNull(await h.Engine.SubmitRapidAnswerAsync(h.Humans[0].Id, "q1", "my name is Sam"));
+        Assert.NotNull(await h.Engine.SubmitRapidAnswerAsync(h.Humans[0].Id, "q9", "waffles"));
+        foreach (Player human in h.Humans)
+            for (int i = 1; i <= 5; i++)
+                Assert.Null(await h.Engine.SubmitRapidAnswerAsync(human.Id, $"q{i}", $"answer {i} from {human.Id.ToString()[..4]}"));
+
+        await h.ToAsync(Stage.Voting, 1);
+        RoundData tap = (RoundData)h.Room.State.Data!;
+        Assert.Equal(3, tap.Answers!.Count);
+        Assert.All(tap.Answers.Single(a => a.PlayerId == h.BotId).Answers, Assert.NotNull);
+    }
+
+    [Fact]
+    public async Task The_hot_seat_shows_one_answer_under_the_drawn_name_and_the_truth_only_at_the_results()
+    {
+        Harness h = await ShowAsync(o => { o.HotTopicSeconds = 30; o.HotSeatSeconds = 5; o.HotSeatSwapPercent = 100; }, humans: 2);
+        await h.ToAsync(Stage.HotTopic, 1);
+        Assert.Null(((RoundData)h.Room.State.Data!).ShownAnswer);
+        Assert.Null(await h.Engine.SubmitHotTopicAsync(h.Humans[0].Id, "purple waffles"));
+        Assert.Null(await h.Engine.SubmitHotTopicAsync(h.Humans[1].Id, "grumpy toast"));
 
         await h.ToAsync(Stage.Discussion, 1);
-        await h.UntilAsync(() => h.Engine.GetTranscript().Count == 3, "all three answers in the chat");
-        Assert.Contains(h.Engine.GetTranscript(), m => m.PlayerId == h.BotId);
-        Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "purple waffles");
+        RoundData seat = (RoundData)h.Room.State.Data!;
+        Assert.Equal(RoundKind.HotSeat, seat.Kind);
+        Assert.NotNull(seat.HotSeat);
+        Assert.NotNull(seat.ShownAnswer);
+
+        await h.ToAsync(Stage.Voting, 2);
+        // Only the drawn answer was ever sent: of the two humans' answers, at most one appears anywhere.
+        lock (h.Messages)
+            Assert.False(h.Messages.Any(m => m.Json.Contains("purple waffles")) && h.Messages.Any(m => m.Json.Contains("grumpy toast")));
+        foreach (Player human in h.Humans) await h.VoteAsync(human, h.BotId);
+        await h.ToAsync(Stage.Results);
+
+        Assert.False(h.Results().HotSeatWasTheirs);
     }
 
     [Fact]
-    public async Task The_hot_seat_is_the_most_suspected_player()
+    public async Task A_transition_waits_for_the_screen_and_ends_by_itself()
     {
-        Harness h = new(humans: 3, o => { o.MaxRounds = 3; o.QuickFireSeconds = 10; });
-        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
-
+        Harness h = new(humans: 2, o => o.TransitionMaxSeconds = 600);
         Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Transition);
+        Assert.Equal("survey", ((TransitionData)h.Room.State.Data!).Beat);
+        Assert.NotNull(h.Engine.TransitionDone("final"));
+        Assert.Null(h.Engine.TransitionDone("survey"));
         await h.ToAsync(Stage.Onboarding);
-        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers()));
-        await h.ToAsync(Stage.Voting, 1);
-        await h.VoteAsync(a, c.Id);
-        await h.VoteAsync(b, c.Id);
-        await h.VoteAsync(c, a.Id);
-        await h.ToAsync(Stage.Discussion, 2);
 
-        RoundData data = (RoundData)h.Room.State.Data!;
-        Assert.Equal(RoundKind.HotSeat, data.Kind);
-        Assert.Equal(c.Id, data.HotSeat!.Value.Id);
+        Harness silent = new(humans: 2, o => o.TransitionMaxSeconds = 3);
+        Assert.Null(silent.Engine.TutorialDone());
+        await silent.ToAsync(Stage.Onboarding);
+    }
+
+    private sealed class BrokenHost : IShowHost
+    {
+        public Task<RunSheet> PlanAsync(ShowRequest request, CancellationToken ct) =>
+            Task.FromResult(new RunSheet(["What is your name?"], "", new Dictionary<string, string>()));
+
+        public Task<string?> TopicAsync(TopicRequest request, CancellationToken ct) => throw new InvalidOperationException("down");
+    }
+
+    [Fact]
+    public async Task Unusable_content_from_the_host_is_replaced_and_the_game_goes_on()
+    {
+        Harness h = await ShowAsync(o => { o.RapidFireSeconds = 5; o.HotTopicSeconds = 5; o.HotSeatSeconds = 5; }, host: new BrokenHost());
+        await h.ToAsync(Stage.RapidFire, 1);
+        Assert.Equal(5, ((RoundData)h.Room.State.Data!).Questions!.Count);
+        await h.ToAsync(Stage.HotTopic, 2);
+        Assert.False(string.IsNullOrEmpty(((RoundData)h.Room.State.Data!).Topic));
+    }
+
+    [Fact]
+    public void Suspicion_weights_the_draw_but_everyone_can_be_picked()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        Dictionary<Guid, int> votes = new() { [b] = 2 };
+
+        // Weights 1 and 5: the first roll is a, the other five are b.
+        int[] rolls = Enumerable.Range(0, 6).ToArray();
+        Assert.Equal([a, b, b, b, b, b], rolls.Select(r => HotSeatDraw.Pick([a, b], votes, _ => r)!.Value));
+    }
+
+    [Theory]
+    [InlineData(74, false)]
+    [InlineData(75, true)]
+    public void The_shown_answer_is_swapped_at_the_set_rate(int roll, bool theirs)
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        Dictionary<Guid, string> answers = new() { [a] = "purple waffles", [b] = "grumpy toast" };
+
+        (string? answer, bool? was) = HotSeatDraw.Answer(a, answers, 75, n => n == 100 ? roll : 0);
+
+        Assert.Equal(theirs, was);
+        Assert.Equal(theirs ? "purple waffles" : "grumpy toast", answer);
+    }
+
+    [Fact]
+    public void Missing_answers_still_give_the_hot_seat_something_sensible()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+
+        Assert.Equal(("grumpy toast", false), HotSeatDraw.Answer(a, new Dictionary<Guid, string> { [b] = "grumpy toast" }, 0, _ => 0));
+        Assert.Equal(("grumpy toast", true), HotSeatDraw.Answer(b, new Dictionary<Guid, string> { [b] = "grumpy toast" }, 100, _ => 0));
+        Assert.Equal((null, null), HotSeatDraw.Answer(a, new Dictionary<Guid, string>(), 75, _ => 0));
     }
 
     [Fact]
     public async Task The_bots_win_when_the_final_vote_is_tied_and_the_meter_cannot_settle_it()
     {
-        Harness h = new(humans: 3, o => o.MaxRounds = 1);
+        Harness h = new(humans: 3);
         Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
 
         await h.ThroughOnboardingAsync();
@@ -179,36 +259,6 @@ public class GameFlowTests
         await h.ToAsync(Stage.Results);
 
         Assert.Equal("Bots", h.Results().Winner);
-    }
-
-    [Fact]
-    public async Task Each_round_is_worth_double_and_goes_to_the_side_that_gained_from_the_vote()
-    {
-        Harness h = new(humans: 3, o => o.MaxRounds = 3);
-        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
-
-        await h.ThroughOnboardingAsync();
-        await h.ToAsync(Stage.Voting, 1);
-
-        // Round 1: a human is the top suspect, so the AI team earns 100.
-        await h.VoteAsync(a, c.Id);
-        await h.VoteAsync(b, c.Id);
-        await h.VoteAsync(c, a.Id);
-        await h.ToAsync(Stage.Voting, 2);
-        Assert.Equal(new TeamTotals(0, 100), h.Engine.RoundPointTotals);
-
-        // Round 2: a tie earns nobody anything.
-        await h.VoteAsync(a, b.Id);
-        await h.VoteAsync(b, a.Id);
-        await h.ToAsync(Stage.Voting, 3);
-        Assert.Equal(new TeamTotals(0, 100), h.Engine.RoundPointTotals);
-
-        // Round 3: the bot is voted out, so the humans earn 400.
-        await h.VoteAsync(a, h.BotId);
-        await h.VoteAsync(b, h.BotId);
-        await h.ToAsync(Stage.Results);
-        Assert.Equal(new TeamTotals(400, 100), h.Engine.RoundPointTotals);
-        Assert.Equal("Humans", h.Results().Winner);
     }
 
     [Fact]

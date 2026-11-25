@@ -1,3 +1,4 @@
+import {rotateQuips} from '../../quips.js';
 import {NightScreen} from './NightScreen.js';
 
 // The night's own stages on the phone. The TV shows the detail; the phone says where things stand.
@@ -38,6 +39,20 @@ export class GameNightPlayerFinale extends NightScreen {
     constructor() {
         super('GameNightPlayerFinale');
         this.continueLabel = 'Back to lobby';
+    }
+
+    build() {
+        super.build();
+        this.quipText = this.addText('', {align: 'center'});
+        rotateQuips(this, this.quipText);
+    }
+
+    layout(m) {
+        super.layout(m);
+        // Below the lines above; the button and any error move down to make room.
+        this.quipText?.setPosition(m.cx, m.cy + 170 * m.s).setFontSize(m.fs(22, 15)).setWordWrapWidth(m.panelW - 60 * m.s);
+        this.continueBtn.setY(m.cy + 255 * m.s);
+        this.errorText.setY(m.cy + 315 * m.s);
     }
 
     lines({winner, teams = {humans: 0, ai: 0}, roles = []}) {

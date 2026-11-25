@@ -20,7 +20,7 @@ public class FoundryAgentTests
     {
         BotPrompts prompts = new();
         string[] names = ["bot-system", "chat-task", "vote-task", "onboarding-task", "round-notes-task", "questions-system", "questions-task", "tone-family", "tone-mature",
-            "planner-system", "planner-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task",
+            "planner-system", "planner-task", "show-system", "show-task", "show-topic-task", "public-answer-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task",
             "small-talk"];
 
         foreach (string name in names)
@@ -605,24 +605,24 @@ public class FoundryAgentTests
         FoundryBotAgent bot = AiKit.Agent(llm);
         FallbackBotAgent agent = new(bot, new ScriptedBotAgent(), TimeSpan.FromSeconds(5));
         FallbackQuestionGenerator questions = new(Generator(llm), new BuiltInQuestionGenerator(), TimeSpan.FromSeconds(5));
-        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 2; o.MaxRounds = 2; }, agent: agent, questions: questions);
+        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 2; o.RapidFireSeconds = 10; }, agent: agent, questions: questions);
 
         await h.ThroughOnboardingAsync();
-        await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.PlayerId == h.BotId), "a line from the bot");
         await h.ToAsync(Stage.Voting, 1);
 
-        // An early vote eliminates nobody; the bot writes its notes and the Final follows.
+        // The first vote eliminates nobody; the bot writes its notes and the big discussion follows.
         foreach (Player human in h.Humans) await h.VoteAsync(human, human.Id == h.Humans[0].Id ? h.Humans[1].Id : h.Humans[0].Id);
         await h.ToAsync(Stage.Discussion, 2);
         await h.UntilAsync(() => llm.Of("RoundNotes").Length >= 1, "the bot's round notes");
+        await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.PlayerId == h.BotId), "a line from the bot");
         await h.ToAsync(Stage.Voting, 2);
-        foreach (Player human in h.Humans.Where(p => h.Room.GetSeats().First(s => s.Id == p.Id).Alive))
-            await h.VoteAsync(human, h.BotId);
+        foreach (Player human in h.Humans) await h.VoteAsync(human, h.BotId);
         await h.ToAsync(Stage.Results);
 
         Assert.Equal("Humans", h.Results().Winner);
         Assert.Single(llm.Of("Questions"));
-        Assert.Single(llm.Of("Onboarding"));
+        // The private form, then the five public answers.
+        Assert.Equal(2, llm.Of("Onboarding").Length);
         Assert.NotEmpty(llm.Of("Chat"));
         // The bot voted in both rounds.
         Assert.Equal(2, llm.Of("Vote").Length);

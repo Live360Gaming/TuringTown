@@ -1,19 +1,18 @@
 import {createTextButton} from '../../../../core/ui/Button.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
-import {roundTitle} from '../../rounds.js';
 
-// One short answer to the Quick Fire prompt. Everyone's answers appear together when the chat opens.
-export class TuringTownPlayerQuickFire extends PlayerStage {
+// One short answer to the hot topic. It stays hidden unless it is the one shown on the hot seat.
+export class TuringTownPlayerHotTopic extends PlayerStage {
     constructor() {
-        super('TuringTownPlayerQuickFire', {escapeLeaves: false});
+        super('TuringTownPlayerHotTopic', {escapeLeaves: false});
     }
 
     build() {
         this.sending = false;
-        this.title = this.addText(roundTitle(this.session.state), {fontStyle: 'bold'});
-        this.promptText = this.addText(this.session.state.data?.prompt ?? '', {align: 'center'});
-        this.statusText = this.addText('Everyone sees the answers at the same time.', {align: 'center'});
+        this.title = this.addText('One more question', {fontStyle: 'bold'});
+        this.promptText = this.addText(this.session.state.data?.topic ?? '', {align: 'center'});
+        this.statusText = this.addText('Nobody sees this yet. It may come back.', {align: 'center'});
 
         // A real HTML input so phones bring up their keyboard.
         const input = document.createElement('input');
@@ -34,7 +33,7 @@ export class TuringTownPlayerQuickFire extends PlayerStage {
         if (!text || this.sending) return;
         this.sending = true;
         try {
-            await this.session.invoke('SubmitQuickFire', text);
+            await this.session.invoke('SubmitHotTopic', text);
             this.statusText.setText('Locked in. You can change it until time is up.');
         } catch (err) {
             this.statusText.setText(hubErrorMessage(err));

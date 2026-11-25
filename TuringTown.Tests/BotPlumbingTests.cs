@@ -225,6 +225,57 @@ public class BotPlumbingTests
     }
 
     [Fact]
+    public async Task A_bot_that_stays_quiet_never_shows_as_typing()
+    {
+        // "Typing" followed by nothing is a tell: the indicator waits until there is a line.
+        Harness h = new(humans: 2, o => o.BotMessagesPerRound = 2);
+        h.Agent.Chat = _ => null;
+
+        await h.ThroughOnboardingAsync();
+        await h.UntilAsync(() => { lock (h.Agent.ChatRequests) return h.Agent.ChatRequests.Count >= 2; }, "the bot's turns");
+
+        lock (h.TypingEvents) Assert.Empty(h.TypingEvents);
+    }
+
+    [Fact]
+    public async Task In_the_last_seconds_a_bot_only_shows_the_typing_animation()
+    {
+        // The whole 10 s discussion is inside the cutoff: the bot never asks for a line it could not finish, sends nothing,
+        // and just shows as typing until the timer runs out, like a person caught mid-sentence.
+        Harness h = new(humans: 2, o =>
+        {
+            o.BotMessagesPerRound = 2;
+            o.BotLastLineMs = 20_000;
+        });
+        h.Agent.Chat = _ => "a perfectly human line";
+
+        await h.ThroughOnboardingAsync();
+        await h.ToAsync(Stage.Voting, 1);
+        await h.UntilAsync(() => { lock (h.TypingEvents) return h.TypingEvents.Count >= 2; }, "the typing to start and stop");
+
+        lock (h.Agent.ChatRequests) Assert.Empty(h.Agent.ChatRequests);
+        Assert.Equal(0, BotLines(h));
+        (Guid PlayerId, bool Typing)[] events;
+        lock (h.TypingEvents) events = h.TypingEvents.ToArray();
+        Assert.Equal([true, false], events.Select(e => e.Typing));
+        Assert.All(events, e => Assert.Equal(h.BotId, e.PlayerId));
+    }
+
+    [Fact]
+    public void Near_the_end_a_ready_line_is_typed_faster_so_it_still_lands()
+    {
+        TimeSpan typing = TimeSpan.FromSeconds(4), margin = TimeSpan.FromSeconds(1);
+
+        // Plenty of time, or no deadline: the full typing time.
+        Assert.Equal(typing, TuringTownEngine.FitTyping(typing, TimeSpan.FromSeconds(30), margin));
+        Assert.Equal(typing, TuringTownEngine.FitTyping(typing, null, margin));
+        // 3 s left: typed in 2 s, so it lands a second before the end.
+        Assert.Equal(TimeSpan.FromSeconds(2), TuringTownEngine.FitTyping(typing, TimeSpan.FromSeconds(3), margin));
+        // Almost no time: posted at once rather than lost.
+        Assert.Equal(TimeSpan.Zero, TuringTownEngine.FitTyping(typing, TimeSpan.FromMilliseconds(500), margin));
+    }
+
+    [Fact]
     public async Task Typing_time_is_capped()
     {
         Harness h = new(humans: 2, o =>

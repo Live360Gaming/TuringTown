@@ -29,13 +29,18 @@ public class SecrecyAndIdentityTests
         await h.VoteAsync(c, a.Id);
         await h.ToAsync(Stage.Reveal, 1);
 
-        // Everything broadcast up to and including the tutorial, onboarding, discussion and voting.
-        var beforeReveal = h.Messages.Where(m => m.StageAtSend is Stage.Lobby or Stage.Planning or Stage.Tutorial or Stage.Onboarding or Stage.Discussion or Stage.Voting).ToList();
+        // Everything broadcast up to and including the tutorial, onboarding, discussion and voting (a snapshot under the
+        // harness's lock: the engine may still be broadcasting).
+        Harness.Sent[] all;
+        lock (h.Messages) all = h.Messages.ToArray();
+        var beforeReveal = all.Where(m => m.StageAtSend is Stage.Lobby or Stage.Planning or Stage.Tutorial or Stage.Onboarding or Stage.Discussion or Stage.Voting).ToList();
         Assert.NotEmpty(beforeReveal);
         foreach (var message in beforeReveal)
         {
-            Assert.DoesNotContain("bot", message.Json, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("role", message.Json, StringComparison.OrdinalIgnoreCase);
+            // Whole words and keys ("bot", "bots", "isBot", "wasBot", "role"), so a form answer such as "Both in one trip"
+            // does not count.
+            Assert.DoesNotMatch(@"(?i)\b(?:is|was)?bots?\b", message.Json);
+            Assert.DoesNotMatch(@"(?i)\broles?\b", message.Json);
         }
     }
 
@@ -124,7 +129,7 @@ public class SecrecyAndIdentityTests
     [Fact]
     public async Task A_human_who_is_voted_out_is_never_unmasked_and_the_results_unmask_the_bots()
     {
-        Harness h = new(humans: 3, o => o.MaxRounds = 1);
+        Harness h = new(humans: 3, o => o.DiscussionSeconds = 10);
         Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
         h.Agent.Vote = _ => a.Id;
 

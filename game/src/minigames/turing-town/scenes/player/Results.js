@@ -11,10 +11,12 @@ export class TuringTownPlayerResults extends PlayerStage {
     build() {
         this.timerText.setVisible(false);
 
-        const {winner} = this.session.state.data ?? {};
+        const {winner, hotSeatWasTheirs} = this.session.state.data ?? {};
         const humansWon = winner === 'Humans';
         this.title = this.addText(humansWon ? 'The humans win!' : 'The bots win!', {fontStyle: 'bold', align: 'center'});
-        this.subText = this.addText(humansWon ? 'Every bot was voted out.' : 'The bots blended in perfectly.', {align: 'center'});
+        this.subText = this.addText([humansWon ? 'A bot was caught.' : 'The bots blended in perfectly.',
+            hotSeatWasTheirs === true ? 'The hot seat answer really was theirs.' : hotSeatWasTheirs === false ? 'Somebody else wrote the hot seat answer.' : '',
+        ].filter(Boolean).join('\n'), {align: 'center'});
         this.hintText = this.addText('Look at the TV to see who was who.', {align: 'center'});
 
         // Only the leader (the first player to join) can move the night on to the next game.

@@ -56,6 +56,11 @@ function bubble(scene, layer, x, y, message) {
 }
 
 export const TUTORIAL_ANIMATIONS = {
+    // Nothing, for a step that draws its own picture.
+    blank() {
+        return () => {};
+    },
+
     // A circle that breathes in and out.
     pulse(scene, layer, {cx, cy}) {
         const circle = scene.add.circle(cx, cy - 20, 90, 0x3355aa).setStrokeStyle(6, 0xffffff);

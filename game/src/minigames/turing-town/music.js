@@ -1,5 +1,5 @@
 import {getMusic} from '../../core/music.js';
-import {NARRATION} from './data/tutorial.js';
+import {NARRATION} from './data/transitions.js';
 
 // Turing Town's soundtrack and which track goes with each stage. Played on the TV only (see core/music.js).
 
@@ -24,8 +24,10 @@ export function trackFor(state) {
         case 'Tutorial':
             return LOBBY_TRACK;
         case 'Onboarding':
+        case 'RapidFire':
+        case 'HotTopic':
             return 'tt_music_questionnaire';
-        case 'QuickFire':
+        case 'Transition':
         case 'Discussion':
         case 'Voting':
         case 'Reveal':

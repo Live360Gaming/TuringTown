@@ -4,6 +4,7 @@ import {HostStage} from '../../../../core/stage/HostStage.js';
 import {COLORS, textStyle} from '../../../../core/theme.js';
 import {addNameplate} from '../../../../core/ui/Nameplate.js';
 import {addContinueButton} from '../../continue.js';
+import {rotateQuips} from '../../quips.js';
 import {drawTeamTotals} from '../../standings.js';
 
 const HEADLINES = {
@@ -35,6 +36,9 @@ export class GameNightHostFinale extends HostStage {
             addNameplate(this, x, 460, player, {maxWidth: gap - 8, fontSize: 18});
             this.add.text(x, 500, role.wasBot ? 'AI' : 'HUMAN', textStyle('meta', {fontSize: '24px', color: role.wasBot ? COLORS.green : COLORS.text})).setOrigin(0.5);
         });
+
+        rotateQuips(this, this.add.text(HOST_CENTER_X, 560, '', textStyle('instruction', {fontSize: '28px', color: COLORS.gold, align: 'center'}))
+            .setOrigin(0.5));
 
         addContinueButton(this, HOST_CENTER_X, HOST_HEIGHT - 80, 'Back to lobby', {width: 340});
     }

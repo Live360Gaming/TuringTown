@@ -63,8 +63,9 @@ served under a sub-path).
   [docs/game-night.md](docs/game-night.md).
 - **The games.** Turing Town (a social-deduction game: AI bots hide among humans, then chat and vote) is run by
   `Services/Games/TuringTownEngine`. It walks the stages
-  Tutorial → Onboarding → three rounds (Quick Fire, Hot Seat, Final; each Discussion → Voting → Reveal, only the
-  Final eliminates and decides) → Results and broadcasts a full `GameState` on every
+  Tutorial → Onboarding → RapidFire → Voting → HotTopic → Discussion (hot seat) → Discussion → Voting → Reveal →
+  Results (an AI show host, `IShowHost`, writes the content; `Transition` stages explain each part; only the last vote
+  decides) and broadcasts a full `GameState` on every
   change. Witty Bits (prompts, funny answers, head-to-head votes) is `Services/Games/WittyBitsEngine`, see
   [docs/witty-bits.md](docs/witty-bits.md). Both share `GameClock` and `GameStages`. **Roles (`Player.IsBot`) never leave the server before the reveal**: clients only get `PlayerInfo`, and
   `SecrecyAndIdentityTests` guards this. Do not add a role or token to any DTO. Bots use `IBotAgent`

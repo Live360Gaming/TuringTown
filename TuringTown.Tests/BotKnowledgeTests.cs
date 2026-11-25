@@ -212,7 +212,7 @@ public class BotKnowledgeTests
     [Fact]
     public async Task A_bot_is_shown_the_finished_rounds_as_the_reveal_showed_them()
     {
-        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 1; o.MaxRounds = 2; });
+        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 1; o.RapidFireSeconds = 10; });
         h.Agent.Chat = _ => null;
         await h.ThroughOnboardingAsync();
         await h.ToAsync(Stage.Voting, 1);

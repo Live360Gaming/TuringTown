@@ -2,7 +2,7 @@ import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 import {createTextButton} from '../../../../core/ui/Button.js';
 import {ChatFeed} from '../../../../core/ui/ChatFeed.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
-import {chatHint, roundTitle} from '../../rounds.js';
+import {chatHint, hotSeatCard, roundTitle} from '../../rounds.js';
 import {buzz, hapticsEnabled, hapticsSupported, setHapticsEnabled} from '../../../../core/haptics.js';
 
 // The anonymous chat on a phone. Only your alias is ever shown. Someone who has been voted out can read but not write.
@@ -29,8 +29,9 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         }
 
         // The round's instruction sits here until something more urgent (a mention, an error) needs the line.
-        this.hint = this.session.state.data?.hotSeat?.id === this.session.you?.id
-            ? 'You are on the hot seat!' : chatHint(this.session.state.data);
+        const data = this.session.state.data;
+        const lead = data?.hotSeat?.id === this.session.you?.id ? 'You are on the hot seat!' : chatHint(data);
+        this.hint = [lead, hotSeatCard(data)].filter(Boolean).join('\n');
         this.statusText = this.addText(this.canWrite ? this.hint : 'You were voted out. You can only watch now.', {align: 'center'});
 
         // Lines that @mention you are shown in gold.
@@ -245,7 +246,8 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
     layout(m) {
         const pad = 24 * m.s;
-        const feedTop = m.top + 150 * m.s;
+        // The hot seat's question and answer need a few more lines above the chat.
+        const feedTop = m.top + (this.session.state.data?.kind === 'HotSeat' ? 250 : 150) * m.s;
         const inputTop = m.bottom - 90 * m.s;
 
         // The @mention popup floats over the feed, so the feed can use all the room down to the chat box.
@@ -256,7 +258,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         // On a narrow phone, shrink the title so it never runs under the button.
         const buttonsLeft = this.buzzBtn ? this.buzzBtn.x - 55 : m.right;
         this.fitText(this.title, m.fs(34, 22), buttonsLeft - 10 - (m.left + pad));
-        this.statusText.setPosition(m.cx, m.top + 175 * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
+        this.statusText.setPosition(m.cx, m.top + (this.session.state.data?.kind === 'HotSeat' ? 215 : 175) * m.s).setFontSize(m.fs(22, 16)).setWordWrapWidth(m.panelW - 2 * pad);
 
         this.feed.resize({
             x: m.left + pad, y: feedTop + 36 * m.s, width: m.panelW - 2 * pad, height: feedBottom - feedTop - 36 * m.s,

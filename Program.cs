@@ -93,7 +93,11 @@ builder.Services.AddSingleton(sp =>
     // The night's own timeout (GameNight:PlanningMaxSeconds) and its random-order fallback cover the planner.
     IGameNightPlanner planner = new FoundryGameNightPlanner(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>());
 
-    return new AgentSelector(scripted, new AgentSet(bot, questions, witty, wittyPrompts, UsesAi: true, Planner: planner), budget);
+    IShowHost host = new FallbackShowHost(
+        new FoundryShowHost(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
+        Wait(ai.Calls.Show), Wait(ai.Calls.ShowTopic), logs.CreateLogger<FallbackShowHost>());
+
+    return new AgentSelector(scripted, new AgentSet(bot, questions, witty, wittyPrompts, UsesAi: true, Planner: planner, Host: host), budget);
 });
 
 // The opt-in transcript archive (off by default).

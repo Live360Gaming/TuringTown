@@ -16,7 +16,11 @@ public sealed record OnboardingAnswerRequest(
     ContentPolicy Policy,
     IReadOnlyList<OnboardingQuestion> Questions,
     IReadOnlyList<OnboardingAnswer> HumanAnswers,
-    BotContext Context);
+    BotContext Context)
+{
+    /// <summary>True when everyone will see the answers (the five questions and the hot topic), not the private form.</summary>
+    public bool Public { get; init; }
+}
 
 /// <param name="Mentions">Lines that @mentioned this bot since it last spoke. Answering them is the most natural thing to say.</param>
 /// <param name="OtherPlayers">Aliases of everyone else still in the game. To @mention one, write "@" and the alias exactly.

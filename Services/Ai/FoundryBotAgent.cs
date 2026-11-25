@@ -122,7 +122,7 @@ public sealed class FoundryBotAgent(
             maxSelect = q.MaxSelect
         }));
 
-        string user = prompts.Render("onboarding-task", new Dictionary<string, string>
+        string user = prompts.Render(request.Public ? "public-answer-task" : "onboarding-task", new Dictionary<string, string>
         {
             ["alias"] = ctx.BotAlias,
             ["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description),

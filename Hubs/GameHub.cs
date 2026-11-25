@@ -190,11 +190,25 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         Throw(await RequireEngine<TuringTownEngine>(room).SubmitOnboardingAsync(playerId, answers));
     }
 
-    /// <summary>Turing Town: write (or rewrite) your Quick Fire answer.</summary>
-    public async Task SubmitQuickFire(string text)
+    /// <summary>Turing Town: write (or rewrite) one of your five public answers (<c>q1</c> to <c>q5</c>).</summary>
+    public async Task SubmitRapidAnswer(string questionId, string text)
     {
         (Room room, Guid playerId) = RequirePlayer();
-        Throw(await RequireEngine<TuringTownEngine>(room).SubmitQuickFireAsync(playerId, text));
+        Throw(await RequireEngine<TuringTownEngine>(room).SubmitRapidAnswerAsync(playerId, questionId, text));
+    }
+
+    /// <summary>Turing Town: write (or rewrite) your answer to the hot topic.</summary>
+    public async Task SubmitHotTopic(string text)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(await RequireEngine<TuringTownEngine>(room).SubmitHotTopicAsync(playerId, text));
+    }
+
+    /// <summary>The TV finished explaining a part, or the leader skipped it.</summary>
+    public Task TransitionDone(string beat)
+    {
+        Throw(RequireEngine<TuringTownEngine>(RequireHostOrLeader()).TransitionDone(beat));
+        return Task.CompletedTask;
     }
 
     public async Task SendChat(string text)

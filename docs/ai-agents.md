@@ -162,8 +162,10 @@ What is in place, and where:
   It also removes **tells** (things a player could vote on), found and measured with the bot playground and the
   `bot-deslop` skill (`.claude/skills/bot-deslop/`): it rejects a line that is first to bring up bots, AI or being human
   (`raises-ai-topic`) or that just repeats the line before it (`echo`, for any speaker, since it cannot know who is a
-  bot); it strips a label in front of a line ("hot take:"), a bounce-back question ("... you?"), and an `@` that would make
-  mentions a habit. Each is counted in `ai.guard_rejects{reason}` when it rejects.
+  bot), that talks as a pair with another player ("both of us", `pair-talk`) or that announces its vote ("I'll vote Green
+  Apple", `vote-announce`: votes are drawn with chance, so the real vote could contradict it). It strips a label in front
+  of a line ("hot take:"), a bounce-back question ("... you?"), and an `@` that would make mentions a habit, and turns
+  "lumping us" into "lumping me". Each is counted in `ai.guard_rejects{reason}` when it rejects.
 - `GuardedLlmClient` stops waiting at the call's timeout even when the SDK ignores the cancellation (a failing connection
   was seen hanging for over a minute), so a bot never sits on "typing" waiting for a dead call.
 - A vote is never the model's own pick: the model rates every candidate (strict JSON, aliases from an enum, no ids) and
@@ -239,3 +241,11 @@ Run them before and after a prompt change and compare; a blind read of archived 
 For a blind evaluation, use consented completed games, remove role labels from copies of their transcripts, randomize
 their order, and have reviewers guess the bots before comparing with the results. Track detection rate alongside
 fallbacks, latency and token counts; do not enable transcript archiving or live-model calls just to run the offline suite.
+
+## The show host
+
+`IShowHost` (`Services/Ai/IShowHost.cs`) runs Turing Town's show. It is not a player: it is never given a role or an
+onboarding answer. `ScriptedShowHost` is the offline version, `FoundryShowHost` the model-backed one, and
+`FallbackShowHost` answers with built-in content on a timeout or error. Two calls per game: `Ai:Calls:Show` (the run
+sheet, during the tutorial) and `Ai:Calls:ShowTopic` (the hot topic, from the room's public answers). Prompts:
+`show-system`, `show-task`, `show-topic-task`. Bots answer the public questions with `public-answer-task`.

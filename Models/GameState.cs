@@ -30,8 +30,14 @@ public enum Stage
     Scoreboard,
     Finale,
 
-    /// <summary>Turing Town: everyone writes one answer to the same prompt; they are shown when the chat opens.</summary>
-    QuickFire,
+    /// <summary>Turing Town: five public questions.</summary>
+    RapidFire,
+
+    /// <summary>Turing Town: everyone answers the hot topic; only the drawn answer is ever shown.</summary>
+    HotTopic,
+
+    /// <summary>Turing Town: the TV explains the next part.</summary>
+    Transition,
 
     /// <summary>Witty Bits: players write their answers to the prompts they were given.</summary>
     Writing,
@@ -131,10 +137,10 @@ public readonly record struct OnboardingData(IReadOnlyList<OnboardingQuestion> Q
 
 public readonly record struct VoteCount(string Alias, int Votes);
 
-/// <summary>The three kinds of Turing Town round. The last round is always <see cref="Final"/>.</summary>
+/// <summary>The three kinds of Turing Town round. The last one is always <see cref="Final"/>.</summary>
 public enum RoundKind
 {
-    QuickFire,
+    RapidFire,
     HotSeat,
     Final
 }
@@ -145,11 +151,27 @@ public enum RoundKind
 /// </summary>
 public readonly record struct SuspicionLevel(Guid PlayerId, string Alias, int Votes, int Percent);
 
+/// <summary>One player's answers to the five public questions; null where they left one blank.</summary>
+public sealed record PublicAnswers(Guid PlayerId, string Alias, IReadOnlyList<string?> Answers);
+
 /// <summary>
-/// Data for the QuickFire, Discussion and Voting stages. <paramref name="Prompt"/> is set in the Quick Fire round and
-/// <paramref name="HotSeat"/> in a Hot Seat round.
+/// Data for the RapidFire, HotTopic, Discussion and Voting stages. Each extra is set only in its own beat:
+/// <see cref="Questions"/> in the five questions, <see cref="Answers"/> at the vote on them, and the hot seat's
+/// <see cref="Topic"/> and <see cref="ShownAnswer"/> (which may well not be that player's own).
 /// </summary>
-public sealed record RoundData(RoundKind Kind, string? Prompt, PlayerInfo? HotSeat, IReadOnlyList<SuspicionLevel> Meter);
+public sealed record RoundData(RoundKind Kind, IReadOnlyList<SuspicionLevel> Meter)
+{
+    public PlayerInfo? HotSeat { get; init; }
+    public IReadOnlyList<string>? Questions { get; init; }
+    public IReadOnlyList<PublicAnswers>? Answers { get; init; }
+    public string? Topic { get; init; }
+    public string? ShownAnswer { get; init; }
+}
+
+/// <summary>
+/// Data for a Transition: the beat the TV is about to explain, and the AI host's extra on-screen line.
+/// </summary>
+public sealed record TransitionData(string Beat, string? HostLine, PlayerInfo? HotSeat, string? Topic, string? Answer);
 
 /// <summary>
 /// Data for the Reveal stage. Only the <paramref name="Final"/> round eliminates anyone: before it,
@@ -160,7 +182,11 @@ public readonly record struct RevealData(PlayerInfo? Eliminated, bool? WasBot, I
 public readonly record struct RoleReveal(Guid PlayerId, string Alias, bool WasBot);
 
 /// <summary>Data for the Results stage. This is the first point where every role is public.</summary>
-public readonly record struct ResultsData(string Winner, IReadOnlyList<RoleReveal> Roles);
+public readonly record struct ResultsData(string Winner, IReadOnlyList<RoleReveal> Roles)
+{
+    /// <summary>Whether the hot seat's shown answer was really theirs; null when there was no hot seat answer.</summary>
+    public bool? HotSeatWasTheirs { get; init; }
+}
 
 /// <summary>One game of the night, as the screens name it.</summary>
 public readonly record struct NightGame(string GameId, string Title);

@@ -16,15 +16,29 @@ public sealed class TuringTownOptions
     public int OnboardingSeconds { get; set; } = 60;
     public int DiscussionSeconds { get; set; } = 120;
 
-    /// <summary>How long to write a Quick Fire answer. 0 skips Quick Fire, so round 1 is a Hot Seat.</summary>
-    public int QuickFireSeconds { get; set; } = 30;
-
     public int VotingSeconds { get; set; } = 30;
     public int RevealSeconds { get; set; } = 8;
     public int ResultsSeconds { get; set; } = 30;
 
-    /// <summary>How many rounds a game has. The last one is the Final, whose vote alone decides the winner.</summary>
-    public int MaxRounds { get; set; } = 3;
+    /// <summary>The five public questions. 0 skips them and the vote on them.</summary>
+    public int RapidFireSeconds { get; set; } = 120;
+
+    /// <summary>Time to answer the hot topic. 0 skips the hot seat.</summary>
+    public int HotTopicSeconds { get; set; } = 40;
+
+    /// <summary>The discussion about the hot seat.</summary>
+    public int HotSeatSeconds { get; set; } = 60;
+
+    /// <summary>How often, in a hundred, the hot seat shows another player's answer.</summary>
+    public int HotSeatSwapPercent { get; set; } = 75;
+
+    /// <summary>The longest a transition waits for the TV. 0 turns transitions off.</summary>
+    public int TransitionMaxSeconds { get; set; } = 15;
+
+    public int BotRapidMinDelayMs { get; set; } = 25000;
+    public int BotRapidMaxDelayMs { get; set; } = 80000;
+    public int BotTopicMinDelayMs { get; set; } = 6000;
+    public int BotTopicMaxDelayMs { get; set; } = 20000;
 
     /// <summary>
     /// What round 1 is worth. Each round doubles it (100, 200, 400 ...). The round's value goes to the side that gains from
@@ -59,10 +73,23 @@ public sealed class TuringTownOptions
     public int BotChatMaxDelayMs { get; set; } = 12000;
 
     /// <summary>A bot "types" for this long per character before its line appears, up to <see cref="BotTypingMaxMs"/>.
-    /// The model's own thinking time counts towards it.</summary>
+    /// "Typing" is shown only once the line exists, so a bot that ends up saying nothing never shows as typing.</summary>
     public int BotTypingMsPerChar { get; set; } = 120;
 
     public int BotTypingMaxMs { get; set; } = 4000;
+
+    /// <summary>
+    /// In the last this-many milliseconds of the discussion a bot starts no new line: getting one from the model takes a few
+    /// seconds, and a line still being written when the timer runs out is lost. Instead it just shows the typing animation
+    /// until the end and sends nothing, like a person caught mid-sentence by the timer.
+    /// </summary>
+    public int BotLastLineMs { get; set; } = 6000;
+
+    /// <summary>
+    /// A line that is ready near the end of the discussion has its typing shortened so it is posted at least this long before
+    /// the timer runs out, instead of being cut off mid-typing.
+    /// </summary>
+    public int BotEndMarginMs { get; set; } = 1000;
 
     /// <summary>
     /// Percent of @mentions a bot does not answer at once: it gets to them on its next normal turn instead (answering

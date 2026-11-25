@@ -31,3 +31,6 @@ generated and player text goes through `IContentFilter`, which is `SeverityConte
 `ContentSafety:Provider=Azure`, stricter for Family Friendly, and a mature room relaxes only the Violence category. Setting the filter thresholds
 on the Foundry *deployment* is an Azure setting, not code. See [ai-agents.md](ai-agents.md).
 With the default `ContentSafety:Provider=None`, the filter allows all text; the setting is not a profanity filter.
+
+The Turing Town show host (`IShowHost`) takes the room's `ContentPolicy`; its questions, topic and lines pass the same
+validator and content filter as the onboarding form.

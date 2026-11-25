@@ -1,7 +1,7 @@
 import {HostStage} from '../../../../core/stage/HostStage.js';
 import {HOST_CENTER_X} from '../../../../constants.js';
 import {textStyle} from '../../../../core/theme.js';
-import {chatHint, meterLine, roundTitle} from '../../rounds.js';
+import {chatHint, hotSeatCard, meterLine, roundTitle} from '../../rounds.js';
 import {createTable} from './table.js';
 
 // The anonymous chat on the TV: everyone around a table in a random order, each message in a bubble above
@@ -16,6 +16,9 @@ export class TuringTownHostDiscussion extends HostStage {
         this.setTitle(roundTitle(this.session.state));
         this.setInstruction(chatHint(data));
         this.add.text(HOST_CENTER_X, 156, meterLine(data?.meter), textStyle('meta')).setOrigin(0.5);
+        this.add.text(HOST_CENTER_X, 196, hotSeatCard(data), textStyle('instruction', {
+            fontSize: '24px', align: 'center', wordWrap: {width: 1100},
+        })).setOrigin(0.5);
 
         const table = createTable(this, {drift: true});
         table.showRecent(this.session.transcript);

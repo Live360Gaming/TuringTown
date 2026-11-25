@@ -64,7 +64,7 @@ public sealed class GameCoordinator(
                     "Social deduction. The AI players hide among the humans, everyone chats anonymously, then votes someone out. " +
                     "The humans win by voting out every AI; the AI wins by surviving. The winning side gets a flat bonus."),
                 () => new TuringTownEngine(room, set.Agent, set.Questions, memory, archive, contentFilter, broadcaster, time, tuned,
-                    loggerFactory.CreateLogger<TuringTownEngine>(), night: context)),
+                    loggerFactory.CreateLogger<TuringTownEngine>(), night: context, host: set.Host)),
             new NightGameEntry(
                 new PlannableGame(GameIds.WittyBits, "Witty Bits",
                     "Comedy writing. Every player writes funny answers to prompts; two answers go head to head with no names shown " +

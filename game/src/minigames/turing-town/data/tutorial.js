@@ -1,4 +1,4 @@
-// The how-to-play shown on the TV before the game starts, told as the story of the town. Plain data: see
+// The short opening shown on the TV before the game starts. The rules are explained as the game goes (./transitions.js). Plain data: see
 // core/tutorial/TutorialPlayer.js for the step format and core/tutorial/animations.js for the named animations.
 // The phones show the same title and caption, and the leader's phone can skip it.
 //
@@ -23,41 +23,5 @@ export const TUTORIAL_STEPS = [
         caption: 'Wrong. AI bots have slipped into town, disguised as residents. They look like you. They type like you. And they want to stay.',
         durationMs: 7000,
     },
-    {
-        id: 'survey',
-        type: 'animation',
-        animation: 'survey',
-        narration: 'tt_vo_survey',
-        title: 'The town survey',
-        caption: 'First, the town survey. Answer a few questions about yourself. Don\'t worry: nobody else ever sees your answers.',
-        durationMs: 6000,
-    },
-    {
-        id: 'square',
-        type: 'animation',
-        animation: 'chatter',
-        narration: 'tt_vo_square',
-        title: 'The town square',
-        caption: 'Then head to the town square and chat. Ask questions. Listen for anyone who sounds a little too… computed. And stay anonymous: no real names, no personal details.',
-        durationMs: 7500,
-    },
-    {
-        id: 'vote',
-        type: 'animation',
-        animation: 'vote',
-        title: 'Three rounds',
-        caption: 'Quick Fire, then the Hot Seat, then the Final. The first two votes only fill the suspicion meter. Nobody leaves yet.',
-        durationMs: 8000,
-    },
-    {
-        id: 'stakes',
-        type: 'animation',
-        animation: 'standoff',
-        title: 'One vote decides it',
-        caption: 'The final vote is the only one that counts. Catch a bot and the humans win. Miss, and the town belongs to them.',
-        durationMs: 8000,
-    },
 ];
 
-/** Narration audio key -> file under public/audio. Loaded in the background on the TV only (see ../music.js). */
-export const NARRATION = Object.fromEntries(TUTORIAL_STEPS.filter(step => step.narration).map(step => [step.narration, `turing-town/narration/${step.id}.mp3`]));

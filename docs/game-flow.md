@@ -1,8 +1,8 @@
 # Turing Town: game flow
 
-Turing Town is a social-deduction game. One or two **AI bots** hide among the human players. Everyone fills in an
-onboarding form, then plays three rounds, each ending in a vote. The first two votes only fill a **suspicion meter**;
-**the final vote alone decides the game.**
+Turing Town is a social-deduction game. One or two **AI bots** hide among the human players. Everyone fills in a
+private form, answers five public questions and taps who seems off, watches one player take the hot seat, argues it
+out, and votes once. An AI **show host** writes the content. **The final vote alone decides the game.**
 
 The **server runs the game** (`Services/Games/TuringTownEngine`, one per game). Clients only render the state it
 broadcasts and send their own answers, chat lines and votes. For per-game content and AI generation see
@@ -16,29 +16,36 @@ bonus. The lobby and the night's own stages (Planning, Scoreboard, Finale) are d
 
 ```
 (night) → Tutorial → Onboarding
-        → Round 1, Quick Fire: QuickFire → Discussion → Voting → Reveal (meter)
-        → Round 2, Hot Seat:                Discussion → Voting → Reveal (meter)
-        → Round 3, Final:                   Discussion → Voting → Reveal (verdict) → Results → (night: Scoreboard or Finale)
+        → RapidFire → Voting → Reveal (suspicion meter)
+        → HotTopic → Discussion (hot seat)
+        → Discussion (final) → Voting → Reveal (verdict) → Results → (night: Scoreboard or Finale)
 ```
+
+A `Transition` stage comes before most of these: the TV explains the next part (`data/transitions.js` holds the script),
+then calls `TransitionDone(beat)`. It also ends after `TransitionMaxSeconds`, and the leader can skip it.
 
 | Stage | What happens | Ends when | `data` |
 |---|---|---|---|
-| Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` when it ends or is skipped, or the leader skips it from their phone (or the safety limit) | none |
+| Tutorial | The TV plays a two-line opening. The form and the run sheet are generated meanwhile. | host calls `TutorialDone` when it ends or is skipped, or the leader skips it (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
-| QuickFire | Everyone writes one short answer to the same prompt (`QuickFirePrompts`, family safe). Bots answer too. | everyone connected has answered, or time runs out | `{kind, prompt, hotSeat, meter}` |
-| Discussion | Anonymous chat. In Quick Fire it opens with everyone's answers, shuffled. In a Hot Seat the most suspected player is named. Form answers are never shown. | timer | same as QuickFire |
-| Voting | Each player votes for another player: who they suspect, or in the Final who is the bot | everyone required has voted, or time runs out | same as QuickFire |
+| RapidFire | Five public questions from the show host. Bots answer too. | everyone connected has answered all five, or time runs out | `{kind, meter, questions}` |
+| HotTopic | One more question. Nobody sees the answers. | everyone connected has answered, or time runs out | `{kind, meter, topic}` |
+| Transition | The next part is explained | the TV or leader, or the limit | `{beat, hostLine, hotSeat, topic, answer}` (the last three only for the `hotseat` and `answer` beats) |
+| Discussion | Anonymous chat, twice: about the hot seat, then the final one. Form answers are never shown. | timer | `{kind, meter, hotSeat, topic, shownAnswer}` |
+| Voting | First on the five answers (who seems off), later the deciding vote | everyone required has voted, or time runs out | `{kind, meter, questions, answers}` (the last two only at the first vote) |
 | Reveal | Before the Final: the suspicion meter. In the Final: who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally, final, meter}` |
-| Results | Winner and every role | host or leader calls `ContinueNight`, or timer | `{winner, roles}` |
+| Results | Winner, every role, and whether the hot seat answer was really theirs | host or leader calls `ContinueNight`, or timer | `{winner, roles, hotSeatWasTheirs}` |
 
-- **Rounds.** `MaxRounds` (3) rounds. The last is always the **Final**; round 1 is **Quick Fire** (unless
-  `QuickFireSeconds` is 0) and any other is a **Hot Seat**. The hot seat is the top of the meter, a tie settled at random.
-- **Suspicion meter.** Each player's share of all votes cast so far (`SuspicionLevel`). It is built only from votes, so
-  it says nothing about roles. Nobody is eliminated before the Final. Bots vote through the agent and may pick **any
-  player but themselves** (see [What a bot knows](#what-a-bot-knows)).
-- **Winning.** The Final vote's plurality is eliminated. A tie goes to whichever of the tied players the meter suspected
-  most before the Final. **Humans win if that player is a bot**; otherwise, including no verdict, the bots win. With two
-  bots, catching either one is enough.
+- **The hot seat** (`HotSeatDraw`). Every player can be drawn, with a weight of 1 plus 2 per suspicion vote. The answer
+  shown under their name is another player's `HotSeatSwapPercent` (75) times in a hundred, never named as theirs;
+  otherwise it is their own. The draw sees ids and text only, never a role. Whether it was theirs is told at Results.
+- **Suspicion meter.** Each player's share of all votes cast so far. It is built only from votes. Nobody is eliminated
+  before the final vote.
+- **Winning.** The final vote's plurality is eliminated. A tie goes to whichever of the tied players the meter suspected
+  most. **Humans win if that player is a bot**; otherwise, including no verdict, the bots win.
+- **The show host** (`IShowHost`) writes a run sheet during the Tutorial (five questions, a hot topic, a line per beat)
+  and, from the five answers, the hot topic. It is never told a role or a form answer, and the server keeps the timings,
+  draw, votes and winner. Anything it writes that fails the checks is replaced by built-in content.
 - **Bots.** The night seats them (`GameNight.BotCountFor`): Turing Town's own rule is 1 bot for 2-4 humans and 2 for 5
   or more (`TuringTownEngine.BotCountFor`), and the night adds enough for four players in all, so 2 humans play with 2
   bots. Bots are seated when the night starts, with an alias and
@@ -97,7 +104,9 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `TutorialStep(step)` | host | Tutorial |
 | `TutorialDone()` | host, or the leader player (to skip the intro) | Tutorial |
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
-| `SubmitQuickFire(text)` | player | QuickFire. One short answer, same filters as chat; can be changed until the stage ends |
+| `SubmitRapidAnswer(questionId, text)` | player | RapidFire. `q1` to `q5`, same filters as chat; can be changed until the stage ends |
+| `SubmitHotTopic(text)` | player | HotTopic. Same filters |
+| `TransitionDone(beat)` | host, or the leader | Transition |
 | `SendChat(text)` | living player | Discussion |
 | `SetTyping(bool typing)` | living player | Discussion. Sent while the chat box has text, repeated every 4 s, and `false` on send |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
@@ -183,9 +192,12 @@ Two roles, both in `Services/Ai/`, and every call takes the room's `ContentPolic
   with the round's public chat, so the agent can condense its notes. It never holds up the Reveal.
 - **Pacing.** The engine shortens a bot's pause by how long its agent usually takes (so a slow model does not make it
   slower than its pause), adds length-based typing time at a stable per-bot rate with small variation
-  (`BotTypingMsPerChar`, capped by `BotTypingMaxMs`; the agent's own time counts towards it), sometimes
-  leaves an @mention for its next normal turn (`BotMentionIgnorePercent`), and with `BotPaceToHumans` never says much
-  more than the humans do.
+  (`BotTypingMsPerChar`, capped by `BotTypingMaxMs`), sometimes leaves an @mention for its next normal turn
+  (`BotMentionIgnorePercent`), and with `BotPaceToHumans` never says much more than the humans do. "Typing" is shown
+  only once the agent has returned a line, so a bot that stays quiet never shows as typing.
+- **The end of a discussion.** In the last `BotLastLineMs` a bot starts no new line (one it could not finish would be
+  lost). It just shows the typing animation until the timer runs out and sends nothing, like a person caught
+  mid-sentence. A line that is ready near the end is typed faster so it is posted `BotEndMarginMs` before the timer.
 - The engine **validates** generated questions (`QuestionValidator`: the mix, option counts, ids and lengths, no
   personal details in a question or an option, nothing mature in a family room) and every answer, human or bot
   (`OnboardingAnswerValidator`). A bad question set is replaced by the built-in one; a bad bot answer is replaced
@@ -208,9 +220,12 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `TutorialMaxSeconds` / `OnboardingSeconds` | 180 / 60 | |
 | `DiscussionSeconds` / `VotingSeconds` | 120 / 30 | |
 | `RevealSeconds` / `ResultsSeconds` | 8 / 30 | |
-| `MaxRounds` | 3 | rounds in a game; the last one is the Final |
-| `QuickFireSeconds` | 30 | time to write a Quick Fire answer; 0 skips Quick Fire |
-| `RoundPoints` | 100 | what round 1 is worth; each round doubles it (100, 200, 400). The humans earn it if the round's top suspect is a bot, otherwise the AI team; a tie earns nobody. Added to the win bonus |
+| `RapidFireSeconds` | 120 | the five questions; 0 skips them and their vote |
+| `HotTopicSeconds` / `HotSeatSeconds` | 40 / 60 | 0 for the topic skips the hot seat |
+| `HotSeatSwapPercent` | 75 | how often the hot seat shows another player's answer |
+| `TransitionMaxSeconds` | 15 | the longest a transition waits for the TV; 0 turns them off |
+| `BotRapidMinDelayMs` / `MaxDelayMs`, `BotTopicMinDelayMs` / `MaxDelayMs` | 25000 / 80000, 6000 / 20000 | when a bot's answers come in |
+| `RoundPoints` | 100 | what the first round is worth, doubling each round. The side that gains from a vote's top suspect earns it (humans for a bot); added to the win bonus |
 | `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind (the form length is their sum) |
 | `ChatMaxLength` / `AnswerMaxLength` | 200 / 300 | |
 | `ChatMinIntervalMs` | 1500 | per-player chat rate limit |
@@ -218,7 +233,8 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `MaxMentionsPerMessage` | 3 | players one message may @mention |
 | `BotMentionReplyMinDelayMs` / `BotMentionReplyMaxDelayMs` | 1500 / 5000 | how soon a mentioned bot answers |
 | `BotChatMinDelayMs` / `BotChatMaxDelayMs` | 4000 / 12000 | bots wait a random time so they type like people |
-| `BotTypingMsPerChar` / `BotTypingMaxMs` | 120 / 4000 | typing time before a line appears (the agent's own time counts) |
+| `BotTypingMsPerChar` / `BotTypingMaxMs` | 120 / 4000 | typing time before a line appears, shown once the line exists |
+| `BotLastLineMs` / `BotEndMarginMs` | 6000 / 1000 | in the last 6 s a bot only shows the typing animation (no message); a ready line is typed faster to post 1 s before the end |
 | `BotMentionIgnorePercent` | 15 | percent of @mentions a bot leaves for its next normal turn |
 | `BotPaceToHumans` | unset | the bot never says much more than the humans (about 1.3x, at least one line). Unset means on for a game on the real AI, off for the scripted bots |
 | `BotOwnLinesContext` | 5 | how many of its own latest lines a bot is shown, so it stays consistent |

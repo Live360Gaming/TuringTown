@@ -99,9 +99,15 @@ internal sealed class Harness : IRoomBroadcaster
         TutorialMaxSeconds = 10,
         OnboardingSeconds = 10,
         DiscussionSeconds = 10,
-        // One Final round by default, so a test of chat or voting is not about the round types. Those tests set both.
-        MaxRounds = 1,
-        QuickFireSeconds = 0,
+        // By default only the survey, the big discussion and the deciding vote, so a test of chat or voting is not about
+        // the show. Tests of the show turn its beats on.
+        RapidFireSeconds = 0,
+        HotTopicSeconds = 0,
+        TransitionMaxSeconds = 0,
+        BotRapidMinDelayMs = 0,
+        BotRapidMaxDelayMs = 0,
+        BotTopicMinDelayMs = 0,
+        BotTopicMaxDelayMs = 0,
         VotingSeconds = 10,
         RevealSeconds = 2,
         ResultsSeconds = 5,
@@ -112,6 +118,9 @@ internal sealed class Harness : IRoomBroadcaster
         BotMentionReplyMaxDelayMs = 0,
         BotVoteMinDelayMs = 0,
         BotVoteMaxDelayMs = 0,
+        // The discussion is short here; tests of the end-of-discussion rules turn these on.
+        BotLastLineMs = 0,
+        BotEndMarginMs = 0,
         ChatMinIntervalMs = 1000,
         BotTypingMsPerChar = 0,
         BotMentionIgnorePercent = 0
@@ -121,7 +130,7 @@ internal sealed class Harness : IRoomBroadcaster
     public List<GameState> States { get; } = [];
     public List<Sent> Messages { get; } = [];
 
-    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null, IGameArchive? archive = null, IContentFilter? contentFilter = null, bool familyFriendly = true)
+    public Harness(int humans, Action<TuringTownOptions>? configure = null, GameOptions? gameOptions = null, IBotAgent? agent = null, IQuestionGenerator? questions = null, IGameArchive? archive = null, IContentFilter? contentFilter = null, bool familyFriendly = true, IShowHost? host = null)
     {
         configure?.Invoke(Options);
         Room = new Room(RoomCode.CreateRandomRoomCode(), gameOptions ?? new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
@@ -138,7 +147,7 @@ internal sealed class Harness : IRoomBroadcaster
         Assert.Equal(RoomStartError.None, Room.TryStart(TuringTownEngine.BotCountFor));
         // Outside a game night the engine is the whole game, so the room goes straight to its first stage.
         Room.SetState(new GameState(GameIds.TuringTown, Stage.Tutorial, 0, 0, null, null));
-        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, contentFilter ?? new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance);
+        Engine = new TuringTownEngine(Room, agent ?? Agent, questions ?? new TestQuestionGenerator(), Memory, archive ?? Archive, contentFilter ?? new AllowAllContentFilter(), this, Time, Options, NullLogger.Instance, host: host);
         Engine.Start();
     }
 
@@ -193,7 +202,7 @@ internal sealed class Harness : IRoomBroadcaster
         await ToAsync(Stage.Onboarding);
         foreach (Player human in Humans)
             Assert.Null(await Engine.SubmitOnboardingAsync(human.Id, Answers()));
-        await ToAsync(Stage.Discussion, 1);
+        await UntilAsync(() => Stage is Stage.Discussion or Stage.RapidFire or Stage.HotTopic, "the first beat after the form");
     }
 
     /// <summary>
