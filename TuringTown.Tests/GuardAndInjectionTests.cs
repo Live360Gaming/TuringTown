@@ -324,6 +324,40 @@ public class GuardAndInjectionTests
     [InlineData("ok. which of you answered first and why so fast?")]
     public void A_real_question_is_kept(string line) => Assert.Equal(line, Say(line));
 
+    // ---------------------------------------------------------------- speaking for itself, keeping its vote
+
+    [Theory]
+    [InlineData("you're lumping us without reasons", "you're lumping me without reasons")]
+    [InlineData("Hungry rn. what makes us sus?", "Hungry rn. what makes me sus?")]
+    [InlineData("accusing us of being sus over a hot dog debate is bold", "accusing me of being sus over a hot dog debate is bold")]
+    [InlineData("why are you calling us bots", "why are you calling me bots")]
+    public void Answering_for_a_pair_becomes_answering_for_itself(string raw, string expected) => Assert.Equal(expected, Say(raw));
+
+    [Theory]
+    [InlineData("we're both just talking snacks, relax")]
+    [InlineData("both of us said pizza, so what")]
+    [InlineData("leave the two of us alone")]
+    public void Pair_talk_with_no_rewrite_is_dropped(string line) =>
+        Assert.Equal("pair-talk", BotOutputGuard.CheckChat(line, Input()).Rejected);
+
+    [Theory]
+    [InlineData("Brown Pear, chill. I'll vote Green Apple: that bossy all-caps felt off")]
+    [InlineData("im voting for green pear this round")]
+    [InlineData("my vote goes to Blue Kiwi")]
+    [InlineData("I'm gonna vote blue kiwi tbh")]
+    [InlineData("i'd vote green pear honestly")]
+    public void A_vote_announcement_is_dropped(string line) =>
+        Assert.Equal("vote-announce", BotOutputGuard.CheckChat(line, Input()).Rejected);
+
+    [Theory]
+    // Plural "us" for the whole room, "make us" outside an accusation, saying when, and suspecting out loud are all fine.
+    [InlineData("this timer makes us all rush")]
+    [InlineData("let us know when the vote starts")]
+    [InlineData("I'll vote at the end once someone gives a real reason")]
+    [InlineData("Green Pear dodged my question twice, that's sketchy")]
+    [InlineData("who should we vote for though")]
+    public void Ordinary_lines_about_us_and_voting_are_kept(string line) => Assert.Equal(line, Say(line));
+
     // ---------------------------------------------------------------- echoes
 
     [Theory]
