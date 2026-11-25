@@ -18,7 +18,7 @@ export class TuringTownHostResults extends HostStage {
         const humansWon = winner === 'Humans';
         this.setTitle(humansWon ? 'The humans win!' : 'The bots win!');
 
-        this.add.text(HOST_CENTER_X, 120, humansWon ? 'A bot was caught.' : 'The bots blended in perfectly.', {fontSize: '32px', color: '#ffffff'}).setOrigin(0.5);
+        this.setInstruction(humansWon ? 'A bot was caught.' : 'The bots blended in perfectly.');
 
         const byId = new Map(this.session.roster.map(player => [player.id, player]));
         const gap = Math.min(170, (HOST_WIDTH - 120) / Math.max(roles.length, 1));

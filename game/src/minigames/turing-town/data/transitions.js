@@ -12,11 +12,11 @@ export const TRANSITIONS = {
     survey: step('survey', 'survey'),
     rapid: step('rapid', 'chatter', 8500),
     tap: step('tap', 'vote', 8000),
-    meter: step('meter', 'pulse'),
+    meter: step('meter', 'meter'),
     topic: step('topic', 'survey'),
     hotseat: step('hotseat', 'shuffle', 5500),
     answer: step('answer', 'blank', 7500),
     discussion: step('discussion', 'chatter'),
     final: step('final', 'standoff', 7000),
-    verdict: step('verdict', 'pulse', 4500),
+    verdict: step('verdict', 'verdict', 4500),
 };

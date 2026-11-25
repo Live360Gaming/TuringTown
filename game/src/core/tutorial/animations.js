@@ -256,6 +256,42 @@ export const TUTORIAL_ANIMATIONS = {
         return () => run.stop();
     },
 
+    // The suspicion meter: bars filling up beside the residents, one pulling ahead.
+    meter(scene, layer, {cx, cy}) {
+        const run = runner(scene);
+        const width = 420;
+        const bars = [0.3, 0.85, 0.45, 0.2].map((share, i) => {
+            const y = cy - 150 + i * 80;
+            const face = sprite(scene, layer, CHARACTER_KEYS[i], cx - width / 2 - 60, y, 70);
+            const track = scene.add.rectangle(cx - width / 2, y, width, 30, HEX.surfaceRaised).setOrigin(0, 0.5).setStrokeStyle(2, HEX.border);
+            const fill = scene.add.rectangle(cx - width / 2, y, width * share, 30, i === 1 ? HEX.pink : HEX.cyan).setOrigin(0, 0.5).setScale(0, 1);
+            layer.add([track, fill]);
+            return {face, fill};
+        });
+        const cycle = () => bars.forEach(({fill}, i) => {
+            fill.setScale(0, 1);
+            run.tween({targets: fill, scaleX: 1, duration: 1100, delay: i * 180, ease: 'Cubic.easeOut'});
+        });
+        cycle();
+        run.every(3200, cycle);
+        bob(run, bars[1].face, 0, 8);
+        return () => run.stop();
+    },
+
+    // The verdict: a spotlight sweeping the line-up under a question mark. It never settles on anyone.
+    verdict(scene, layer, {cx, cy}) {
+        const run = runner(scene);
+        const xs = [cx - 330, cx - 110, cx + 110, cx + 330];
+        const light = scene.add.ellipse(xs[0], cy + 30, 190, 220, HEX.gold, 0.28);
+        layer.add(light);
+        xs.forEach((x, i) => bob(run, sprite(scene, layer, CHARACTER_KEYS[i + 1], x, cy + 30, 150), i, 4));
+        const mark = scene.add.text(cx, cy - 130, '?', textStyle('title', {fontSize: '110px', color: COLORS.gold})).setOrigin(0.5);
+        layer.add(mark);
+        run.tween({targets: light, x: xs[3], duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'});
+        run.tween({targets: mark, scale: 1.2, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'});
+        return () => run.stop();
+    },
+
     // Humans on one side, bots on the other.
     standoff(scene, layer, {cx, cy}) {
         const run = runner(scene);

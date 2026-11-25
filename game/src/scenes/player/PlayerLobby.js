@@ -218,12 +218,17 @@ export class PlayerLobby extends Scene {
         this.nameText.setPosition(cx, cy - 190 * v).setFontSize(fontPx(38, s, 22));
         this.titleText.setPosition(cx, cy - 150 * v).setFontSize(fontPx(34, s, 18));
 
-        // The character picker: two rows of three, each tile big enough to tap.
-        const cell = Math.min(110, (panelW - 40) / 3, availH * 0.14);
+        // The character picker: two rows, each tile big enough to tap. Four across once there are more than six
+        // characters, because a third row would run under the Ready button. A short last row is centred.
+        const count = this.pickerTiles.length;
+        const cols = count > 6 ? 4 : 3;
+        const cell = Math.min(110, (panelW - 40) / cols, availH * 0.14);
         const tileScale = (cell - 10) / PICK_SIZE;
         const row1 = cy - 60 * v;
         this.pickerTiles.forEach((tile, i) => {
-            tile.setPosition(cx + ((i % 3) - 1) * cell, row1 + Math.floor(i / 3) * cell).setScale(tileScale);
+            const row = Math.floor(i / cols);
+            const inRow = Math.min(cols, count - row * cols);
+            tile.setPosition(cx + ((i % cols) - (inRow - 1) / 2) * cell, row1 + row * cell).setScale(tileScale);
         });
 
         this.statusText.setPosition(cx, row1 + cell * 1.5 + 36 * s)

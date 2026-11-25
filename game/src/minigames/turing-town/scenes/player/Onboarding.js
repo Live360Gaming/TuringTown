@@ -25,9 +25,13 @@ export class TuringTownPlayerOnboarding extends PlayerStage {
     buildForm() {
         const questions = this.session.state.data?.questions ?? [];
 
+        // The questions scroll and Submit stays below them, so it never covers a choice.
         this.form = this.add.dom(0, 0, 'div');
-        const root = this.form.node;
+        const wrap = this.form.node;
+        wrap.className = 'tt-formwrap';
+        const root = document.createElement('div');
         root.className = 'tt-form';
+        wrap.append(root);
         // A focused field scrolls into view, so the keyboard does not hide it.
         root.addEventListener('focusin', e => e.target.scrollIntoView?.({block: 'nearest'}));
 
@@ -59,7 +63,7 @@ export class TuringTownPlayerOnboarding extends PlayerStage {
         send.textContent = 'Submit';
         send.className = 'tt-submit';
         send.addEventListener('click', () => this.submit());
-        root.append(send);
+        wrap.append(send);
     }
 
     buildText(box, question) {

@@ -71,6 +71,19 @@ html, body {
     -webkit-overflow-scrolling: touch;
 }
 
+/* A form that scrolls above its Submit button. !important because Phaser sets display: block on the element it holds. */
+.tt-formwrap {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+}
+
+.tt-formwrap > .tt-form {
+    flex: 1;
+    min-height: 0;
+}
+
 .tt-q {
     display: flex;
     flex-direction: column;
