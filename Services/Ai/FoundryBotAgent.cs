@@ -40,6 +40,7 @@ public sealed class FoundryBotAgent(
         values["max_length"] = ctx.ChatMaxLength.ToString();
         values["target_length"] = TargetLength(request.Recent, ctx).ToString();
         values["mood"] = BotPrompts.RandomMood();
+        values["round_note"] = request.RoundNote;
         values["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description);
         values["since"] = SinceLastLine(request);
         values["idea"] = SmallTalkIdea(request, prompts.RandomSmallTalk(), Random.Shared.Next(100));
@@ -70,26 +71,39 @@ public sealed class FoundryBotAgent(
         values["personality"] = PromptJson.Serialize(BotPersonality.For(ctx.Key).Description);
         string user = prompts.Render("vote-task", values);
 
-        string[] aliases = [.. request.Candidates.Select(c => c.Alias), "ABSTAIN"];
-        JsonObject schema = Obj(
-            ("target", Obj(("type", "string"), ("enum", new JsonArray(aliases.Select(a => (JsonNode?)JsonValue.Create(a)).ToArray())))));
+        if (request.Candidates.Count == 0) return null;
+
+        // The model rates how much each player seems like an AI; the vote itself is drawn from those ratings (VoteChoice),
+        // so a bot never votes as if it knew who is human, and two bots never move in lockstep.
+        JsonArray aliases = new(request.Candidates.Select(c => (JsonNode?)JsonValue.Create(c.Alias)).ToArray());
+        JsonObject rating = Strict(Obj(
+            ("alias", Obj(("type", "string"), ("enum", aliases))),
+            ("score", Obj(("type", "number"))),
+            ("why", Obj(("type", "string")))), "alias", "score", "why");
+        JsonObject schema = Obj(("ratings", Obj(("type", "array"), ("items", rating))));
 
         AiCallOptions call = Calls.Vote;
         LlmResult result = await llm.CompleteAsync(
-            new LlmCall("Vote", SystemPrompt(ctx, request.Policy), user, Schema("vote", schema, "target"), call.ReasoningEffort, call.MaxOutputTokens, call.Timeout, Scope(ctx)), ct);
+            new LlmCall("Vote", SystemPrompt(ctx, request.Policy), user, Schema("vote", schema, "ratings"), call.ReasoningEffort, call.MaxOutputTokens, call.Timeout, Scope(ctx)), ct);
 
-        string? target = ParseJson(result.Text).GetProperty("target").GetString();
-        if (target is null || target.Equals("ABSTAIN", StringComparison.OrdinalIgnoreCase)) return null;
+        double[] suspicion = Ratings(ParseJson(result.Text), request.Candidates);
+        return request.Candidates[VoteChoice.Pick(suspicion, Random.Shared.NextDouble())].Id;
+    }
 
-        foreach (VoteCandidate c in request.Candidates)
+    /// <summary>
+    /// The model's rating for each candidate, in candidate order. A candidate it left out, or named in another case, is
+    /// matched by alias ignoring case; one it did not rate at all gets <see cref="VoteChoice.Unrated"/>.
+    /// </summary>
+    internal static double[] Ratings(JsonElement json, IReadOnlyList<VoteCandidate> candidates)
+    {
+        Dictionary<string, double> byAlias = new(StringComparer.OrdinalIgnoreCase);
+        foreach (JsonElement r in json.GetProperty("ratings").EnumerateArray())
         {
-            if (c.Alias == target) return c.Id;
+            string? alias = r.GetProperty("alias").GetString();
+            if (alias is not null && r.GetProperty("score").TryGetDouble(out double score) && double.IsFinite(score))
+                byAlias[alias] = Math.Clamp(score, 0, 1);
         }
-        foreach (VoteCandidate c in request.Candidates)
-        {
-            if (c.Alias.Equals(target, StringComparison.OrdinalIgnoreCase)) return c.Id;
-        }
-        return null;
+        return candidates.Select(c => byAlias.GetValueOrDefault(c.Alias, VoteChoice.Unrated)).ToArray();
     }
 
     // ---------------------------------------------------------------- the onboarding form

@@ -38,13 +38,11 @@ back to the lobby. The bots leave only then.
 all, which Witty Bits needs. So 2 humans get 2 bots, 3 or 4 get 1, and 5 or more get 2. The same seats (alias and
 character) play every game of the night, and everyone is back in play at the start of each game (`Room.ReviveAll`).
 
-With 2 humans and 2 bots, Turing Town's parity rule means the bots win it unless the first vote finds a bot.
-
 ## Score
 
 - **A team game** (Turing Town) gives its winning side a flat bonus, `GameNight:TuringTownWinPoints` (1000).
 - Turing Town also pays **per round**, doubling each round (`TuringTown:RoundPoints`, 100/200/400 over 3 rounds): the
-  humans earn the round's value when the vote removes a bot, the AI team when it removes a human (`GameOutcome.TeamPoints`).
+  humans earn the round's value when its top suspect is a bot, the AI team when it is a human (`GameOutcome.TeamPoints`).
 - **A points game** (Witty Bits) gives each team the **average** points of its seats, so a table of four humans does not
   beat one bot just by having more players.
 - The Finale names the side with the higher total.

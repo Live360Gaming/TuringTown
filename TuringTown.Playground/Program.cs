@@ -21,6 +21,8 @@ internal static class PlaygroundApp
           /as <alias|number>   speak as another human (a new alias adds a human)
           /bots [n]            let every bot take n turns without anyone speaking (default 1)
           /vote                every bot votes
+          /votes [n]           every bot votes n times (default 5); shows how often votes land on humans vs chance
+          {bot1} {human2}...   in any line, replaced by that player's alias (for scripts)
           /out <alias>         vote that player out: ends the round, the bots write their notes
           /round               end the round with nobody voted out
           /players             who is in the game (roles hidden)   /who   reveal the roles
@@ -78,7 +80,7 @@ internal static class PlaygroundApp
             if (!echo) Console.Write($"{session.Speaker}> ");
             string? line = await input.ReadLineAsync();
             if (line is null) break;
-            line = line.Trim();
+            line = session.Expand(line.Trim());
             if (line.Length == 0 || line.StartsWith('#')) continue;
             if (echo && line.StartsWith('/')) Out.Note(line);
             else if (echo) Out.Human(session.Speaker, line);
@@ -428,6 +430,19 @@ internal sealed class Session
         return lines.ToArray();
     }
 
+    /// <summary>
+    /// Replaces {bot1}, {bot2}, ... and {human1}, {human2}, ... with those players' aliases (in seat order), so a script
+    /// can speak to a bot by name without knowing the random aliases. Only the typed line sees them, never a bot.
+    /// </summary>
+    public string Expand(string line)
+    {
+        if (!line.Contains('{')) return line;
+        Seat[] bots = _seats.Where(s => s.IsBot).ToArray(), humans = _seats.Where(s => !s.IsBot).ToArray();
+        for (int i = 0; i < bots.Length; i++) line = line.Replace($"{{bot{i + 1}}}", bots[i].Alias);
+        for (int i = 0; i < humans.Length; i++) line = line.Replace($"{{human{i + 1}}}", humans[i].Alias);
+        return line;
+    }
+
     /// <summary>Handles one line of input. False means quit.</summary>
     public async Task<bool> HandleAsync(string line)
     {
@@ -450,6 +465,7 @@ internal sealed class Session
                 for (int i = 0; i < turns; i++) await BotsRespondAsync();
                 break;
             case "/vote": await VoteAsync(); break;
+            case "/votes": await VoteSampleAsync(int.TryParse(arg, out int k) && k > 0 ? Math.Min(k, 20) : 5); break;
             case "/out": await OutAsync(arg); break;
             case "/round": await EndRoundAsync(null); break;
             case "/players": PrintPlayers(); break;
@@ -609,6 +625,48 @@ internal sealed class Session
         }
         _lastTally = tally.Select(kv => new VoteCount(kv.Key, kv.Value)).ToArray();
         Out.Note("Add the humans' votes yourself, then /out <alias> or /round.");
+    }
+
+    /// <summary>
+    /// Asks every bot to vote <paramref name="times"/> times on the same chat (nothing is recorded) and shows, with roles,
+    /// where the votes land. A bot that knows nothing lands on humans about as often as chance (humans / candidates); a bot
+    /// far above chance is reading roles from somewhere.
+    /// </summary>
+    private async Task VoteSampleAsync(int times)
+    {
+        int onHumans = 0, total = 0;
+        double chanceSum = 0;
+        foreach (Seat bot in Bots.ToArray())
+        {
+            Seat[] candidates = _seats.Where(s => s.Alive && s.Id != bot.Id).ToArray();
+            double chance = candidates.Count(c => !c.IsBot) / (double)candidates.Length;
+            Dictionary<string, int> picks = [];
+            // One at a time: a burst of parallel calls runs into the deployment's token rate limit (HTTP 429).
+            List<Seat> votedList = [];
+            for (int i = 0; i < times; i++)
+            {
+                try
+                {
+                    Guid? choice = await _agents.Bot.CastVoteAsync(new VoteRequest(bot.Alias, "", _opt.Policy, _round,
+                        candidates.Select(c => new VoteCandidate(c.Id, c.Alias)).ToArray(), _chat.TakeLast(ContextLines).ToArray(), Context(bot)), CancellationToken.None);
+                    if (candidates.FirstOrDefault(c => c.Id == choice) is { } seat) votedList.Add(seat);
+                }
+                catch (Exception ex)
+                {
+                    Out.Error($"{bot.Alias}'s vote failed: {ex.Message}");
+                }
+            }
+            Seat[] voted = votedList.ToArray();
+
+            foreach (Seat v in voted) picks[$"{v.Alias} ({(v.IsBot ? "BOT" : "human")})"] = picks.GetValueOrDefault($"{v.Alias} ({(v.IsBot ? "BOT" : "human")})") + 1;
+            int human = voted.Count(v => !v.IsBot);
+            onHumans += human;
+            total += voted.Length;
+            chanceSum += chance * voted.Length;
+            Out.Note($"{bot.Alias} (BOT): {string.Join(", ", picks.OrderByDescending(p => p.Value).Select(p => $"{p.Key} x{p.Value}"))}"
+                + $" | on humans {human}/{voted.Length}, chance {chance:P0}");
+        }
+        if (total > 0) Out.Note($"All bots: on humans {onHumans}/{total} ({onHumans / (double)total:P0}), chance {chanceSum / total:P0}");
     }
 
     private async Task OutAsync(string alias)

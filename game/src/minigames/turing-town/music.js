@@ -25,6 +25,7 @@ export function trackFor(state) {
             return LOBBY_TRACK;
         case 'Onboarding':
             return 'tt_music_questionnaire';
+        case 'QuickFire':
         case 'Discussion':
         case 'Voting':
         case 'Reveal':

@@ -99,6 +99,9 @@ internal sealed class Harness : IRoomBroadcaster
         TutorialMaxSeconds = 10,
         OnboardingSeconds = 10,
         DiscussionSeconds = 10,
+        // One Final round by default, so a test of chat or voting is not about the round types. Those tests set both.
+        MaxRounds = 1,
+        QuickFireSeconds = 0,
         VotingSeconds = 10,
         RevealSeconds = 2,
         ResultsSeconds = 5,

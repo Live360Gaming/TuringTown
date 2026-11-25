@@ -45,6 +45,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
                 ["TuringTown:RevealSeconds"] = "1",
                 ["TuringTown:ResultsSeconds"] = "30",
                 ["TuringTown:MaxRounds"] = "2",
+                ["TuringTown:QuickFireSeconds"] = "30",
                 ["TuringTown:BotMessagesPerRound"] = "0",
                 ["TuringTown:BotVoteMinDelayMs"] = "0",
                 ["TuringTown:BotVoteMaxDelayMs"] = "0",
@@ -306,13 +307,20 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await p1.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "I like pasta"));
         await p2.Connection.InvokeAsync("SubmitOnboarding", OnboardingAnswers(questions, "Tacos"));
 
+        // --- Quick Fire: everyone answers one prompt, and the answers open the chat together
+        JsonElement quickFire = await p1.WaitForStageAsync("QuickFire", 1);
+        Assert.False(string.IsNullOrWhiteSpace(quickFire.GetProperty("data").GetProperty("prompt").GetString()));
+        await p1.Connection.InvokeAsync("SubmitQuickFire", "purple waffles");
+        await p2.Connection.InvokeAsync("SubmitQuickFire", "grumpy toast");
+
         // --- discussion: chat shows aliases, and a name leak is refused
         await p1.WaitForStageAsync("Discussion", 1);
+        await WaitUntilAsync(() => host.Chat.Count == 4 && p1.Chat.Count == 4 && p2.Chat.Count == 4);
         await Assert.ThrowsAnyAsync<HubException>(() => p1.Connection.InvokeAsync("SendChat", "my name is Sam"));
         await p1.Connection.InvokeAsync("SendChat", "hello everyone");
 
-        await WaitUntilAsync(() => host.Chat.Count == 1 && p2.Chat.Count == 1);
-        JsonElement line = host.Chat.Single();
+        await WaitUntilAsync(() => host.Chat.Count == 5 && p2.Chat.Count == 5);
+        JsonElement line = host.Chat.Last();
         Assert.Equal(joined[0].Alias, line.GetProperty("alias").GetString());
         Assert.Equal("hello everyone", line.GetProperty("text").GetString());
         Assert.Equal(joined[0].CharacterId, line.GetProperty("characterId").GetString());
@@ -320,7 +328,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 
         // An @mention arrives as the ids of the players it names.
         await p2.Connection.InvokeAsync("SendChat", $"@{joined[0].Alias} hi back");
-        await WaitUntilAsync(() => host.Chat.Count == 2 && p1.Chat.Count == 2);
+        await WaitUntilAsync(() => host.Chat.Count == 6 && p1.Chat.Count == 6);
         JsonElement reply = host.Chat.Last();
         Assert.Equal(joined[1].Alias, reply.GetProperty("alias").GetString());
         Assert.Equal([joined[0].PlayerId], reply.GetProperty("mentions").EnumerateArray().Select(m => m.GetGuid()).ToArray());

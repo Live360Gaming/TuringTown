@@ -190,6 +190,13 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         Throw(await RequireEngine<TuringTownEngine>(room).SubmitOnboardingAsync(playerId, answers));
     }
 
+    /// <summary>Turing Town: write (or rewrite) your Quick Fire answer.</summary>
+    public async Task SubmitQuickFire(string text)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(await RequireEngine<TuringTownEngine>(room).SubmitQuickFireAsync(playerId, text));
+    }
+
     public async Task SendChat(string text)
     {
         (Room room, Guid playerId) = RequirePlayer();

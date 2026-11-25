@@ -2,6 +2,7 @@ import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
 import {createTextButton} from '../../../../core/ui/Button.js';
 import {ChatFeed} from '../../../../core/ui/ChatFeed.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
+import {chatHint, roundTitle} from '../../rounds.js';
 import {buzz, hapticsEnabled, hapticsSupported, setHapticsEnabled} from '../../../../core/haptics.js';
 
 // The anonymous chat on a phone. Only your alias is ever shown. Someone who has been voted out can read but not write.
@@ -14,7 +15,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
         this.sending = false;
         this.canWrite = !this.session.spectating;
 
-        this.title = this.addText(`Round ${this.session.state.round}: Discuss`, {fontStyle: 'bold'}).setOrigin(0, 0.5);
+        this.title = this.addText(roundTitle(this.session.state), {fontStyle: 'bold'}).setOrigin(0, 0.5);
 
         // Each phone can turn its own buzz off. Hidden where the browser cannot vibrate at all (iPhones).
         this.buzzBtn = null;
@@ -27,7 +28,10 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             }, {width: 110, height: 44, fontSize: '18px', variant: 'ghost'});
         }
 
-        this.statusText = this.addText(this.canWrite ? '' : 'You were voted out. You can only watch now.', {align: 'center'});
+        // The round's instruction sits here until something more urgent (a mention, an error) needs the line.
+        this.hint = this.session.state.data?.hotSeat?.id === this.session.you?.id
+            ? 'You are on the hot seat!' : chatHint(this.session.state.data);
+        this.statusText = this.addText(this.canWrite ? this.hint : 'You were voted out. You can only watch now.', {align: 'center'});
 
         // Lines that @mention you are shown in gold.
         this.feed = new ChatFeed(this, {highlightPlayerId: this.session.you?.id ?? null});
@@ -206,7 +210,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
         buzz([120, 60, 120]);
         this.statusText.setText(`${message.alias} mentioned you`).setColor('#ffd54a');
-        this.time.delayedCall(4000, () => this.statusText.setText('').setColor('#ffffff'));
+        this.time.delayedCall(4000, () => this.statusText.setText(this.hint).setColor('#ffffff'));
     }
 
     /** Tells the room while there is text in the box. Repeats every few seconds, so a stuck flag is refreshed or expires. */
@@ -231,7 +235,7 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
             await this.session.invoke('SendChat', text);
             input.value = '';
             this.reportTyping(true);
-            this.statusText.setText('');
+            this.statusText.setText(this.hint);
         } catch (err) {
             this.statusText.setText(hubErrorMessage(err));
         } finally {

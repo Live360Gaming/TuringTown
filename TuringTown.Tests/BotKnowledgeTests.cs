@@ -212,12 +212,12 @@ public class BotKnowledgeTests
     [Fact]
     public async Task A_bot_is_shown_the_finished_rounds_as_the_reveal_showed_them()
     {
-        Harness h = new(humans: 3, o => o.BotMessagesPerRound = 1);
+        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 1; o.MaxRounds = 2; });
         h.Agent.Chat = _ => null;
         await h.ThroughOnboardingAsync();
         await h.ToAsync(Stage.Voting, 1);
 
-        // Everyone votes out the first human, who is not a bot.
+        // Everyone suspects the first human. An early vote eliminates nobody.
         Player out1 = h.Humans[0];
         foreach (Player human in h.Humans.Skip(1)) await h.VoteAsync(human, out1.Id);
         await h.VoteAsync(h.Humans[0], h.Humans[1].Id);
@@ -229,11 +229,11 @@ public class BotKnowledgeTests
         RoundOutcome outcome = Assert.Single(request.Context.History);
 
         Assert.Equal(1, outcome.Round);
-        Assert.Equal(out1.Alias, outcome.EliminatedAlias);
-        Assert.False(outcome.WasBot);
+        Assert.Null(outcome.EliminatedAlias);
+        Assert.Null(outcome.WasBot);
         Assert.Equal(h.LastReveal().Tally.Select(t => (t.Alias, t.Votes)), outcome.Tally.Select(t => (t.Alias, t.Votes)));
-        // The player who was voted out is no longer someone to talk to.
-        Assert.DoesNotContain(out1.Alias, request.Context.AlivePlayers);
+        // The suspected player is still in the room.
+        Assert.Contains(out1.Alias, request.Context.AlivePlayers);
         AssertNoRoleForLivingPlayers(JsonSerializer.Serialize(request, Json));
     }
 }

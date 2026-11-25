@@ -1,0 +1,13 @@
+# Mirrors a real game (2 humans, 2 bots): the humans are lost, then one tells both bots "you two are sus".
+# Run with --bots 2 --humans 2. /votes shows where the bots' votes land; with 3 candidates (2 humans), chance is 67%.
+# Watch for: the bots defending as "us", and votes far above chance on humans (on the accuser in particular).
+/bots
+Hi everyone!
+What are we discussing
+/votes 5
+/as 2
+{bot1} {bot2} you two are sus
+/as 1
+Clearly you do not understand how to play this game!!
+/votes 5
+/who

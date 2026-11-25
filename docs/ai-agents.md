@@ -166,6 +166,9 @@ What is in place, and where:
   mentions a habit. Each is counted in `ai.guard_rejects{reason}` when it rejects.
 - `GuardedLlmClient` stops waiting at the call's timeout even when the SDK ignores the cancellation (a failing connection
   was seen hanging for over a minute), so a bot never sits on "typing" waiting for a dead call.
+- A vote is never the model's own pick: the model rates every candidate (strict JSON, aliases from an enum, no ids) and
+  `VoteChoice` draws the vote with chance (see "How a bot votes" in [game-flow.md](game-flow.md)). The ratings with their
+  reasons need about 1000 output tokens at `low` effort (`Ai:Calls:Vote:MaxOutputTokens`).
 - The model gets no tools, no URLs and no function calling; it can only return text.
 - Foundry's own Prompt Shields are on by default on a deployment. A request the model's filter refuses is treated as "stay quiet", not an outage.
 - The suite in `GuardAndInjectionTests` and the real-model check in `BotEvalTests` (below) hold the attack strings.

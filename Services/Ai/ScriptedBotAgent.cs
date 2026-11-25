@@ -261,7 +261,9 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         string[] allHuman = humanAnswers.Select(a => a.Text ?? "").Where(t => t.Trim().Length > 0).ToArray();
         string[] forThis = humanAnswers.Where(a => a.QuestionId == question.Id).Select(a => a.Text ?? "").Where(t => t.Trim().Length > 0).ToArray();
 
-        string[] pool = FamilyText.Concat(MatureText).FirstOrDefault(t => t.Text == question.Text)?.Answers ?? GenericAnswers;
+        string[] pool = FamilyText.Concat(MatureText).FirstOrDefault(t => t.Text == question.Text)?.Answers
+            ?? Games.QuickFirePrompts.All.FirstOrDefault(p => p.Text == question.Text)?.Answers
+            ?? GenericAnswers;
         // Never the same words as a human: if both came up in chat, the twin would stand out.
         string[] fresh = pool.Where(p => !Games.OnboardingAnswerValidator.IsNearCopy(p, forThis)).ToArray();
         if (fresh.Length > 0) pool = fresh;
@@ -499,22 +501,21 @@ public sealed partial class ScriptedBotAgent : IBotAgent
     public Task EndRoundAsync(RoundEndRequest request, CancellationToken ct) => Task.CompletedTask;
 
     /// <summary>
-    /// Not a coin toss: each candidate is weighted by how much the room accused or mentioned them, and more if they
-    /// accused this bot. Everyone keeps a base chance, so the vote is never fully predictable.
+    /// Goes with the room, with chance: each candidate's suspicion is how much the others have accused or mentioned them,
+    /// and <see cref="VoteChoice"/> draws the vote. Whether someone accused this bot does not count: humans do the accusing,
+    /// so voting back at an accuser would pick out the humans.
     /// </summary>
     public Task<Guid?> CastVoteAsync(VoteRequest request, CancellationToken ct)
     {
         if (request.Candidates.Count == 0) return Task.FromResult<Guid?>(null);
 
-        double[] weights = request.Candidates.Select(c =>
+        double[] suspicion = request.Candidates.Select(c =>
         {
-            double w = 1.0 + Heat(c.Alias, request.Recent, request.BotAlias);
-            // Someone who accused me is a natural target.
-            w += 2.0 * request.Recent.Count(l => l.Alias == c.Alias && Mentions(l.Text, request.BotAlias) && Accusing.IsMatch(l.Text));
-            return w;
+            double heat = Heat(c.Alias, request.Recent, request.BotAlias);
+            return heat / (heat + 2);
         }).ToArray();
 
-        return Task.FromResult<Guid?>(request.Candidates[WeightedIndex(weights, Random.Shared)].Id);
+        return Task.FromResult<Guid?>(request.Candidates[VoteChoice.Pick(suspicion, Random.Shared.NextDouble())].Id);
     }
 
     /// <summary>How much the room has been talking about <paramref name="alias"/>: 2 per accusing mention, 1 per other mention.</summary>
@@ -525,17 +526,6 @@ public sealed partial class ScriptedBotAgent : IBotAgent
             .Sum(l => Accusing.IsMatch(l.Text) ? 2.0 : 1.0);
 
     private static bool Mentions(string text, string alias) => text.Contains("@" + alias, StringComparison.OrdinalIgnoreCase);
-
-    private static int WeightedIndex(double[] weights, Random rng)
-    {
-        double roll = rng.NextDouble() * weights.Sum();
-        for (int i = 0; i < weights.Length; i++)
-        {
-            roll -= weights[i];
-            if (roll < 0) return i;
-        }
-        return weights.Length - 1;
-    }
 
     // ---------------------------------------------------------------- helpers
 

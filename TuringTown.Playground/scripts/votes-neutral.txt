@@ -1,0 +1,14 @@
+# Control for accused-pair.txt: 2 humans, 2 bots, and the humans chat like anyone else (no confusion, no accusation).
+# Run with --bots 2 --humans 2. A bot that cannot tell humans from bots lands on humans near chance (67% here).
+/bots
+long day, finally on the couch with tacos
+/as 2
+tacos > pizza and i will not be taking questions
+/bots
+/as 1
+the timer on this thing is way too short lol
+/as 2
+honestly my phone is at 9% so if i vanish thats why
+/bots
+/votes 5
+/who

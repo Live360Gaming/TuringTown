@@ -1,8 +1,8 @@
 # Turing Town: game flow
 
 Turing Town is a social-deduction game. One or two **AI bots** hide among the human players. Everyone fills in an
-onboarding form, chats anonymously for a timed discussion, then votes someone out. **Humans win by voting out every
-bot. The bots win by surviving until they match the humans.**
+onboarding form, then plays three rounds, each ending in a vote. The first two votes only fill a **suspicion meter**;
+**the final vote alone decides the game.**
 
 The **server runs the game** (`Services/Games/TuringTownEngine`, one per game). Clients only render the state it
 broadcasts and send their own answers, chat lines and votes. For per-game content and AI generation see
@@ -15,27 +15,33 @@ bonus. The lobby and the night's own stages (Planning, Scoreboard, Finale) are d
 ## Stages
 
 ```
-(night) → Tutorial → Onboarding → Discussion → Voting → Reveal ─┬─ no winner → Discussion (next round)
-                                                                └─ winner    → Results → (night: Scoreboard or Finale)
+(night) → Tutorial → Onboarding
+        → Round 1, Quick Fire: QuickFire → Discussion → Voting → Reveal (meter)
+        → Round 2, Hot Seat:                Discussion → Voting → Reveal (meter)
+        → Round 3, Final:                   Discussion → Voting → Reveal (verdict) → Results → (night: Scoreboard or Finale)
 ```
 
 | Stage | What happens | Ends when | `data` |
 |---|---|---|---|
 | Tutorial | The TV plays the how-to-play. Questions are generated in the background meanwhile. | host calls `TutorialDone` when it ends or is skipped, or the leader skips it from their phone (or the safety limit) | none |
 | Onboarding | Each human answers the questions on their phone | everyone connected has answered, or time runs out | `{questions: [{id, kind, text, mature, options: [{id, text, mature}], minSelect, maxSelect}]}` |
-| Discussion | Anonymous chat. Form answers are never shown. | timer | none |
-| Voting | Each living player votes for another living player | everyone required has voted, or time runs out | none |
-| Reveal | Who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally}` |
+| QuickFire | Everyone writes one short answer to the same prompt (`QuickFirePrompts`, family safe). Bots answer too. | everyone connected has answered, or time runs out | `{kind, prompt, hotSeat, meter}` |
+| Discussion | Anonymous chat. In Quick Fire it opens with everyone's answers, shuffled. In a Hot Seat the most suspected player is named. Form answers are never shown. | timer | same as QuickFire |
+| Voting | Each player votes for another player: who they suspect, or in the Final who is the bot | everyone required has voted, or time runs out | same as QuickFire |
+| Reveal | Before the Final: the suspicion meter. In the Final: who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally, final, meter}` |
 | Results | Winner and every role | host or leader calls `ContinueNight`, or timer | `{winner, roles}` |
 
-- **Voting.** Plurality is eliminated. A **tie (or no votes) eliminates nobody.** Eliminated humans stay as read-only
-  spectators. Bots vote through the agent and may pick **any living player but themselves** (see
-  [What a bot knows](#what-a-bot-knows)).
-- **Winning.** Humans win when no bot is left. Bots win when living bots are at least as many as living humans, or when
-  `MaxRounds` passes with a bot still alive (so a run of ties cannot stall the game).
+- **Rounds.** `MaxRounds` (3) rounds. The last is always the **Final**; round 1 is **Quick Fire** (unless
+  `QuickFireSeconds` is 0) and any other is a **Hot Seat**. The hot seat is the top of the meter, a tie settled at random.
+- **Suspicion meter.** Each player's share of all votes cast so far (`SuspicionLevel`). It is built only from votes, so
+  it says nothing about roles. Nobody is eliminated before the Final. Bots vote through the agent and may pick **any
+  player but themselves** (see [What a bot knows](#what-a-bot-knows)).
+- **Winning.** The Final vote's plurality is eliminated. A tie goes to whichever of the tied players the meter suspected
+  most before the Final. **Humans win if that player is a bot**; otherwise, including no verdict, the bots win. With two
+  bots, catching either one is enough.
 - **Bots.** The night seats them (`GameNight.BotCountFor`): Turing Town's own rule is 1 bot for 2-4 humans and 2 for 5
   or more (`TuringTownEngine.BotCountFor`), and the night adds enough for four players in all, so 2 humans play with 2
-  bots (who then win at once unless the first vote finds one). Bots are seated when the night starts, with an alias and
+  bots. Bots are seated when the night starts, with an alias and
   character from the same pool as humans, and are removed when the night ends.
 - **Onboarding questions** are opinions and hot takes ("is a hot dog a sandwich?", "what is the most overrated food?"), and come in three kinds (`kind`): `Text` (free text), `SingleChoice` (pick exactly one of 2-6
   options, usually four, `minSelect = maxSelect = 1`) and `MultiChoice` (3-6 options, pick `minSelect`..`maxSelect`).
@@ -91,6 +97,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 | `TutorialStep(step)` | host | Tutorial |
 | `TutorialDone()` | host, or the leader player (to skip the intro) | Tutorial |
 | `SubmitOnboarding(OnboardingAnswer[] answers)` | player | Onboarding. One `{questionId, text, optionIds}` per question: `text` for a `Text` question, `optionIds` for a choice question. Checked on the server against the questions asked (unknown option, wrong number of picks, text on a choice, over-long or leaky text) |
+| `SubmitQuickFire(text)` | player | QuickFire. One short answer, same filters as chat; can be changed until the stage ends |
 | `SendChat(text)` | living player | Discussion |
 | `SetTyping(bool typing)` | living player | Discussion. Sent while the chat box has text, repeated every 4 s, and `false` on send |
 | `CastVote(targetPlayerId)` | living player | Voting. Can be changed until the stage ends |
@@ -104,11 +111,19 @@ client keeps the player's credentials in `sessionStorage` for this. The seat sta
 
 ## What a bot knows
 
-A bot knows that **it** is a bot, the rules, **how many** bots are in the room (1 or 2), and everything a human seat
-sees: the roster by alias, the chat, and the Reveal outcomes and tallies. While answering its own form it also gets the
-humans' onboarding answers as anonymous style samples; after that, only style numbers. It is **never told which other player is human or a bot**, and with two bots neither knows which player is its
-teammate. So a bot may accuse or vote for its own teammate without knowing it, and that is intended. Bot requests never
-carry an `IsBot` flag for anyone (`BotKnowledgeTests`). Each bot's memory and context are its own: no shared state.
+A bot knows that **it** is a bot, the rules, and everything a human seat sees: the roster by alias, the chat, and the
+Reveal outcomes and tallies. It is not told how many bots there are. While answering its own form it also gets the
+humans' onboarding answers as anonymous style samples; after that, only style numbers. It is **never told which other
+player is human or a bot**, and with two bots neither knows the other exists. So a bot may accuse or vote for the other
+bot without knowing it, and that is intended. Bot requests never carry an `IsBot` flag for anyone (`BotKnowledgeTests`).
+Each bot's memory and context are its own: no shared state.
+
+**How a bot votes.** It rates every candidate from 0 to 1 on how much they seem like an AI, from what they said (the
+`vote-task` prompt: accusing or being accused is not evidence, and neither is writing differently from the bot), and
+`VoteChoice` draws the vote from those ratings: weight `0.15 + score²`, so the strongest suspect is the likely pick, never
+a sure one, and two bots draw independently. A bot never votes back at whoever accused it: humans do most of the
+accusing, so that would pick out the humans. The scripted bot rates by how much the room has accused each player. Check
+it in the playground with `/votes` (`scripts/votes-neutral.txt` should land near chance).
 
 Every request carries a `BotContext` (`Services/Ai/BotContext.cs`): the bot's `BotKey` (a storage key, never put in a
 prompt), the bot count, its own persona (its onboarding answers) and latest lines, the other living players by alias, the
@@ -193,8 +208,9 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `TutorialMaxSeconds` / `OnboardingSeconds` | 180 / 60 | |
 | `DiscussionSeconds` / `VotingSeconds` | 120 / 30 | |
 | `RevealSeconds` / `ResultsSeconds` | 8 / 30 | |
-| `MaxRounds` | 3 | bots win if one is still alive after this many rounds |
-| `RoundPoints` | 100 | what round 1 is worth; each round doubles it (100, 200, 400). Voting out a bot earns the humans that value, voting out a human earns the AI team it, a tie earns nobody. Added to the win bonus |
+| `MaxRounds` | 3 | rounds in a game; the last one is the Final |
+| `QuickFireSeconds` | 30 | time to write a Quick Fire answer; 0 skips Quick Fire |
+| `RoundPoints` | 100 | what round 1 is worth; each round doubles it (100, 200, 400). The humans earn it if the round's top suspect is a bot, otherwise the AI team; a tie earns nobody. Added to the win bonus |
 | `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind (the form length is their sum) |
 | `ChatMaxLength` / `AnswerMaxLength` | 200 / 300 | |
 | `ChatMinIntervalMs` | 1500 | per-player chat rate limit |

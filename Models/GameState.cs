@@ -30,6 +30,9 @@ public enum Stage
     Scoreboard,
     Finale,
 
+    /// <summary>Turing Town: everyone writes one answer to the same prompt; they are shown when the chat opens.</summary>
+    QuickFire,
+
     /// <summary>Witty Bits: players write their answers to the prompts they were given.</summary>
     Writing,
 
@@ -128,8 +131,31 @@ public readonly record struct OnboardingData(IReadOnlyList<OnboardingQuestion> Q
 
 public readonly record struct VoteCount(string Alias, int Votes);
 
-/// <summary>Data for the Reveal stage. <paramref name="Eliminated"/> is null when the vote tied.</summary>
-public readonly record struct RevealData(PlayerInfo? Eliminated, bool? WasBot, IReadOnlyList<VoteCount> Tally);
+/// <summary>The three kinds of Turing Town round. The last round is always <see cref="Final"/>.</summary>
+public enum RoundKind
+{
+    QuickFire,
+    HotSeat,
+    Final
+}
+
+/// <summary>
+/// One bar of the suspicion meter: the votes a player has drawn so far this game, and their share of all votes cast.
+/// Built only from votes, so it says nothing about roles.
+/// </summary>
+public readonly record struct SuspicionLevel(Guid PlayerId, string Alias, int Votes, int Percent);
+
+/// <summary>
+/// Data for the QuickFire, Discussion and Voting stages. <paramref name="Prompt"/> is set in the Quick Fire round and
+/// <paramref name="HotSeat"/> in a Hot Seat round.
+/// </summary>
+public sealed record RoundData(RoundKind Kind, string? Prompt, PlayerInfo? HotSeat, IReadOnlyList<SuspicionLevel> Meter);
+
+/// <summary>
+/// Data for the Reveal stage. Only the <paramref name="Final"/> round eliminates anyone: before it,
+/// <paramref name="Eliminated"/> and <paramref name="WasBot"/> are always null and only the meter moves.
+/// </summary>
+public readonly record struct RevealData(PlayerInfo? Eliminated, bool? WasBot, IReadOnlyList<VoteCount> Tally, bool Final, IReadOnlyList<SuspicionLevel> Meter);
 
 public readonly record struct RoleReveal(Guid PlayerId, string Alias, bool WasBot);
 

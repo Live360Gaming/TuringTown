@@ -7,8 +7,8 @@ using TuringTown.Services.Storage;
 namespace TuringTown.Services.Games;
 
 /// <summary>
-/// Runs one Turing Town game for a room: Tutorial, Onboarding, then rounds of Discussion, Voting and Reveal until
-/// a side wins, then Results. The server is the only source of truth; clients just render the state and send
+/// Runs one Turing Town game for a room: Tutorial, Onboarding, then the rounds (Quick Fire,
+/// Hot Seat, Final), each ending in a vote and a Reveal, then Results. Only the Final vote eliminates and decides. The server is the only source of truth; clients just render the state and send
 /// their answers, chat lines and votes.
 ///
 /// Roles live only in the room's seats and never leave the server before the reveal.
@@ -51,6 +51,11 @@ public sealed class TuringTownEngine : IGameEngine
     private long _roundStartedMs;
     private int _humanPoints, _aiPoints;
     private readonly Dictionary<Guid, Guid?> _votes = [];
+    private readonly Dictionary<Guid, string> _quickFire = [];
+    private readonly Dictionary<Guid, int> _suspicion = [];
+    private RoundKind _roundKind;
+    private Guid? _hotSeat;
+    private string? _prompt;
     private readonly HashSet<Guid> _unmasked = [];
 
     // Lines that @mentioned a bot and that it has not answered yet, and a signal that wakes the bot when one arrives.
@@ -112,6 +117,9 @@ public sealed class TuringTownEngine : IGameEngine
     /// </summary>
     public Task Completion => _loop ?? Task.CompletedTask;
 
+    /// <summary>What the rounds have earned each side so far (see <see cref="TuringTownOptions.RoundPoints"/>).</summary>
+    internal TeamTotals RoundPointTotals => new(_humanPoints, _aiPoints);
+
     /// <summary>
     /// Plays this one game on its own (outside a game night, as the tests do) and puts the room back in the lobby
     /// at the end. The room must already be out of the lobby (see <see cref="Room.TryStart"/>).
@@ -169,15 +177,24 @@ public sealed class TuringTownEngine : IGameEngine
             await RunTutorialAsync();
             await RunOnboardingAsync(await questions);
 
-            int round = 0;
-            string? winner;
-            do
+            string winner = "Bots";
+            int rounds = Math.Max(1, _opt.MaxRounds);
+            for (int round = 1; round <= rounds; round++)
             {
-                round++;
+                RoundKind kind = round == rounds ? RoundKind.Final
+                    : round == 1 && _opt.QuickFireSeconds > 0 ? RoundKind.QuickFire : RoundKind.HotSeat;
+                lock (_gate)
+                {
+                    _roundKind = kind;
+                    _prompt = kind == RoundKind.QuickFire ? QuickFirePrompts.Pick(_room.ContentPolicy).Text : null;
+                    _hotSeat = kind == RoundKind.HotSeat ? PickHotSeat() : null;
+                    _quickFire.Clear();
+                }
+
+                if (kind == RoundKind.QuickFire) await RunQuickFireAsync(round);
                 await RunDiscussionAsync(round);
-                await RunVotingAndRevealAsync(round);
-                winner = CheckWinner(round);
-            } while (winner is null);
+                if (await RunVotingAndRevealAsync(round) is { } decided) winner = decided;
+            }
 
             await RunResultsAsync(winner);
             won = winner;
@@ -259,7 +276,10 @@ public sealed class TuringTownEngine : IGameEngine
             _roundStartedMs = _clock.ToUnixMs(_clock.UtcNow);
         }
 
-        await EnterStageAsync(Stage.Discussion, round, 0, duration, null);
+        await EnterStageAsync(Stage.Discussion, round, 0, duration, CurrentRoundData());
+
+        // The Quick Fire answers all land at once, as each player's first line of the discussion.
+        await PostQuickFireAnswersAsync();
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotChatLoopAsync(b, round, stage.Token)).ToArray();
@@ -270,7 +290,7 @@ public sealed class TuringTownEngine : IGameEngine
         await Task.WhenAll(bots);
     }
 
-    private async Task RunVotingAndRevealAsync(int round)
+    private async Task<string?> RunVotingAndRevealAsync(int round)
     {
         TimeSpan duration = TimeSpan.FromSeconds(_opt.VotingSeconds);
         lock (_gate)
@@ -279,7 +299,7 @@ public sealed class TuringTownEngine : IGameEngine
             _stageDone = GameClock.NewSignal();
         }
 
-        await EnterStageAsync(Stage.Voting, round, 0, duration, null);
+        await EnterStageAsync(Stage.Voting, round, 0, duration, CurrentRoundData());
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotVoteAsync(b, round, stage.Token)).ToArray();
@@ -290,19 +310,19 @@ public sealed class TuringTownEngine : IGameEngine
         stage.Cancel();
         await Task.WhenAll(bots);
 
-        RevealData reveal = TallyVotes();
+        bool final = round >= Math.Max(1, _opt.MaxRounds);
+        (RevealData reveal, bool? suspectIsBot) = TallyVotes(final);
         RecordRound(round, reveal);
 
-        // Each round is worth double the one before, so a late vote matters most.
-        if (reveal.WasBot is { } removedBot)
+        // Each round is worth double the one before, so a late vote matters most. Nobody is told who gained.
+        if (suspectIsBot is { } caughtBot)
         {
             int value = _opt.RoundPoints << Math.Min(round - 1, 20);
-            if (removedBot) _humanPoints += value;
+            if (caughtBot) _humanPoints += value;
             else _aiPoints += value;
         }
 
-        // Tell everyone who is out before the reveal, so no phone offers a dead player to vote for next round
-        // and the voted-out player's own screen switches to watching.
+        // Tell everyone who is out before the reveal, so the voted-out player's own screen switches to watching.
         await _broadcaster.RosterChanged(_room);
 
         // From here on the bot is public knowledge, announced by the Reveal state itself.
@@ -315,6 +335,181 @@ public sealed class TuringTownEngine : IGameEngine
         TimeSpan revealTime = TimeSpan.FromSeconds(_opt.RevealSeconds);
         await EnterStageAsync(Stage.Reveal, round, 0, revealTime, reveal);
         await _clock.WaitAsync(revealTime);
+
+        // The Final vote is the decision: the humans win only if it caught a bot.
+        return final ? reveal.WasBot == true ? "Humans" : "Bots" : null;
+    }
+
+    // ---------------------------------------------------------------- round types
+
+    private RoundData CurrentRoundData()
+    {
+        lock (_gate)
+        {
+            PlayerInfo? hot = _hotSeat is { } id && _room.TryGetSeat(id, out PlayerSeat seat) ? seat.ToInfo() : null;
+            return new RoundData(_roundKind, _prompt, hot, Meter());
+        }
+    }
+
+    /// <summary>Everyone's share of the suspicion votes so far, most suspected first. Call with the gate held.</summary>
+    private SuspicionLevel[] Meter()
+    {
+        int total = _suspicion.Values.Sum();
+        return _room.GetSeats()
+            .Select(s =>
+            {
+                int votes = _suspicion.GetValueOrDefault(s.Id);
+                return new SuspicionLevel(s.Id, s.Alias, votes, total == 0 ? 0 : (int)Math.Round(votes * 100.0 / total));
+            })
+            .OrderByDescending(l => l.Votes)
+            .ThenBy(l => l.Alias, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>The most suspected player; a tie (or no votes yet) is settled at random. Call with the gate held.</summary>
+    private Guid? PickHotSeat()
+    {
+        PlayerSeat[] living = _room.GetSeats().Where(s => s.Alive).ToArray();
+        if (living.Length == 0) return null;
+        int top = living.Max(s => _suspicion.GetValueOrDefault(s.Id));
+        PlayerSeat[] tied = living.Where(s => _suspicion.GetValueOrDefault(s.Id) == top).ToArray();
+        return tied[RandomNumberGenerator.GetInt32(tied.Length)].Id;
+    }
+
+    /// <summary>What this bot should know about the kind of round being played. Call with the gate held.</summary>
+    private string RoundNote(PlayerSeat bot)
+    {
+        switch (_roundKind)
+        {
+            case RoundKind.QuickFire:
+                return $"Everyone just answered \"{_prompt}\" and those answers are in the chat. React to them.";
+            case RoundKind.HotSeat when _hotSeat == bot.Id:
+                return "You are on the hot seat this round: the room suspects you most. Answer what people ask you.";
+            case RoundKind.HotSeat when _hotSeat is { } id && _room.TryGetSeat(id, out PlayerSeat seat):
+                return $"{seat.Alias} is on the hot seat this round: the room suspects them most. Ask them something or react to what they say.";
+            case RoundKind.Final:
+                return "This is the final discussion. The vote after it decides the whole game.";
+            default:
+                return "";
+        }
+    }
+
+    private async Task RunQuickFireAsync(int round)
+    {
+        TimeSpan duration = TimeSpan.FromSeconds(_opt.QuickFireSeconds);
+        lock (_gate)
+            _stageDone = GameClock.NewSignal();
+
+        await EnterStageAsync(Stage.QuickFire, round, 0, duration, CurrentRoundData());
+
+        using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        Task[] bots = BotSeats().Select(b => BotQuickFireAsync(b, round, stage.Token)).ToArray();
+
+        await UpdateProgressAsync();
+        await _clock.WaitAsync(duration, CurrentSignal());
+
+        stage.Cancel();
+        await Task.WhenAll(bots);
+    }
+
+    public async Task<string?> SubmitQuickFireAsync(Guid playerId, string? text)
+    {
+        if (!_room.TryGetSeat(playerId, out PlayerSeat seat) || seat.IsBot) return "Unknown player.";
+        if (_room.State.Stage != Stage.QuickFire) return "Quick Fire is closed.";
+        if (_clock.IsPaused) return "The game is paused.";
+
+        ChatCheck check = ChatFilter.Check(text, _opt.ChatMaxLength, out string cleaned);
+        if (check != ChatCheck.Ok) return ChatFilter.Describe(check);
+        if (!await _contentFilter.IsAllowedAsync(cleaned, _room.ContentPolicy, _cts.Token)) return "That answer is not allowed.";
+
+        lock (_gate)
+        {
+            if (_room.State.Stage != Stage.QuickFire) return "Quick Fire is closed.";
+            _quickFire[playerId] = cleaned;
+        }
+
+        await UpdateProgressAsync();
+        return null;
+    }
+
+    private async Task BotQuickFireAsync(PlayerSeat bot, int round, CancellationToken ct)
+    {
+        try
+        {
+            await _clock.Delay(GameClock.RandomDelay(_opt.BotVoteMinDelayMs, _opt.BotVoteMaxDelayMs), ct);
+
+            OnboardingQuestion question;
+            BotContext context;
+            string[] others;
+            lock (_gate)
+            {
+                question = new OnboardingQuestion("quickfire", _prompt!, false);
+                context = BuildContext(bot, round);
+                others = _quickFire.Values.ToArray();
+            }
+
+            string? answer = null;
+            try
+            {
+                IReadOnlyList<OnboardingAnswer> given = await _agent.AnswerOnboardingAsync(
+                    new OnboardingAnswerRequest(bot.Alias, _room.ContentPolicy, [question], [], context), ct);
+                answer = await UsableQuickFireAsync(given?.FirstOrDefault()?.Text, others, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Room {Room}: a bot's Quick Fire answer failed, using a scripted one", _room.Code);
+            }
+
+            // A bot that said nothing would stand out, so a missing or refused answer is replaced.
+            answer ??= await UsableQuickFireAsync(ScriptedBotAgent.ScriptedAnswer(question, [], bot.Id).Text, others, ct);
+            await _clock.WhenRunning(ct);
+
+            lock (_gate)
+            {
+                if (_room.State.Stage != Stage.QuickFire) return;
+                if (answer is not null) _quickFire[bot.Id] = answer;
+            }
+
+            await UpdateProgressAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Time ran out before this bot answered.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Room {Room}: a bot could not answer Quick Fire", _room.Code);
+        }
+    }
+
+    private async Task<string?> UsableQuickFireAsync(string? text, string[] others, CancellationToken ct)
+    {
+        if (text is null) return null;
+        if (ChatFilter.Check(PromptText.NormalizeDashes(text), _opt.ChatMaxLength, out string cleaned) != ChatCheck.Ok) return null;
+        if (OnboardingAnswerValidator.IsNearCopy(cleaned, others)) return null;
+        return await _contentFilter.IsAllowedAsync(cleaned, _room.ContentPolicy, ct) ? cleaned : null;
+    }
+
+    private async Task PostQuickFireAnswersAsync()
+    {
+        KeyValuePair<Guid, string>[] answers;
+        lock (_gate)
+        {
+            // Shuffled, so the order says nothing about who answered first.
+            answers = _quickFire.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToArray();
+            _quickFire.Clear();
+        }
+
+        foreach ((Guid id, string text) in answers)
+        {
+            if (!_room.TryGetSeat(id, out PlayerSeat seat)) continue;
+            if (await PostChatAsync(seat, text, _cts.Token) is not null || !seat.IsBot) continue;
+            lock (_gate)
+            {
+                if (!_ownLines.TryGetValue(id, out List<string>? lines)) _ownLines[id] = lines = [];
+                lines.Add(text);
+            }
+        }
     }
 
     /// <summary>
@@ -329,8 +524,10 @@ public sealed class TuringTownEngine : IGameEngine
             _history.Add(new RoundOutcome(round, reveal.Eliminated?.Alias, reveal.WasBot, reveal.Tally));
             // The whole room saw the reveal, so the AI team may remember it for the rest of the night.
             _night?.AddHighlight(reveal.Eliminated is { } gone
-                ? $"Turing Town round {round}: {gone.Alias} was voted out and was {(reveal.WasBot == true ? "an AI" : "a human")}."
-                : $"Turing Town round {round}: the vote tied and nobody was voted out.");
+                ? $"Turing Town final vote: {gone.Alias} was voted out and was {(reveal.WasBot == true ? "an AI" : "a human")}."
+                : reveal.Final
+                    ? "Turing Town final vote: nobody was voted out."
+                    : $"Turing Town round {round}: nobody was voted out, the votes only moved the suspicion meter.");
             long since = _roundStartedMs;
             transcript = _chat.Snapshot().Where(m => m.SentAtUtcMs >= since).Select(m => new ChatLine(m.Alias, m.Text)).ToArray();
         }
@@ -412,21 +609,6 @@ public sealed class TuringTownEngine : IGameEngine
         await _clock.WaitAsync(duration, _resultsDone.Task);
     }
 
-    /// <summary>
-    /// Humans win when no bot is left. Bots win when they are at least as many as the humans, or when the
-    /// round limit passes with a bot still hiding (so a run of tied votes cannot stall the game forever).
-    /// </summary>
-    private string? CheckWinner(int round)
-    {
-        IReadOnlyList<PlayerSeat> seats = _room.GetSeats();
-        int bots = seats.Count(s => s.IsBot && s.Alive);
-        int humans = seats.Count(s => !s.IsBot && s.Alive);
-
-        if (bots == 0) return "Humans";
-        if (bots >= humans || round >= _opt.MaxRounds) return "Bots";
-        return null;
-    }
-
     // ---------------------------------------------------------------- stage helpers
 
     private Task EnterStageAsync(Stage stage, int round, int step, TimeSpan? duration, object? data) =>
@@ -447,6 +629,11 @@ public sealed class TuringTownEngine : IGameEngine
 
         switch (stage)
         {
+            case Stage.QuickFire:
+            {
+                PlayerSeat[] required = seats.Where(x => x.Alive && (x.IsBot || x.Connected)).ToArray();
+                return (stage, required.Count(x => _quickFire.ContainsKey(x.Id)), required.Length);
+            }
             case Stage.Onboarding:
             {
                 PlayerSeat[] required = seats.Where(s => !s.IsBot && s.Connected).ToArray();
@@ -477,7 +664,7 @@ public sealed class TuringTownEngine : IGameEngine
             signal = _stageDone;
         }
 
-        if (progress.Stage is not (Stage.Onboarding or Stage.Voting)) return;
+        if (progress.Stage is not (Stage.Onboarding or Stage.QuickFire or Stage.Voting)) return;
 
         await _broadcaster.Progress(_room, progress.Done, progress.Total);
         if (progress.Done >= progress.Total) signal.TrySetResult();
@@ -962,7 +1149,10 @@ public sealed class TuringTownEngine : IGameEngine
                     // Aliases only. A bot is never told who is human and who is a bot.
                     BotContext context = BuildContext(bot, round);
                     request = new ChatRequest(bot.Alias, PersonaText(context.Persona), _room.ContentPolicy, round,
-                        RecentLines(), mentions, context.AlivePlayers, context);
+                        RecentLines(), mentions, context.AlivePlayers, context)
+                    {
+                        RoundNote = RoundNote(bot)
+                    };
                 }
 
                 // Shown as "typing" while the bot thinks and types, exactly like a human at the keyboard.
@@ -1165,9 +1355,11 @@ public sealed class TuringTownEngine : IGameEngine
     // ---------------------------------------------------------------- voting
 
     /// <summary>
-    /// Plurality wins. A tie (or no votes) eliminates nobody.
+    /// Adds this round's votes to the meter. Only the final round eliminates: the player with the most votes, with a tie
+    /// settled by who was more suspected in the earlier rounds. Still tied, or no votes, eliminates nobody.
+    /// Also says whether the round's top suspect is a bot (null when there is none), for the points only.
     /// </summary>
-    private RevealData TallyVotes()
+    private (RevealData Reveal, bool? SuspectIsBot) TallyVotes(bool final)
     {
         lock (_gate)
         {
@@ -1180,14 +1372,28 @@ public sealed class TuringTownEngine : IGameEngine
                 .ThenBy(v => v.Alias, StringComparer.Ordinal)
                 .ToArray();
 
-            if (result.Winner is { } winner)
+            Guid? suspect = result.Winner;
+            if (final && suspect is null && result.Counts.Count > 0)
             {
-                PlayerSeat eliminated = seats[winner];
-                _room.Eliminate(eliminated.Id);
-                return new RevealData(eliminated.ToInfo() with { Alive = false }, eliminated.IsBot, tally);
+                int top = result.Counts.Max(kv => kv.Value);
+                Guid[] tied = result.Counts.Where(kv => kv.Value == top).Select(kv => kv.Key).ToArray();
+                int most = tied.Max(id => _suspicion.GetValueOrDefault(id));
+                Guid[] mostSuspected = tied.Where(id => _suspicion.GetValueOrDefault(id) == most).ToArray();
+                if (mostSuspected.Length == 1) suspect = mostSuspected[0];
             }
 
-            return new RevealData(null, null, tally);
+            foreach (KeyValuePair<Guid, int> count in result.Counts)
+                _suspicion[count.Key] = _suspicion.GetValueOrDefault(count.Key) + count.Value;
+
+            bool? suspectIsBot = suspect is { } top1 ? seats[top1].IsBot : null;
+            if (final && suspect is { } caught)
+            {
+                PlayerSeat eliminated = seats[caught];
+                _room.Eliminate(eliminated.Id);
+                return (new RevealData(eliminated.ToInfo() with { Alive = false }, eliminated.IsBot, tally, true, Meter()), suspectIsBot);
+            }
+
+            return (new RevealData(null, null, tally, final, Meter()), suspectIsBot);
         }
     }
 }

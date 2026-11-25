@@ -293,42 +293,56 @@ public class FoundryAgentTests
 
     // ---------------------------------------------------------------- vote
 
+    private static string Ratings(params (string Alias, double Score)[] ratings) =>
+        "{\"ratings\":[" + string.Join(",", ratings.Select(r => $"{{\"alias\":\"{r.Alias}\",\"score\":{r.Score.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"why\":\"x\"}}")) + "]}";
+
     [Fact]
-    public async Task A_vote_asks_for_one_of_the_candidates_or_abstain_in_strict_json_and_maps_the_alias_back_to_an_id()
+    public async Task A_vote_asks_for_a_rating_of_every_candidate_in_strict_json_and_never_shows_an_id()
     {
-        FakeLlmClient llm = new() { Reply = _ => "{\"target\":\"Green Pear\"}" };
+        FakeLlmClient llm = new() { Reply = _ => Ratings(("Blue Kiwi", 0.2), ("Green Pear", 0.9)) };
         BotContext ctx = AiKit.Ctx();
         VoteCandidate kiwi = new(Guid.NewGuid(), "Blue Kiwi"), pear = new(Guid.NewGuid(), "Green Pear");
 
         Guid? vote = await AiKit.Agent(llm).CastVoteAsync(AiKit.Vote(ctx, kiwi, pear), default);
 
-        Assert.Equal(pear.Id, vote);
+        Assert.Contains(vote, new Guid?[] { kiwi.Id, pear.Id });
         LlmCall call = llm.Of("Vote").Single();
-        Assert.Equal(["Blue Kiwi", "Green Pear", "ABSTAIN"], FakeLlmClient.EnumAt(call.Schema!, "properties", "target", "enum"));
+        // No ABSTAIN, and only real candidates can be rated.
+        Assert.Equal(["Blue Kiwi", "Green Pear"], FakeLlmClient.EnumAt(call.Schema!, "properties", "ratings", "items", "properties", "alias", "enum"));
         using JsonDocument schema = JsonDocument.Parse(call.Schema!.Json);
         Assert.False(schema.RootElement.GetProperty("additionalProperties").GetBoolean());
-        Assert.Equal(["target"], schema.RootElement.GetProperty("required").EnumerateArray().Select(e => e.GetString()!));
-        // The model never sees an id.
+        Assert.Equal(["ratings"], schema.RootElement.GetProperty("required").EnumerateArray().Select(e => e.GetString()!));
         Assert.DoesNotContain(pear.Id.ToString(), call.User);
         Assert.DoesNotContain(pear.Id.ToString(), call.System);
-    }
-
-    [Theory]
-    [InlineData("{\"target\":\"ABSTAIN\"}")]
-    [InlineData("{\"target\":\"Someone Else\"}")]
-    public async Task Abstaining_or_naming_nobody_on_the_list_means_no_vote(string reply)
-    {
-        FakeLlmClient llm = new() { Reply = _ => reply };
-        Assert.Null(await AiKit.Agent(llm).CastVoteAsync(AiKit.Vote(AiKit.Ctx()), default));
+        // The prompt asks for a judgement from the chat, not for a strategy.
+        Assert.Contains("Accusing someone, or being accused, is not evidence by itself", call.User);
+        Assert.DoesNotContain("accuser", call.User);
     }
 
     [Fact]
-    public async Task A_vote_matches_the_alias_ignoring_case()
+    public async Task A_strong_suspect_is_the_likely_vote_but_never_a_certain_one()
     {
-        FakeLlmClient llm = new() { Reply = _ => "{\"target\":\"blue kiwi\"}" };
-        VoteCandidate kiwi = new(Guid.NewGuid(), "Blue Kiwi");
+        FakeLlmClient llm = new() { Reply = _ => Ratings(("Blue Kiwi", 0.95), ("Green Pear", 0.05), ("Gold Fig", 0.05)) };
+        VoteCandidate kiwi = new(Guid.NewGuid(), "Blue Kiwi"), pear = new(Guid.NewGuid(), "Green Pear"), fig = new(Guid.NewGuid(), "Gold Fig");
+        FoundryBotAgent agent = AiKit.Agent(llm);
 
-        Assert.Equal(kiwi.Id, await AiKit.Agent(llm).CastVoteAsync(AiKit.Vote(AiKit.Ctx(), kiwi), default));
+        int kiwiVotes = 0;
+        for (int i = 0; i < 400; i++)
+            if (await agent.CastVoteAsync(AiKit.Vote(AiKit.Ctx(), kiwi, pear, fig), default) == kiwi.Id) kiwiVotes++;
+
+        // Weights 0.15 + score^2: Kiwi about 0.75 of the draw, never all of it.
+        Assert.InRange(kiwiVotes, 250, 360);
+    }
+
+    [Fact]
+    public void Ratings_match_aliases_ignoring_case_and_an_unrated_candidate_gets_a_middle_score()
+    {
+        VoteCandidate kiwi = new(Guid.NewGuid(), "Blue Kiwi"), pear = new(Guid.NewGuid(), "Green Pear");
+        using JsonDocument json = JsonDocument.Parse(Ratings(("blue kiwi", 0.8), ("Someone Else", 1), ("Green Pear", 7)));
+
+        Assert.Equal([0.8, 1.0], FoundryBotAgent.Ratings(json.RootElement, [kiwi, pear]));
+        using JsonDocument empty = JsonDocument.Parse("{\"ratings\":[]}");
+        Assert.Equal([VoteChoice.Unrated, VoteChoice.Unrated], FoundryBotAgent.Ratings(empty.RootElement, [kiwi, pear]));
     }
 
     [Fact]
@@ -591,13 +605,13 @@ public class FoundryAgentTests
         FoundryBotAgent bot = AiKit.Agent(llm);
         FallbackBotAgent agent = new(bot, new ScriptedBotAgent(), TimeSpan.FromSeconds(5));
         FallbackQuestionGenerator questions = new(Generator(llm), new BuiltInQuestionGenerator(), TimeSpan.FromSeconds(5));
-        Harness h = new(humans: 3, o => o.BotMessagesPerRound = 2, agent: agent, questions: questions);
+        Harness h = new(humans: 3, o => { o.BotMessagesPerRound = 2; o.MaxRounds = 2; }, agent: agent, questions: questions);
 
         await h.ThroughOnboardingAsync();
         await h.UntilAsync(() => h.Engine.GetTranscript().Any(m => m.PlayerId == h.BotId), "a line from the bot");
         await h.ToAsync(Stage.Voting, 1);
 
-        // Everyone votes out a human, so the game goes on and the bot writes its notes.
+        // An early vote eliminates nobody; the bot writes its notes and the Final follows.
         foreach (Player human in h.Humans) await h.VoteAsync(human, human.Id == h.Humans[0].Id ? h.Humans[1].Id : h.Humans[0].Id);
         await h.ToAsync(Stage.Discussion, 2);
         await h.UntilAsync(() => llm.Of("RoundNotes").Length >= 1, "the bot's round notes");

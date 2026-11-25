@@ -29,7 +29,11 @@ public sealed record ChatRequest(
     IReadOnlyList<ChatLine> Recent,
     IReadOnlyList<ChatLine> Mentions,
     IReadOnlyList<string> OtherPlayers,
-    BotContext Context);
+    BotContext Context)
+{
+    /// <summary>What kind of round this is, written by the server (public information only), or empty.</summary>
+    public string RoundNote { get; init; } = "";
+}
 
 public sealed record VoteRequest(
     string BotAlias,

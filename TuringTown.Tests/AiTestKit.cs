@@ -32,7 +32,7 @@ internal sealed class FakeLlmClient : ILlmClient
     public static string DefaultReply(LlmCall call) => call.Kind switch
     {
         "Chat" => "hmm not sure yet",
-        "Vote" => $"{{\"target\":\"{EnumAt(call.Schema!, "properties", "target", "enum")[0]}\"}}",
+        "Vote" => $"{{\"ratings\":[{{\"alias\":\"{EnumAt(call.Schema!, "properties", "ratings", "items", "properties", "alias", "enum")[0]}\",\"score\":0.5,\"why\":\"quiet\"}}]}}",
         "Onboarding" => "{\"answers\":[]}",
         "RoundNotes" => "{\"summary\":\"a quiet round\",\"suspicions\":[],\"claims\":[]}",
         "Questions" => ValidQuestions,

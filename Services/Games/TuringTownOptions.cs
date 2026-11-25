@@ -15,16 +15,20 @@ public sealed class TuringTownOptions
 
     public int OnboardingSeconds { get; set; } = 60;
     public int DiscussionSeconds { get; set; } = 120;
+
+    /// <summary>How long to write a Quick Fire answer. 0 skips Quick Fire, so round 1 is a Hot Seat.</summary>
+    public int QuickFireSeconds { get; set; } = 30;
+
     public int VotingSeconds { get; set; } = 30;
     public int RevealSeconds { get; set; } = 8;
     public int ResultsSeconds { get; set; } = 30;
 
-    /// <summary>After this many rounds with a bot still alive, the bots win.</summary>
+    /// <summary>How many rounds a game has. The last one is the Final, whose vote alone decides the winner.</summary>
     public int MaxRounds { get; set; } = 3;
 
     /// <summary>
-    /// What round 1 is worth. Each round doubles it (100, 200, 400 ...). A vote that removes a bot earns the humans that
-    /// round's value, and a vote that removes a human earns the AI team the same. A tied vote earns nobody anything.
+    /// What round 1 is worth. Each round doubles it (100, 200, 400 ...). The round's value goes to the side that gains from
+    /// its top suspect: the humans if that player is a bot, otherwise the AI team. A tie earns nobody anything.
     /// </summary>
     public int RoundPoints { get; set; } = 100;
 

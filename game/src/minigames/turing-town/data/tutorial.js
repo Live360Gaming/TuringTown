@@ -45,21 +45,19 @@ export const TUTORIAL_STEPS = [
         id: 'vote',
         type: 'animation',
         animation: 'vote',
-        narration: 'tt_vo_vote',
-        title: 'Town meeting',
-        caption: 'When the clock runs out, the town meets. Vote out the resident you trust least, and see who they really were.',
-        durationMs: 7000,
+        title: 'Three rounds',
+        caption: 'Quick Fire, then the Hot Seat, then the Final. The first two votes only fill the suspicion meter. Nobody leaves yet.',
+        durationMs: 8000,
     },
     {
         id: 'stakes',
         type: 'animation',
         animation: 'standoff',
-        narration: 'tt_vo_stakes',
-        title: 'Trust no one',
-        caption: 'Humans win by unmasking every bot. The bots win if they can outlast you. So trust no one. Good luck, citizen.',
-        durationMs: 6500,
+        title: 'One vote decides it',
+        caption: 'The final vote is the only one that counts. Catch a bot and the humans win. Miss, and the town belongs to them.',
+        durationMs: 8000,
     },
 ];
 
 /** Narration audio key -> file under public/audio. Loaded in the background on the TV only (see ../music.js). */
-export const NARRATION = Object.fromEntries(TUTORIAL_STEPS.map(step => [step.narration, `turing-town/narration/${step.id}.mp3`]));
+export const NARRATION = Object.fromEntries(TUTORIAL_STEPS.filter(step => step.narration).map(step => [step.narration, `turing-town/narration/${step.id}.mp3`]));

@@ -29,6 +29,8 @@ Options: `--provider scripted|foundry`, `--humans <n>`, `--bots <n>`, `--mature`
 | `/as <alias or number>` | speak as another human (a new alias adds a human) |
 | `/bots [n]` | every bot takes n turns with nobody speaking (try it first, on an empty chat) |
 | `/vote` | every bot votes |
+| `/votes [n]` | every bot votes n times on the same chat (nothing recorded) and shows, with roles, how often its votes land on humans against chance. Far above chance means the bot is reading roles from somewhere |
+| `{bot1}`, `{human2}`, ... | in any line, replaced by that player's alias, so a script can speak to a bot by name |
 | `/out <alias>` | vote that player out: ends the round, the bots write their notes |
 | `/round` | end the round with nobody voted out |
 | `/players`, `/who` | who is playing; `/who` reveals the roles |

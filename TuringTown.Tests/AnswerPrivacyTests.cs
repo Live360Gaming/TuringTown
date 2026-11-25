@@ -30,7 +30,7 @@ public class AnswerPrivacyTests
         lock (h.States)
         {
             Assert.Contains(h.States, s => s.Stage == Stage.Discussion);
-            Assert.All(h.States.Where(s => s.Stage == Stage.Discussion), s => Assert.Null(s.Data));
+            Assert.All(h.States.Where(s => s.Stage == Stage.Discussion), s => Assert.IsType<RoundData>(s.Data));
         }
         lock (h.Messages)
         {
@@ -168,6 +168,23 @@ public class AnswerPrivacyTests
 
         // Uniform would be about a third. The accused player is the clear favourite, but not a certainty.
         Assert.InRange(hits, 180, 299);
+    }
+
+    [Fact]
+    public async Task Scripted_bots_do_not_vote_back_at_whoever_accused_them()
+    {
+        // Humans do the accusing, so a bot that votes for its accusers picks out the humans.
+        ScriptedBotAgent agent = new();
+        Guid accuser = Guid.NewGuid();
+        VoteCandidate[] candidates = [new(accuser, "Blue Kiwi"), new(Guid.NewGuid(), "Green Pear"), new(Guid.NewGuid(), "Gold Fig")];
+        ChatLine[] chat = [new("Blue Kiwi", "@Red Apple you are so sus"), new("Blue Kiwi", "@Red Apple is the bot, vote it")];
+
+        int hits = 0;
+        for (int i = 0; i < 300; i++)
+            if (await agent.CastVoteAsync(new VoteRequest("Red Apple", "", Family, 1, candidates, chat, TestContext.For("Red Apple")), default) == accuser) hits++;
+
+        // About a third, as for anyone the room is not talking about.
+        Assert.InRange(hits, 60, 150);
     }
 
     [Fact]

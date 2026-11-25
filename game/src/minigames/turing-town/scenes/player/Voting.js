@@ -3,6 +3,7 @@ import {createAvatar} from '../../../../core/characters.js';
 import {hubErrorMessage} from '../../../../core/gameHub.js';
 import {readableOn} from '../../../../core/theme.js';
 import {PlayerStage} from '../../../../core/stage/PlayerStage.js';
+import {roundTitle} from '../../rounds.js';
 
 const CARD_W = 240;
 const CARD_H = 100;
@@ -15,7 +16,7 @@ export class TuringTownPlayerVoting extends PlayerStage {
     }
 
     build() {
-        this.title = this.addText(`Round ${this.session.state.round}: Vote`, {fontStyle: 'bold'});
+        this.title = this.addText(roundTitle(this.session.state), {fontStyle: 'bold'});
         this.statusText = this.addText('', {align: 'center'});
         this.cards = [];
 
@@ -24,7 +25,8 @@ export class TuringTownPlayerVoting extends PlayerStage {
             return;
         }
 
-        this.statusText.setText('Tap who you think is a bot');
+        this.statusText.setText(this.session.state.data?.kind === 'Final'
+            ? 'Final vote. Tap who you think is a bot.' : 'Tap who you suspect. Nobody leaves yet.');
         const me = this.session.you;
         this.session.roster
             .filter(player => player.alive && player.id !== me.id)
@@ -36,7 +38,9 @@ export class TuringTownPlayerVoting extends PlayerStage {
             .setStrokeStyle(3, 0xffffff)
             .setInteractive({useHandCursor: true});
         const avatar = createAvatar(this, -CARD_W / 2 + 50, 0, 64, player);
-        const label = this.add.text(-CARD_W / 2 + 96, 0, player.alias, {fontSize: '22px', color: readableOn(player.color, '#405FC2'), wordWrap: {width: CARD_W - 110}})
+        const percent = this.session.state.data?.meter?.find(level => level.playerId === player.id)?.percent;
+        const text = percent ? `${player.alias}\n${percent}% suspected` : player.alias;
+        const label = this.add.text(-CARD_W / 2 + 96, 0, text, {fontSize: '22px', color: readableOn(player.color, '#405FC2'), wordWrap: {width: CARD_W - 110}})
             .setOrigin(0, 0.5);
         const container = this.add.container(0, 0, [bg, avatar, label]);
 

@@ -76,30 +76,95 @@ public class GameFlowTests
     }
 
     [Fact]
-    public async Task A_tie_eliminates_nobody_and_the_game_goes_on()
+    public async Task An_early_vote_eliminates_nobody_and_only_fills_the_suspicion_meter()
     {
-        Harness h = new(humans: 3);
+        Harness h = new(humans: 3, o => o.MaxRounds = 2);
         Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
 
         await h.ThroughOnboardingAsync();
         await h.ToAsync(Stage.Voting, 1);
-
-        // The bot abstains and the humans vote in a ring, so everyone gets exactly one vote.
-        await h.VoteAsync(a, b.Id);
+        await h.VoteAsync(a, c.Id);
         await h.VoteAsync(b, c.Id);
         await h.VoteAsync(c, a.Id);
         await h.ToAsync(Stage.Reveal, 1);
 
         RevealData reveal = h.LastReveal();
+        Assert.False(reveal.Final);
         Assert.Null(reveal.Eliminated);
         Assert.Null(reveal.WasBot);
+        Assert.Equal((c.Id, 2, 67), (reveal.Meter[0].PlayerId, reveal.Meter[0].Votes, reveal.Meter[0].Percent));
         Assert.All(h.Room.GetRoster(), p => Assert.True(p.Alive));
 
         await h.ToAsync(Stage.Discussion, 2);
+        Assert.Equal(RoundKind.Final, ((RoundData)h.Room.State.Data!).Kind);
     }
 
     [Fact]
-    public async Task The_bots_win_when_the_round_limit_passes_with_a_bot_still_hiding()
+    public async Task A_tied_final_vote_is_settled_by_the_suspicion_meter()
+    {
+        Harness h = new(humans: 2, o => o.MaxRounds = 2);
+        Player a = h.Humans[0], b = h.Humans[1];
+        Guid bot = Guid.Empty;
+
+        await h.ThroughOnboardingAsync();
+        await h.ToAsync(Stage.Voting, 1);
+        bot = h.BotId;
+        await h.VoteAsync(a, bot);
+        await h.VoteAsync(b, bot);
+
+        // One vote each in the Final: the bot was the most suspected before, so it goes.
+        await h.ToAsync(Stage.Voting, 2);
+        await h.VoteAsync(a, bot);
+        await h.VoteAsync(b, a.Id);
+        await h.ToAsync(Stage.Results);
+
+        Assert.Equal(bot, h.LastReveal().Eliminated!.Value.Id);
+        Assert.Equal("Humans", h.Results().Winner);
+    }
+
+    [Fact]
+    public async Task Quick_Fire_hides_the_answers_until_the_chat_opens_and_the_bot_answers_too()
+    {
+        Harness h = new(humans: 2, o => { o.MaxRounds = 2; o.QuickFireSeconds = 10; });
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers()));
+        await h.ToAsync(Stage.QuickFire, 1);
+
+        Assert.False(string.IsNullOrEmpty(((RoundData)h.Room.State.Data!).Prompt));
+        Assert.NotNull(await h.Engine.SubmitQuickFireAsync(h.Humans[0].Id, "my name is Sam"));
+        Assert.Null(await h.Engine.SubmitQuickFireAsync(h.Humans[0].Id, "purple waffles"));
+        Assert.Empty(h.Engine.GetTranscript());
+        Assert.Null(await h.Engine.SubmitQuickFireAsync(h.Humans[1].Id, "grumpy toast"));
+
+        await h.ToAsync(Stage.Discussion, 1);
+        await h.UntilAsync(() => h.Engine.GetTranscript().Count == 3, "all three answers in the chat");
+        Assert.Contains(h.Engine.GetTranscript(), m => m.PlayerId == h.BotId);
+        Assert.Contains(h.Engine.GetTranscript(), m => m.Text == "purple waffles");
+    }
+
+    [Fact]
+    public async Task The_hot_seat_is_the_most_suspected_player()
+    {
+        Harness h = new(humans: 3, o => { o.MaxRounds = 3; o.QuickFireSeconds = 10; });
+        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
+
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers()));
+        await h.ToAsync(Stage.Voting, 1);
+        await h.VoteAsync(a, c.Id);
+        await h.VoteAsync(b, c.Id);
+        await h.VoteAsync(c, a.Id);
+        await h.ToAsync(Stage.Discussion, 2);
+
+        RoundData data = (RoundData)h.Room.State.Data!;
+        Assert.Equal(RoundKind.HotSeat, data.Kind);
+        Assert.Equal(c.Id, data.HotSeat!.Value.Id);
+    }
+
+    [Fact]
+    public async Task The_bots_win_when_the_final_vote_is_tied_and_the_meter_cannot_settle_it()
     {
         Harness h = new(humans: 3, o => o.MaxRounds = 1);
         Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
@@ -107,13 +172,43 @@ public class GameFlowTests
         await h.ThroughOnboardingAsync();
         await h.ToAsync(Stage.Voting, 1);
 
-        // A tie in the only allowed round: nobody is out, but the limit has passed.
+        // A three-way tie with an empty meter: nobody is out, so no bot was caught.
         await h.VoteAsync(a, b.Id);
         await h.VoteAsync(b, c.Id);
         await h.VoteAsync(c, a.Id);
         await h.ToAsync(Stage.Results);
 
         Assert.Equal("Bots", h.Results().Winner);
+    }
+
+    [Fact]
+    public async Task Each_round_is_worth_double_and_goes_to_the_side_that_gained_from_the_vote()
+    {
+        Harness h = new(humans: 3, o => o.MaxRounds = 3);
+        Player a = h.Humans[0], b = h.Humans[1], c = h.Humans[2];
+
+        await h.ThroughOnboardingAsync();
+        await h.ToAsync(Stage.Voting, 1);
+
+        // Round 1: a human is the top suspect, so the AI team earns 100.
+        await h.VoteAsync(a, c.Id);
+        await h.VoteAsync(b, c.Id);
+        await h.VoteAsync(c, a.Id);
+        await h.ToAsync(Stage.Voting, 2);
+        Assert.Equal(new TeamTotals(0, 100), h.Engine.RoundPointTotals);
+
+        // Round 2: a tie earns nobody anything.
+        await h.VoteAsync(a, b.Id);
+        await h.VoteAsync(b, a.Id);
+        await h.ToAsync(Stage.Voting, 3);
+        Assert.Equal(new TeamTotals(0, 100), h.Engine.RoundPointTotals);
+
+        // Round 3: the bot is voted out, so the humans earn 400.
+        await h.VoteAsync(a, h.BotId);
+        await h.VoteAsync(b, h.BotId);
+        await h.ToAsync(Stage.Results);
+        Assert.Equal(new TeamTotals(400, 100), h.Engine.RoundPointTotals);
+        Assert.Equal("Humans", h.Results().Winner);
     }
 
     [Fact]

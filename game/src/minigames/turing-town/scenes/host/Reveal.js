@@ -1,6 +1,7 @@
 import {HOST_CENTER_X} from '../../../../constants.js';
 import {createAvatar} from '../../../../core/characters.js';
 import {HostStage} from '../../../../core/stage/HostStage.js';
+import {addMeter} from './meter.js';
 
 // The result of the vote. This is the first time anyone learns whether a player was a bot.
 export class TuringTownHostReveal extends HostStage {
@@ -9,8 +10,14 @@ export class TuringTownHostReveal extends HostStage {
     }
 
     build() {
-        const {eliminated, wasBot, tally = []} = this.session.state.data ?? {};
-        this.setTitle(`Round ${this.session.state.round}: The vote`);
+        const {eliminated, wasBot, tally = [], final, meter = []} = this.session.state.data ?? {};
+        this.setTitle(`Round ${this.session.state.round}: ${final ? 'The verdict' : 'Suspicion meter'}`);
+
+        // Before the final vote nobody leaves: the votes only move the meter.
+        if (!final) {
+            addMeter(this, meter, {y: 200, rowHeight: Math.min(60, 420 / Math.max(meter.length, 1))});
+            return;
+        }
 
         if (eliminated) {
             createAvatar(this, HOST_CENTER_X, 230, 190, eliminated);
@@ -19,7 +26,7 @@ export class TuringTownHostReveal extends HostStage {
                 fontSize: '40px', color: wasBot ? '#39ff14' : '#ff4d4d',
             }).setOrigin(0.5);
         } else {
-            this.add.text(HOST_CENTER_X, 260, 'It is a tie!\nNobody leaves the town.', {fontSize: '48px', color: '#ffffff', align: 'center'}).setOrigin(0.5);
+            this.add.text(HOST_CENTER_X, 260, 'No verdict!\nThe bots slip away.', {fontSize: '48px', color: '#ffffff', align: 'center'}).setOrigin(0.5);
         }
 
         const lines = tally.map(t => `${t.alias}: ${t.votes} ${t.votes === 1 ? 'vote' : 'votes'}`).join('    ');

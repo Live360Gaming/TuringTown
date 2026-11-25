@@ -121,7 +121,7 @@ public class RulesTests
         await h.VoteAsync(a, b.Id);
         await h.VoteAsync(b, a.Id);
         await h.VoteAsync(c, a.Id);
-        await h.ToAsync(Stage.Discussion, 2);
+        await h.ToAsync(Stage.Reveal, 1);
 
         // Clients must be told who is out: a roster saying so is sent before the reveal.
         var sent = h.Messages.ToList();
@@ -130,12 +130,6 @@ public class RulesTests
 
         Assert.False(h.Room.GetRoster().First(p => p.Id == a.Id).Alive);
         Assert.NotNull(await h.Engine.SendChatAsync(a.Id, "let me speak"));
-        Assert.Null(await h.Engine.SendChatAsync(b.Id, "ok"));
-
-        await h.ToAsync(Stage.Voting, 2);
-        Assert.NotNull(await h.Engine.CastVoteAsync(a.Id, b.Id));
-        // And they cannot be voted for again.
-        Assert.NotNull(await h.Engine.CastVoteAsync(b.Id, a.Id));
     }
 
     [Fact]

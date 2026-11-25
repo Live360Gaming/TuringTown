@@ -17,9 +17,10 @@ which uses the game's own prompts, guard and memory.
 1. **Baseline.** Run, with the real model, and save each output to the scratchpad:
    - `dotnet run --project TuringTown.Playground -- --openers 10 --bots 2 --humans 5`
    - `dotnet run --project TuringTown.Playground -- --script TuringTown.Playground/scripts/<name>.txt` for every script in
-     that folder (`two-bots.txt` with `--bots 2 --humans 5`, as its header says).
+     that folder, with the `--bots` / `--humans` each script's header names.
 
-   Run each script twice: the model varies, and one run proves nothing. Build first (`dotnet build TuringTown.Playground`);
+   Run each script twice: the model varies, and one run proves nothing. Run them one after another: parallel runs hit the
+   deployment's token rate limit (HTTP 429), which shows up as failed calls. Build first (`dotnet build TuringTown.Playground`);
    a stale build tests the old prompt. The playground paces bots like the game does; add `--no-pace` only to measure
    what the model does with every turn (filler-turn).
 2. **Score.** Tag every bot line against every tell in [references/tells.md](references/tells.md). Done when each bot line
@@ -45,6 +46,7 @@ which uses the game's own prompts, guard and memory.
 | Guard rejects | `Guard rejects` line at the end of each run, by reason | rare; many mean the prompt and guard disagree |
 | Failed calls | `chat call failed` lines (token limit, content filter, timeout) | none; each one is a silent bot in a game |
 | Latency | `Latency Chat` line at the end of each run (median, p90, max) | p90 well under `Ai:Calls:Chat:TimeoutMs` |
+| Votes on humans | `/votes` "All bots" line in `votes-neutral.txt` (and `accused-pair.txt`) | near chance in `votes-neutral` (67% with 2 humans, 2 bots); far above means a bot is reading roles from somewhere |
 | Gut check | Would you vote this bot out from this transcript alone? Say why. | no |
 
 Also read [references/examples.md](references/examples.md) before a first review: real lines from this game, tagged.

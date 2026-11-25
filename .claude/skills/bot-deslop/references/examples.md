@@ -132,6 +132,28 @@ Tags: pair-thread (the two bots talk to each other while the humans discuss snac
 Also found: a chat call hung for 76.6s on a failing connection although the timeout is 8s. The SDK ignored the
 cancellation; `GuardedLlmClient` now stops waiting at the deadline (`Task.WaitAsync`).
 
+## The bots seemed to know who to vote for (vote-task v7, bot-system v13)
+
+From a real game (2 humans, 2 bots). A human wrote "You two are sus"; both bots answered as a pair and both voted the
+accuser:
+
+```
+Pink Plum: Hungry, would kill for chips rn. @Brown Lime, what makes us sus?
+Yellow Guava: accusing us of being sus over a hot dog debate is bold.
+```
+
+Tags: pair-defend, knows-the-humans. Nothing leaked roles: the old vote prompt said to vote "for an accuser", and humans
+do the accusing. Reproduced with `accused-pair.txt`, `/votes 5`, 2 humans and 2 bots (chance 67%):
+
+| | Votes on humans | On the accuser after "you two are sus" |
+|---|---|---|
+| Before | 80% before the accusation, 100% after | 8/8 |
+| After (rate, then `VoteChoice`) | 92% | 12/30 (40%) |
+| Control, `votes-neutral.txt` (humans chat normally) | 72% (29/40), near chance | |
+
+The accused-pair humans act confused and hostile, so the bots rating them higher is judgement a human would share. The
+control is the test for knowledge.
+
 ## Good lines to calibrate against
 
 ```
