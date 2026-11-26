@@ -7,6 +7,9 @@ import {createAvatar} from '../characters.js';
 import {listen} from './listen.js';
 import {COLORS, HEX, textStyle} from '../theme.js';
 import {addNameplate} from '../ui/Nameplate.js';
+import {getNarration} from '../narration/index.js';
+import {speechOccurrence} from '../narration/scopes.js';
+import {narrationEntry} from '../../narration/registry.js';
 
 /**
  * Base for a screen on the TV during a game: the fixed 16:9 canvas, background, a title, the stage countdown,
@@ -83,6 +86,35 @@ export class HostStage extends Scene {
         const ms = this.session.msLeft();
         const color = ms === null || ms > 30000 ? COLORS.text : ms > 10000 ? COLORS.gold : COLORS.pink;
         this.timerText.setColor(color);
+    }
+
+    /**
+     * Says a recorded line over this screen, with its words in a caption across the bottom, and the AI host's
+     * `hostLine` (if any) under them in gold. The caption goes once the line ends, or after the line's length when it
+     * cannot be played. A line is said once per round, however often the screen is drawn.
+     */
+    speak(key, hostLine) {
+        const entry = narrationEntry(key);
+        const height = hostLine ? 118 : 86;
+        const top = HOST_HEIGHT - height - 18;
+        const plate = this.add.graphics().setDepth(20)
+            .fillStyle(HEX.bgDeep, 0.92).fillRoundedRect(70, top, HOST_WIDTH - 140, height, 18)
+            .lineStyle(2, HEX.cyan, 0.7).strokeRoundedRect(70, top, HOST_WIDTH - 140, height, 18);
+        const caption = this.add.text(HOST_CENTER_X, top + 40, entry.transcript, textStyle('instruction', {
+            fontSize: '24px', align: 'center', wordWrap: {width: HOST_WIDTH - 200},
+        })).setOrigin(0.5).setDepth(21);
+        const items = [plate, caption];
+        if (hostLine) {
+            items.push(this.add.text(HOST_CENTER_X, top + height - 24, hostLine, textStyle('instruction', {fontSize: '22px', color: COLORS.gold}))
+                .setFontStyle('italic').setOrigin(0.5).setDepth(21));
+        }
+
+        const hide = () => items.forEach(item => item.active && item.destroy());
+        getNarration(this.game).play(key, {occurrence: speechOccurrence(key, this.session.state.round)}).then(result => {
+            if (!plate.active) return;
+            if (result === 'missing' || result === 'blocked') this.time.delayedCall(entry.durationMs, hide);
+            else hide();
+        });
     }
 
     /** Subscribe to an emitter for as long as this scene is running. */

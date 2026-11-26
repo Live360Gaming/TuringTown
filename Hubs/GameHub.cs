@@ -33,7 +33,12 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         IReadOnlyList<ChatMessage> transcript = night?.GetTranscript() ?? [];
         IReadOnlyList<Guid> unmasked = night?.GetUnmasked() ?? [];
 
-        return new JoinResult(room.State, room.GetRoster(), you, transcript, time.GetUtcNow().ToUnixTimeMilliseconds(), unmasked);
+        // Only the player it concerns gets a secret (the Imposter), and only while that game runs.
+        SecretInfo? secret = you is not null && games.TryGetEngine(room, out IGameEngine? engine) && engine is TuringTownEngine turingTown
+            ? turingTown.SecretFor(you.Value.Id)
+            : null;
+        return new JoinResult(room.State, room.GetRoster(), you, transcript, time.GetUtcNow().ToUnixTimeMilliseconds(), unmasked,
+            room.GetSnapshot(), secret);
     }
 
     public async Task<JoinResult> JoinAsHost(string roomCode, string hostToken)
@@ -96,14 +101,10 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         try
         {
             await Task.Delay(room.LobbyDisconnectGrace, time);
-            bool wasLeader = room.IsLeader(playerId);
             if (!room.TryRemoveDisconnected(playerId, disconnectCount)) return;
 
-            // The leader dropped out of the lobby for good: the game session ends with them.
-            if (wasLeader)
-                await CloseRoomAsync(room, "leader", exceptConnectionId: null);
-            else
-                await broadcaster.RosterChanged(room);
+            // The TV owns the room, so it stays open; if the leader left, the next player to have joined leads now.
+            await broadcaster.RosterChanged(room);
         }
         catch (Exception)
         {
@@ -144,6 +145,30 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
         Room room = RequireHostOrLeader();
         string reason = Context.Items.TryGetValue(RoleKey, out object? role) && role as string == "host" ? "host" : "leader";
         return CloseRoomAsync(room, reason, Context.ConnectionId);
+    }
+
+    /// <summary>
+    /// A player leaves the lobby on purpose: their seat is freed at once (no grace period) and, if they led, the next
+    /// player leads. Once a game has started there is nothing to free, so this just lets them go.
+    /// </summary>
+    public async Task LeaveRoom()
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        // Forget the seat first, so the disconnect that follows does not start a lobby grace timer for it.
+        Context.Items.Remove(PlayerKey);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, room.Code.ToString());
+        if (room.TryRemovePlayer(playerId))
+        {
+            await broadcaster.RosterChanged(room);
+            return;
+        }
+
+        // In a game: they are now away, like a dropped phone, so nobody waits for them.
+        if (room.SetDisconnected(playerId, Context.ConnectionId))
+        {
+            await broadcaster.RosterChanged(room);
+            await NotifyPresence(room);
+        }
     }
 
     private async Task CloseRoomAsync(Room room, string reason, string? exceptConnectionId)
@@ -235,6 +260,29 @@ public sealed class GameHub(RoomManager roomManager, GameCoordinator games, IRoo
     {
         (Room room, Guid playerId) = RequirePlayer();
         Throw(await RequireEngine<WittyBitsEngine>(room).SubmitAnswerAsync(playerId, promptId, text));
+    }
+
+    /// <summary>Shout Out: pick the trivia categories you like (up to the limit). Can be changed until the vote ends.</summary>
+    public async Task ShoutOutCategories(string[] categoryIds)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(await RequireEngine<ShoutOutEngine>(room).VoteCategoriesAsync(playerId, categoryIds));
+    }
+
+    /// <summary>Shout Out: buzz in. The first buzz once the answers are up gets to answer.</summary>
+    public Task Buzz()
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(RequireEngine<ShoutOutEngine>(room).Buzz(playerId));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Shout Out: the buzzer picks an answer (<c>a</c> to <c>d</c>).</summary>
+    public Task ShoutOutAnswer(string optionId)
+    {
+        (Room room, Guid playerId) = RequirePlayer();
+        Throw(RequireEngine<ShoutOutEngine>(room).Answer(playerId, optionId));
+        return Task.CompletedTask;
     }
 
     /// <summary>Witty Bits: vote for one answer in the current matchup (by its id, <c>a</c>, <c>b</c>, ...).</summary>

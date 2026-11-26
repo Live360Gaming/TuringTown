@@ -13,6 +13,9 @@ export function scopeFor(state) {
     return `${state.stage}:${state.round}`;
 }
 
+/** One saying of a line over a screen: a re-render or a repeated state of the same round does not say it again. */
+export const speechOccurrence = (key, round) => `${key}:${round}`;
+
 /** The one ending line for the final Reveal's result, as the server reported it. */
 export function endingKey({eliminated, wasBot} = {}) {
     if (!eliminated) return 'no_verdict';

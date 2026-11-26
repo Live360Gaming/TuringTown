@@ -123,6 +123,8 @@ internal sealed class WittyHarness : IRoomBroadcaster
         return Task.CompletedTask;
     }
 
+    public Task RoomChanged(Room room) => Task.CompletedTask;
+    public Task Secret(Room room, Guid playerId, SecretInfo secret) => Task.CompletedTask;
     public Task ChatMessage(Room room, ChatMessage message) => Task.CompletedTask;
     public Task Typing(Room room, Guid playerId, bool typing) => Task.CompletedTask;
     public List<(int Done, int Total)> ProgressEvents { get; } = [];

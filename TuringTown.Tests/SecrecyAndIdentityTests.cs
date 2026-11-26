@@ -52,7 +52,7 @@ public class SecrecyAndIdentityTests
         await h.ThroughOnboardingAsync();
         await h.UntilAsync(() => h.Engine.GetTranscript().Count > 0, "bot chat");
 
-        JoinResult result = new(h.Room.State, h.Room.GetRoster(), h.Room.GetRoster()[0], h.Engine.GetTranscript(), h.Time.GetUtcNow().ToUnixTimeMilliseconds(), h.Engine.GetUnmasked());
+        JoinResult result = new(h.Room.State, h.Room.GetRoster(), h.Room.GetRoster()[0], h.Engine.GetTranscript(), h.Time.GetUtcNow().ToUnixTimeMilliseconds(), h.Engine.GetUnmasked(), h.Room.GetSnapshot());
         string json = JsonSerializer.Serialize(result, Json);
 
         Assert.DoesNotContain("bot", json, StringComparison.OrdinalIgnoreCase);
@@ -98,8 +98,8 @@ public class SecrecyAndIdentityTests
         PlayerInfo[] roster = room.GetRoster().ToArray();
         Assert.Equal(8, roster.Select(p => p.Alias).Distinct().Count());
 
-        // There are 6 human-looking characters for 8 seats, so every one is used before any face repeats.
-        Assert.Equal(Characters.All.Length, roster.Select(p => p.CharacterId).Distinct().Count());
+        // Every character is used before any face repeats.
+        Assert.Equal(Math.Min(8, Characters.All.Length), roster.Select(p => p.CharacterId).Distinct().Count());
         Assert.All(roster, p => Assert.Contains(p.CharacterId, Characters.All));
     }
 
@@ -271,6 +271,36 @@ public class SecrecyAndIdentityTests
 
         // The next player is now the leader.
         Assert.True(room.IsLeader(b.Id));
+    }
+
+    [Fact]
+    public void Leaving_the_lobby_frees_the_seat_at_once_and_hands_over_the_lead()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 2, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+        room.SetConnected(a!.Id, "a1");
+        Assert.False(room.TryAddPlayer(out _, out _)); // full
+
+        // Still connected, no grace period: the seat is free straight away.
+        Assert.True(room.TryRemovePlayer(a.Id));
+        Assert.False(room.TryRemovePlayer(a.Id));
+        Assert.True(room.IsLeader(b!.Id));
+        Assert.True(room.TryAddPlayer(out _, out _));
+    }
+
+    [Fact]
+    public void Nobody_can_leave_their_seat_once_the_game_has_started()
+    {
+        Room room = new(RoomCode.CreateRandomRoomCode(), new GameOptions { MaxPlayers = 6, MinPlayers = 2 });
+        Assert.True(room.TryAddPlayer(out Player? a, out _));
+        Assert.True(room.TryAddPlayer(out Player? b, out _));
+        room.TrySetReady(a!.Id, true);
+        room.TrySetReady(b!.Id, true);
+        Assert.Equal(RoomStartError.None, room.TryStart(_ => 1));
+
+        Assert.False(room.TryRemovePlayer(a.Id));
+        Assert.Contains(room.GetRoster(), p => p.Id == a.Id);
     }
 
     [Fact]

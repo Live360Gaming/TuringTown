@@ -238,10 +238,11 @@ public sealed class FoundryBotAgent(
     {
         ["alias"] = ctx.BotAlias,
         ["round"] = ctx.Round.ToString(),
-        ["persona"] = PromptJson.Serialize(ctx.Persona.Select(p => new
+        ["persona"] = PromptJson.Serialize(ctx.Persona.Select(p =>
         {
-            question = p.Question,
-            answer = p.Kind == QuestionKind.Text ? p.Text ?? "" : string.Join(", ", p.ChosenOptions)
+            string answer = p.Kind == QuestionKind.Text ? p.Text ?? "" : string.Join(", ", p.ChosenOptions);
+            // The era answer also says, in so many words, roughly when this persona grew up.
+            return p.Era is null ? (object)new { question = p.Question, answer } : new { question = p.Question, answer, grew_up = p.Era };
         })),
         ["players"] = PromptJson.Serialize(ctx.AlivePlayers),
         ["history"] = PromptJson.Serialize(ctx.History.Select(h => new

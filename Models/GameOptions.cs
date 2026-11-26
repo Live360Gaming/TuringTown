@@ -11,9 +11,10 @@ public sealed class GameOptions : IValidatableObject
 
     /// <summary>
     /// The absolute maximum number of players in a session. The host can lower a session's limit but never exceed this.
+    /// A full room (these humans plus the night's bots) must fit the character art; checked on start in Program.cs.
     /// </summary>
     [Range(1, 1000)]
-    public int MaxPlayers { get; set; } = 8;
+    public int MaxPlayers { get; set; } = 4;
 
     /// <summary>
     /// The minimum number of players needed to play. Also the lowest limit the host may select.

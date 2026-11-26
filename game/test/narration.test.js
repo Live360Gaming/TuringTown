@@ -4,7 +4,7 @@ import {endingKey, scopeFor, truthKey} from '../src/core/narration/scopes.js';
 import {NarrationService} from '../src/core/narration/service.js';
 
 /** A service on a fake clock with fake sounds. `end()` finishes the line that is playing. */
-function setup({missing = [], locked = false} = {}) {
+function setup({missing = [], locked = false, lead = 0} = {}) {
     const log = {played: [], disposed: [], duck: false, volumes: []};
     const timers = new Map();
     let nextId = 1;
@@ -22,7 +22,16 @@ function setup({missing = [], locked = false} = {}) {
             setVolume: value => log.volumes.push(value),
             dispose: () => log.disposed.push(key),
         }),
-        duck: on => log.duck = on,
+        duck: on => {
+            log.duck = on;
+            if (!on) log.down = false;
+        },
+        // Like the real music: it takes `lead` ms to go down once, then reports 0 until it comes back up.
+        duckLead: () => {
+            if (!log.duck || log.down) return 0;
+            log.down = true;
+            return lead;
+        },
         setTimeout: callback => {
             timers.set(nextId, callback);
             return nextId++;
@@ -119,4 +128,30 @@ test('the verdict and the results are one part, so the ending runs on into the t
     assert.equal(scopeFor({stage: 'Reveal', round: 3, data: {final: true}}), scopeFor({stage: 'Results', round: 0}));
     assert.notEqual(scopeFor({stage: 'Reveal', round: 1, data: {final: false}}), 'ending');
     assert.notEqual(scopeFor({stage: 'Transition', round: 2, data: {beat: 'hotseat'}}), scopeFor({stage: 'Transition', round: 2, data: {beat: 'answer'}}));
+});
+
+test('with music playing, the music goes down first and the line plays once it is down', async () => {
+    const t = setup({lead: 250});
+    const done = t.service.enqueue(['goodbye_thanks', 'goodbye_robotic']);
+    assert.equal(t.log.duck, true);
+    assert.deepEqual(t.log.played, []);
+
+    t.tick(); // the music is down
+    assert.deepEqual(t.log.played, ['goodbye_thanks']);
+    t.end();
+    t.tick(); // the gap between lines; the music stayed down, so no second wait
+    assert.deepEqual(t.log.played, ['goodbye_thanks', 'goodbye_robotic']);
+    t.end();
+    assert.deepEqual(await done, ['completed', 'completed']);
+    assert.equal(t.log.duck, false);
+});
+
+test('stopping while the music goes down plays nothing and brings the music back', async () => {
+    const t = setup({lead: 250});
+    const done = t.service.play('rapid');
+    t.service.stop();
+    assert.equal(await done, 'cancelled');
+    assert.deepEqual(t.log.played, []);
+    assert.equal(t.log.duck, false);
+    assert.equal(t.timers.size, 0);
 });

@@ -6,6 +6,19 @@
 
 const pascal = id => id.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
 
+/** A banner for a page too old to show what the server asks for. Shown once. */
+function showOutOfDate() {
+    if (document.getElementById('tt-out-of-date')) return;
+    const banner = document.createElement('div');
+    banner.id = 'tt-out-of-date';
+    banner.textContent = 'This screen is out of date. Please reload the page.';
+    Object.assign(banner.style, {
+        position: 'fixed', top: '0', left: '0', right: '0', zIndex: '1000', padding: '12px',
+        background: '#FF65BD', color: '#0B0D1A', font: '700 18px sans-serif', textAlign: 'center',
+    });
+    document.body.append(banner);
+}
+
 export class GameDirector {
     /**
      * @param game     the Phaser game
@@ -42,6 +55,7 @@ export class GameDirector {
 
         if (!this.game.scene.getScene(key)) {
             console.warn(`No scene "${key}" for stage ${state.stage}`);
+            showOutOfDate();
             return;
         }
 

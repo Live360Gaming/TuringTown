@@ -7,7 +7,8 @@ public static class Characters
 {
     // Only human-looking characters are handed out, to humans and bots alike. The robot art (robot_01..03 in the
     // client) is never assigned: it is only shown once a bot has been found, which is the whole point of the game.
-    // With more seats than characters (up to 6 humans + 2 bots) some faces repeat; the aliases still differ.
+    // Every seat (humans plus the night's bots) gets its own face: Program.cs refuses a Game:MaxPlayers whose full room
+    // would need more characters than this list has. Add art here and in CHARACTER_KEYS (constants.js) together.
     public static readonly string[] All =
         ["character_01", "character_02", "character_03", "character_04", "character_05", "character_06", "character_07"];
 

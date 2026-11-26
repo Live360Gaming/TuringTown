@@ -21,7 +21,8 @@ bonus. The lobby and the night's own stages (Planning, Scoreboard, Finale) are d
         → Discussion (final) → Voting → Reveal (verdict) → Results → (night: Scoreboard or Finale)
 ```
 
-A `Transition` stage comes before most of these: the TV explains the next part (`data/transitions.js` holds the script),
+A `Transition` stage comes before the survey, the five questions, the hot topic, the hot seat (two: who, then the
+answer) and the verdict: the TV explains the next part (`data/transitions.js` holds the script),
 then calls `TransitionDone(beat)`. It also ends after `TransitionMaxSeconds`, and the leader can skip it.
 
 | Stage | What happens | Ends when | `data` |
@@ -32,8 +33,8 @@ then calls `TransitionDone(beat)`. It also ends after `TransitionMaxSeconds`, an
 | HotTopic | One more question. Nobody sees the answers. | everyone connected has answered, or time runs out | `{kind, meter, topic}` |
 | Transition | The next part is explained | the TV or leader, or the limit | `{beat, hostLine, hotSeat, topic, answer}` (the last three only for the `hotseat` and `answer` beats) |
 | Discussion | Anonymous chat, twice: about the hot seat, then the final one. Form answers are never shown. | timer | `{kind, meter, hotSeat, topic, shownAnswer}` |
-| Voting | First on the five answers (who seems off), later the deciding vote | everyone required has voted, or time runs out | `{kind, meter, questions, answers}` (the last two only at the first vote) |
-| Reveal | Before the Final: the suspicion meter. In the Final: who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally, final, meter}` |
+| Voting | First on the five answers (who seems off), later the deciding vote | everyone required has voted, or time runs out | `{kind, meter, questions, answers, hostLine}` (questions and answers only at the first vote) |
+| Reveal | Before the Final: the suspicion meter. In the Final: who was voted out, and whether they were a bot | timer | `{eliminated, wasBot, tally, final, meter, hostLine}` |
 | Results | Winner, every role, and whether the hot seat answer was really theirs | host or leader calls `ContinueNight`, or timer | `{winner, roles, hotSeatWasTheirs}` |
 
 - **The hot seat** (`HotSeatDraw`). Every player can be drawn, with a weight of 1 plus 2 per suspicion vote. The answer
@@ -43,6 +44,14 @@ then calls `TransitionDone(beat)`. It also ends after `TransitionMaxSeconds`, an
   before the final vote.
 - **Winning.** The final vote's plurality is eliminated. A tie goes to whichever of the tied players the meter suspected
   most. **Humans win if that player is a bot**; otherwise, including no verdict, the bots win.
+- **The Imposter** (`Imposter`, on by default, with at least `ImposterMinHumans` humans). When the game starts one human
+  is secretly made the Imposter: they win personal points for being the first vote's top suspect
+  (`ImposterSuspectPoints`) and for being voted out in the final (`ImposterEliminatedPoints`), which still loses the game
+  for the humans. It gives every human a reason to act odd, so comparing phones across the room proves nothing. Only
+  that player is told: `IRoomBroadcaster.Secret` sends a `Secret` (`{kind: "imposter", title, text}`) to their
+  connection alone, and their join result carries it again (`secret`) while the game runs. Nothing broadcast names the
+  Imposter before the Results, where `roles` mark them (`imposter: true`), as does the Finale. Their points go to the
+  standings (`GameOutcome.BonusSeatPoints`), never to a team's total. The bots are told one may exist, never who.
 - **The show host** (`IShowHost`) writes a run sheet during the Tutorial (five questions, a hot topic, a line per beat)
   and, from the five answers, the hot topic. It is never told a role or a form answer, and the server keeps the timings,
   draw, votes and winner. Anything it writes that fails the checks is replaced by built-in content.
@@ -55,6 +64,14 @@ then calls `TransitionDone(beat)`. It also ends after `TransitionMaxSeconds`, an
   A game asks a fixed mix, one of each by default (`TextQuestions`, `SingleChoiceQuestions`, `MultiChoiceQuestions`).
   Option ids are `a`..`f`, assigned by the server. There is **never a correct answer**: they are private preference
   questions.
+- **Era questions** (`EraQuestions`, 1 by default, on top of the mix) ask what someone grew up with ("Which cartoon did
+  you grow up with?": The Smurfs / Rugrats / SpongeBob / Bluey). On the wire an era question is an ordinary
+  `SingleChoice`, but on the server every option carries the decade it is typical of (`QuestionOption.Era`, one of
+  `Eras.All`, never serialized). It never asks for an age, a year or an age range; `QuestionValidator` wants every option
+  tagged, a known decade and at least three different ones. The humans' picks become `StyleProfile.Eras` (a count per
+  decade, kept by `WithoutAnswers`), and a bot's own pick becomes its `PersonaAnswer.Era` ("grew_up" in its prompt), so it
+  keeps its references and slang in the room's era without ever saying it. Built-in ones are in `ScriptedBotAgent`
+  (`EraPool`); the AI writes its own in `eraQuestions`.
 - **Onboarding answers are private for the whole game.** No state, roster or chat message ever carries a player's
   answers, so nobody (TV or phone) sees what anyone else answered (`AnswerPrivacyTests`). Players may of course say their
   own answers in the chat. The humans' answers go to the bot agent **only for the bot's own form** (written text per
@@ -72,12 +89,12 @@ the server; clients only get `PlayerInfo {id, alias, color, characterId, alive, 
 `SecrecyAndIdentityTests` serialises every broadcast and fails if a role or token appears early. **Never add a role,
 token or "is bot" flag to a DTO, a log line sent to clients, or a chat message.**
 
-**How a bot looks.** Bots are given a human-looking character like everyone else (the server only hands out the six
+**How a bot looks.** Bots are given a human-looking character like everyone else (the server only hands out the
 `character_NN` sprites, never the robots), so appearance is no tell. The robot art (`robot_01..03`) is drawn only after
 a bot is unmasked: when the Reveal stage says `wasBot`, and for everyone at Results. The one exception to "no role
 before the reveal" is the join result's `unmasked` list, the ids of bots whose reveal has already been announced, so a
 refreshed screen keeps showing them as robots. `TuringTownEngine` only adds a bot to it once its Reveal stage begins.
-There are 6 human sprites for up to 8 seats (6 humans + 2 bots), so a face can repeat in a full room; aliases still differ.
+There is a human sprite for every seat of a full room (the server checks this on start, see Configuration), so faces do not repeat.
 
 ## Hub contract (`/hubs/game`)
 
@@ -90,9 +107,11 @@ Server to client:
 | `StateChanged` | `{gameId, stage, round, step, endsAtUtcMs, data}`. Always a **full snapshot**, never a delta. |
 | `RosterChanged` | `PlayerInfo[]` (also changes when someone connects, disconnects or is voted out) |
 | `ChatMessage` | `{id, playerId, alias, color, characterId, text, sentAtUtcMs, mentions}` (`mentions` = ids of the players it @mentions) |
+| `Secret` | `{kind, title, text}`, sent to **one** player's connection only (the Imposter). Never to the group |
 | `Typing` | `{playerId, typing}`: a player started or stopped typing in the Discussion. Humans and bots look identical, and the client drops the flag when that player's message arrives, the stage changes, or 30 s pass |
 | `Progress` | `{done, total}` for the current Onboarding or Voting stage |
 | `GameError` | A generic message when acceptable game content cannot be prepared; the game returns to the lobby |
+| `RoomChanged` | `{phase, playerCount, settings: {maxPlayers, familyFriendly}, serverMaxPlayers, minPlayers}`: sent with every roster change, after a settings change and on the way back to the lobby. The join result carries the same as `room` |
 
 Client to server (a refused call throws a `HubException` with a readable message):
 
@@ -100,6 +119,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 |---|---|---|
 | `JoinAsHost(roomCode, hostToken)` / `JoinAsPlayer(roomCode, playerId, playerToken)` | host / player | any time. Returns `{state, roster, you, transcript, serverTimeUtcMs, unmasked}` |
 | `StartGame()` | host, or the leader player (first human to join) | Lobby. Starts the game night. Refused until `MinPlayers` have joined and all are ready |
+| `LeaveRoom()` | player | Any time (the Quit button). In the lobby the seat is freed at once and the next player leads; in a game the player is just away, like a dropped phone. `CloseRoom()` (host) ends the room for everyone |
 | `SetReady(bool ready)` | player | Lobby. Shown on the TV as a green ring and badge |
 | `TutorialStep(step)` | host | Tutorial |
 | `TutorialDone()` | host, or the leader player (to skip the intro) | Tutorial |
@@ -116,7 +136,7 @@ Client to server (a refused call throws a `HubException` with a readable message
 with it, so every screen shows the same time even if a device clock is wrong (`GameSession.msLeft`).
 
 Because the state is a snapshot, a phone that refreshes mid-game just joins again and renders the current stage. The
-client keeps the player's credentials in `sessionStorage` for this. The seat stays reserved while disconnected. In the lobby only, a player who is still offline after `Game:LobbyDisconnectGraceSeconds` (default 15) is cleared, their seat is freed and the next player becomes leader. The host TV shows a banner for every drop, return and clear (`PresenceToast`).
+client keeps the player's credentials in `sessionStorage` for this. The seat stays reserved while disconnected. In the lobby only, a player who is still offline after `Game:LobbyDisconnectGraceSeconds` (default 15) is cleared, their seat is freed and the next player becomes leader; the room stays open (the TV owns it). The host TV shows a banner for every drop, return and clear (`PresenceToast`).
 
 ## What a bot knows
 
@@ -226,7 +246,8 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `TransitionMaxSeconds` | 15 | the longest a transition waits for the TV; 0 turns them off |
 | `BotRapidMinDelayMs` / `MaxDelayMs`, `BotTopicMinDelayMs` / `MaxDelayMs` | 25000 / 80000, 6000 / 20000 | when a bot's answers come in |
 | `RoundPoints` | 100 | what the first round is worth, doubling each round. The side that gains from a vote's top suspect earns it (humans for a bot); added to the win bonus |
-| `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind (the form length is their sum) |
+| `TextQuestions` / `SingleChoiceQuestions` / `MultiChoiceQuestions` | 1 / 1 / 1 | onboarding questions of each kind |
+| `EraQuestions` | 1 | era questions on top (the form length is the sum of all four) |
 | `ChatMaxLength` / `AnswerMaxLength` | 200 / 300 | |
 | `ChatMinIntervalMs` | 1500 | per-player chat rate limit |
 | `BotMessagesPerRound` | 5 | cost control per bot |
@@ -241,9 +262,11 @@ The optional `TuringTown` section of `appsettings.json` (`TuringTownOptions`). D
 | `BotVoteMinDelayMs` / `BotVoteMaxDelayMs` | 3000 / 15000 | |
 
 The player limits (`Game:MaxPlayers`, `Game:MinPlayers`) are separate and belong to `GameOptions`. `MaxPlayers` is **4**
-for now: 4 humans plus 1 bot is 5 seats, which fits the 6 human sprites with no repeated face. Raising it to 5 or 6
-brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprites first (`Models/Characters.cs`,
-`constants.js` and the Preloader list them).
+for now: 4 humans plus 1 bot is 5 seats, which fits the 7 human sprites with no repeated face. The server refuses to
+start when a full room (`GameNight.SeatsFor`: humans plus the night's bots) would need more faces than
+`Characters.All` has. Raising it to 5 or more brings the second bot, and 8 humans need 10 sprites, so add the art first
+(`Models/Characters.cs` and `CHARACTER_KEYS` in `constants.js`; the Preloader loads from the latter). The phone's
+character picker scrolls once there are more characters than two rows hold.
 
 ## Client
 
@@ -272,7 +295,6 @@ brings the second bot (`BotCountFor`) and up to 8 seats, so add more human sprit
 ## Known limits
 
 - Single instance only (rooms and SignalR groups are in memory).
-- A player who quits in the lobby still holds a seat (shown dimmed), which counts toward the minimum.
 - The host cannot rejoin a room after a page refresh; the game ends for the room.
 - Real names cannot be reliably detected in chat (see Chat rules).
 - Some art is still placeholder (tutorial slides).

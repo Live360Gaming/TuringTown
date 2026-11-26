@@ -51,10 +51,27 @@ public sealed class TuringTownOptions
     public int SingleChoiceQuestions { get; set; } = 1;
     public int MultiChoiceQuestions { get; set; } = 1;
 
+    /// <summary>
+    /// Era questions ("Which cartoon did you grow up with?"): single choices whose options each point to a decade. They
+    /// never ask an age; the answers only tell the bots roughly when the room grew up (see <see cref="Eras"/>).
+    /// </summary>
+    public int EraQuestions { get; set; } = 1;
+
+    /// <summary>
+    /// With at least <see cref="ImposterMinHumans"/> humans, one of them is secretly the Imposter: they score personal
+    /// points for being suspected (<see cref="ImposterSuspectPoints"/>, the first vote's top suspect) and voted out in the
+    /// final (<see cref="ImposterEliminatedPoints"/>), which still loses Turing Town for the humans. It gives every human a
+    /// reason to act odd, so comparing phones across the room proves nothing.
+    /// </summary>
+    public bool Imposter { get; set; } = true;
+    public int ImposterMinHumans { get; set; } = 3;
+    public int ImposterSuspectPoints { get; set; } = 300;
+    public int ImposterEliminatedPoints { get; set; } = 1000;
+
     /// <summary>A copy, so one game can be tuned (for example by the agent it runs on) without changing the shared settings.</summary>
     public TuringTownOptions Clone() => (TuringTownOptions)MemberwiseClone();
 
-    public QuestionMix Mix => new(TextQuestions, SingleChoiceQuestions, MultiChoiceQuestions);
+    public QuestionMix Mix => new(TextQuestions, SingleChoiceQuestions, MultiChoiceQuestions, EraQuestions);
 
     public int QuestionCount => Mix.Total;
 

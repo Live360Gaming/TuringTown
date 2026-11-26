@@ -52,6 +52,15 @@ public sealed partial class TuringTownEngine : IGameEngine
     private StyleProfile _style = StyleProfile.Empty;
     private long _roundStartedMs;
     private int _humanPoints, _aiPoints;
+
+    // The secret Imposter (a human), chosen when the game starts, and the personal points they earned. Never broadcast
+    // before the Results; only the Imposter's own connection is told (SecretFor, IRoomBroadcaster.Secret).
+    private Guid? _imposterId;
+    private readonly Dictionary<Guid, int> _seatBonus = [];
+
+    internal static readonly SecretInfo ImposterSecret = new("imposter", "You are the Imposter!",
+        "Get the room to vote you out as the AI. You score points when they suspect you, and big points if they vote you out " +
+        "at the end. Keep it a secret: if you are voted out, the humans lose this game.");
     private readonly Dictionary<Guid, Guid?> _votes = [];
     private readonly Dictionary<Guid, int> _suspicion = [];
     private RoundKind _roundKind;
@@ -121,6 +130,15 @@ public sealed partial class TuringTownEngine : IGameEngine
     /// <summary>What the rounds have earned each side so far (see <see cref="TuringTownOptions.RoundPoints"/>).</summary>
     internal TeamTotals RoundPointTotals => new(_humanPoints, _aiPoints);
 
+    /// <summary>The personal points so far (the Imposter's), for tests.</summary>
+    internal IReadOnlyDictionary<Guid, int> SeatBonusTotals
+    {
+        get
+        {
+            lock (_gate) return new Dictionary<Guid, int>(_seatBonus);
+        }
+    }
+
     /// <summary>
     /// Plays this one game on its own (outside a game night, as the tests do) and puts the room back in the lobby
     /// at the end. The room must already be out of the lobby (see <see cref="Room.TryStart"/>).
@@ -177,6 +195,7 @@ public sealed partial class TuringTownEngine : IGameEngine
 
             Task<RunSheet> sheet = PlanShowAsync();
 
+            await PickImposterAsync();
             await RunTutorialAsync();
             _sheet = await sheet;
             await TransitionAsync(ShowBeats.Survey, 0);
@@ -199,7 +218,6 @@ public sealed partial class TuringTownEngine : IGameEngine
                     topic = LiveTopicAsync(answers);
                 }
 
-                await TransitionAsync(ShowBeats.Tap, round);
                 await RunVotingAndRevealAsync(round, final: false);
             }
 
@@ -213,9 +231,8 @@ public sealed partial class TuringTownEngine : IGameEngine
             round++;
             lock (_gate)
                 _roundKind = RoundKind.Final;
-            await TransitionAsync(ShowBeats.Discussion, round);
+            // The tap, meter, discussion and final lines play over their own screens, so they need no stage of their own.
             await RunDiscussionAsync(round, _opt.DiscussionSeconds);
-            await TransitionAsync(ShowBeats.Final, round);
             string winner = await RunVotingAndRevealAsync(round, final: true) ?? "Bots";
 
             await RunResultsAsync(winner);
@@ -241,8 +258,12 @@ public sealed partial class TuringTownEngine : IGameEngine
         }
 
         if (won is null) return GameOutcome.Failed;
-        return new GameOutcome(true, won, new Dictionary<Guid, int>(), GetUnmasked(),
-            new TeamTotals(_humanPoints, _aiPoints));
+        lock (_gate)
+            return new GameOutcome(true, won, new Dictionary<Guid, int>(), GetUnmasked(), new TeamTotals(_humanPoints, _aiPoints))
+            {
+                BonusSeatPoints = new Dictionary<Guid, int>(_seatBonus),
+                Imposter = _imposterId
+            };
     }
 
     // A bot's memory only lives for one game.
@@ -298,7 +319,7 @@ public sealed partial class TuringTownEngine : IGameEngine
             _roundStartedMs = _clock.ToUnixMs(_clock.UtcNow);
         }
 
-        await EnterStageAsync(Stage.Discussion, round, 0, duration, CurrentRoundData());
+        await EnterStageAsync(Stage.Discussion, round, 0, duration, CurrentRoundData(_roundKind == RoundKind.Final ? ShowBeats.Discussion : null));
 
         using CancellationTokenSource stage = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         Task[] bots = BotSeats().Select(b => BotChatLoopAsync(b, round, stage.Token)).ToArray();
@@ -330,9 +351,14 @@ public sealed partial class TuringTownEngine : IGameEngine
         await Task.WhenAll(bots);
 
         // Before the tally, so nobody's screen shows who is out while the announcer is still talking.
-        await TransitionAsync(final ? ShowBeats.Verdict : ShowBeats.Meter, round);
+        if (final) await TransitionAsync(ShowBeats.Verdict, round);
 
-        (RevealData reveal, bool? suspectIsBot) = TallyVotes(final);
+        (RevealData reveal, bool? suspectIsBot, Guid? suspect) = TallyVotes(final);
+        if (!final)
+        {
+            lock (_gate)
+                reveal = reveal with { HostLine = HostLine(ShowBeats.Meter) };
+        }
         RecordRound(round, reveal);
 
         // Each round is worth double the one before, so the final vote matters most. Nobody is told who gained.
@@ -341,6 +367,14 @@ public sealed partial class TuringTownEngine : IGameEngine
             int value = _opt.RoundPoints << Math.Min(round - 1, 20);
             if (caughtBot) _humanPoints += value;
             else _aiPoints += value;
+        }
+
+        // The Imposter's personal points: for topping the first vote, and more for being voted out at the end. Nobody is
+        // told until the Results.
+        lock (_gate)
+        {
+            if (suspect is { } top && top == _imposterId)
+                _seatBonus[top] = _seatBonus.GetValueOrDefault(top) + (final ? _opt.ImposterEliminatedPoints : _opt.ImposterSuspectPoints);
         }
 
         // Tell everyone who is out before the reveal, so the voted-out player's own screen switches to watching.
@@ -363,7 +397,8 @@ public sealed partial class TuringTownEngine : IGameEngine
 
     // ---------------------------------------------------------------- the meter
 
-    private RoundData CurrentRoundData()
+    /// <param name="beat">The beat whose line is said over this screen, so its AI host line can show with it.</param>
+    private RoundData CurrentRoundData(string? beat = null)
     {
         lock (_gate)
         {
@@ -376,14 +411,20 @@ public sealed partial class TuringTownEngine : IGameEngine
                 HotSeat = hot,
                 Questions = rapid ? _sheet.Questions : null,
                 Topic = hotSeat ? _topic : null,
-                ShownAnswer = hot is null ? null : _shownAnswer
+                ShownAnswer = hot is null ? null : _shownAnswer,
+                HostLine = beat is null ? null : HostLine(beat)
             };
         }
     }
 
     private RoundData VotingData()
     {
-        RoundData data = CurrentRoundData();
+        RoundData data = CurrentRoundData(_roundKind switch
+        {
+            RoundKind.RapidFire => ShowBeats.Tap,
+            RoundKind.Final => ShowBeats.Final,
+            _ => null
+        });
         lock (_gate)
             return _roundKind == RoundKind.RapidFire ? data with { Answers = PublicRapidAnswers() } : data;
     }
@@ -486,9 +527,32 @@ public sealed partial class TuringTownEngine : IGameEngine
         });
     }
 
+    /// <summary>
+    /// With enough humans, one of them becomes the Imposter. Only their own connection is told; a refreshed phone is told
+    /// again by its join result (<see cref="SecretFor"/>).
+    /// </summary>
+    private async Task PickImposterAsync()
+    {
+        PlayerSeat[] humans = _room.GetSeats().Where(s => !s.IsBot).ToArray();
+        if (!_opt.Imposter || humans.Length < Math.Max(2, _opt.ImposterMinHumans)) return;
+
+        Guid imposter = humans[RandomNumberGenerator.GetInt32(humans.Length)].Id;
+        lock (_gate) _imposterId = imposter;
+        await _broadcaster.Secret(_room, imposter, ImposterSecret);
+    }
+
+    /// <summary>What only this player may know about this game (that they are the Imposter), or null.</summary>
+    public SecretInfo? SecretFor(Guid playerId)
+    {
+        lock (_gate)
+            return _imposterId == playerId ? ImposterSecret : null;
+    }
+
     private async Task RunResultsAsync(string winner)
     {
-        IReadOnlyList<RoleReveal> roles = _room.GetSeats().Select(s => new RoleReveal(s.Id, s.Alias, s.IsBot)).ToArray();
+        Guid? imposter;
+        lock (_gate) imposter = _imposterId;
+        IReadOnlyList<RoleReveal> roles = _room.GetSeats().Select(s => new RoleReveal(s.Id, s.Alias, s.IsBot, s.Id == imposter)).ToArray();
         lock (_gate)
         {
             foreach (RoleReveal role in roles.Where(r => r.WasBot))
@@ -771,6 +835,8 @@ public sealed partial class TuringTownEngine : IGameEngine
                     Dictionary<string, bool> checkedTexts = [];
                     for (int i = 0; i < adjusted.Length; i++)
                     {
+                        // An era question keeps its place: a plain single choice in its stead would break the mix.
+                        if (adjusted[i].IsEra) continue;
                         foreach (OnboardingQuestion candidate in ScriptedBotAgent.QuestionCandidates(policy, adjusted[i].Kind, matureOnly: true))
                         {
                             OnboardingQuestion replacement = candidate with { Id = adjusted[i].Id };
@@ -846,6 +912,20 @@ public sealed partial class TuringTownEngine : IGameEngine
             for (int i = 0; i < count; i++) result.Add(accepted[i % accepted.Count]);
         }
 
+        List<OnboardingQuestion> eras = [];
+        if (_opt.Mix.Era > 0)
+        {
+            foreach (OnboardingQuestion candidate in ScriptedBotAgent.EraCandidates())
+            {
+                OnboardingQuestion question = candidate with { Id = "candidate" };
+                if (QuestionValidator.IsValid([question], policy, 1) && await QuestionsAllowedAsync([question], policy, ct, checkedTexts))
+                    eras.Add(question);
+                if (eras.Count >= _opt.Mix.Era) break;
+            }
+            if (eras.Count == 0) return null;
+            for (int i = 0; i < _opt.Mix.Era; i++) result.Add(eras[i % eras.Count]);
+        }
+
         OnboardingQuestion[] form = result.OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
             .Select((q, i) => q with { Id = $"q{i + 1}" }).ToArray();
         return QuestionValidator.IsValid(form, policy, _opt.Mix) ? form : null;
@@ -883,6 +963,8 @@ public sealed partial class TuringTownEngine : IGameEngine
         {
             samples = _answers.Values.SelectMany(a => a).ToArray();
             _style = StyleProfile.From(questions, samples);
+            // A later game of the night (Shout Out) pitches its trivia at the room's decades.
+            if (_style.Eras.Count > 0) _night?.SetRoomEras(_style.Eras);
         }
 
         await Task.WhenAll(BotSeats().Select(async bot =>
@@ -975,7 +1057,10 @@ public sealed partial class TuringTownEngine : IGameEngine
             OnboardingAnswer? a = answers.FirstOrDefault(x => x.QuestionId == q.Id);
             return q.Kind == QuestionKind.Text
                 ? new PersonaAnswer(q.Text, q.Kind, a?.Text ?? "", [])
-                : new PersonaAnswer(q.Text, q.Kind, null, q.Options.Where(o => a?.OptionIds?.Contains(o.Id) == true).Select(o => o.Text).ToArray());
+                : new PersonaAnswer(q.Text, q.Kind, null, q.Options.Where(o => a?.OptionIds?.Contains(o.Id) == true).Select(o => o.Text).ToArray())
+                {
+                    Era = q.EraOf(a?.OptionIds)
+                };
         }).ToArray();
 
     /// <summary>
@@ -1306,7 +1391,7 @@ public sealed partial class TuringTownEngine : IGameEngine
     /// settled by who was more suspected in the earlier rounds. Still tied, or no votes, eliminates nobody.
     /// Also says whether the round's top suspect is a bot (null when there is none), for the points only.
     /// </summary>
-    private (RevealData Reveal, bool? SuspectIsBot) TallyVotes(bool final)
+    private (RevealData Reveal, bool? SuspectIsBot, Guid? Suspect) TallyVotes(bool final)
     {
         lock (_gate)
         {
@@ -1337,10 +1422,10 @@ public sealed partial class TuringTownEngine : IGameEngine
             {
                 PlayerSeat eliminated = seats[caught];
                 _room.Eliminate(eliminated.Id);
-                return (new RevealData(eliminated.ToInfo() with { Alive = false }, eliminated.IsBot, tally, true, Meter()), suspectIsBot);
+                return (new RevealData(eliminated.ToInfo() with { Alive = false }, eliminated.IsBot, tally, true, Meter()), suspectIsBot, suspect);
             }
 
-            return (new RevealData(null, null, tally, final, Meter()), suspectIsBot);
+            return (new RevealData(null, null, tally, final, Meter()), suspectIsBot, suspect);
         }
     }
 }

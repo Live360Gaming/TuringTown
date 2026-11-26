@@ -30,7 +30,8 @@ export class TuringTownHostResults extends HostStage {
             const x = startX + i * gap;
             createAvatar(this, x, 300, 100, player);
             this.add.text(x, 380, role.alias, {fontSize: '20px', color: player.color}).setOrigin(0.5);
-            this.add.text(x, 415, role.wasBot ? 'BOT' : 'HUMAN', {fontSize: '26px', color: role.wasBot ? '#39ff14' : '#ffffff'}).setOrigin(0.5);
+            this.add.text(x, 415, role.wasBot ? 'BOT' : role.imposter ? 'IMPOSTER' : 'HUMAN',
+                {fontSize: '26px', color: role.wasBot ? '#39ff14' : role.imposter ? '#ffd476' : '#ffffff'}).setOrigin(0.5);
         });
 
         // Queued behind the ending line, if that is still being said.

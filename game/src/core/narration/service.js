@@ -8,10 +8,10 @@ export const TIMEOUT_SLACK_MS = 1500;
 export class NarrationService {
     /**
      * @param deps {exists(key), isLocked(), durationMs(key), create(key, volume) -> {play(onEnd), setVolume(v), dispose()},
-     *              duck(on), setTimeout, clearTimeout, gapMs, log(event, key)}
+     *              duck(on), duckLead() -> ms until the music is down, setTimeout, clearTimeout, gapMs, log(event, key)}
      */
     constructor(deps) {
-        this.deps = {gapMs: 350, log: () => {}, ...deps};
+        this.deps = {gapMs: 350, log: () => {}, duckLead: () => 0, ...deps};
         this.queue = [];
         this.current = null;
         this.gap = null;
@@ -82,14 +82,22 @@ export class NarrationService {
 
         const current = {key, resolve, sound, timer: null};
         this.current = current;
-        this.deps.duck(true);
         const end = reason => {
             if (this.current === current) this.finish(reason);
         };
-        // A line that never reports its end must not hold up the ones behind it.
-        current.timer = this.deps.setTimeout(() => end('timeout'), this.deps.durationMs(key) + TIMEOUT_SLACK_MS);
-        this.deps.log('started', key);
-        if (sound.play(() => end('completed')) === false) end('blocked');
+        const speak = () => {
+            if (this.current !== current) return;
+            // A line that never reports its end must not hold up the ones behind it.
+            current.timer = this.deps.setTimeout(() => end('timeout'), this.deps.durationMs(key) + TIMEOUT_SLACK_MS);
+            this.deps.log('started', key);
+            if (sound.play(() => end('completed')) === false) end('blocked');
+        };
+
+        // Turn the music down first, and speak once it is down. Stopping during the wait cancels the line like any other.
+        this.deps.duck(true);
+        const lead = this.deps.duckLead();
+        if (lead > 0) current.timer = this.deps.setTimeout(speak, lead);
+        else speak();
     }
 
     finish(reason) {

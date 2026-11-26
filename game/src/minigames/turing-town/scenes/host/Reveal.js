@@ -18,7 +18,8 @@ export class TuringTownHostReveal extends HostStage {
 
         // Before the final vote nobody leaves: the votes only move the meter.
         if (!final) {
-            addMeter(this, meter, {y: 200, rowHeight: Math.min(60, 420 / Math.max(meter.length, 1))});
+            addMeter(this, meter, {y: 200, rowHeight: Math.min(60, 380 / Math.max(meter.length, 1))});
+            this.speak('meter', this.session.state.data.hostLine);
             return;
         }
 

@@ -13,7 +13,11 @@ public readonly record struct BotKey(Guid GameId, Guid BotId);
 /// <summary>
 /// One of the bot's own onboarding answers, written out so a prompt can read it ("picked: Pizza, Tacos").
 /// </summary>
-public sealed record PersonaAnswer(string Question, QuestionKind Kind, string? Text, IReadOnlyList<string> ChosenOptions);
+public sealed record PersonaAnswer(string Question, QuestionKind Kind, string? Text, IReadOnlyList<string> ChosenOptions)
+{
+    /// <summary>For an era question, the decade of the option picked (roughly when this persona grew up).</summary>
+    public string? Era { get; init; }
+}
 
 /// <summary>
 /// What a finished round looked like, copied from the public Reveal (so it holds no more than every player saw).
@@ -26,6 +30,9 @@ public sealed record RoundOutcome(int Round, string? EliminatedAlias, bool? WasB
 public sealed record ChoiceStyle(string Question, IReadOnlyList<OptionCount> Counts, int MedianPicked);
 
 public readonly record struct OptionCount(string Option, int Count);
+
+/// <summary>How many humans' era answers point to <paramref name="Era"/> (see <see cref="Eras"/>).</summary>
+public readonly record struct EraCount(string Era, int Count);
 
 /// <summary>What the humans wrote for one free-text question: sanitised, capped quoted samples (untrusted player text).</summary>
 public sealed record QuestionSamples(string Question, IReadOnlyList<string> Answers);
@@ -53,11 +60,17 @@ public sealed record StyleProfile(
     [JsonIgnore]
     public IReadOnlyList<QuestionSamples> TextAnswers { get; init; } = [];
 
+    /// <summary>
+    /// Roughly when the humans grew up: how many era answers point to each decade, most first. An anonymous count, so
+    /// <see cref="WithoutAnswers"/> keeps it: the bots keep their references in the room's era all game.
+    /// </summary>
+    public IReadOnlyList<EraCount> Eras { get; init; } = [];
+
     public static StyleProfile Empty { get; } = new(0, 0, 0, 0, [], []);
 
     /// <summary>
     /// The writing-style numbers only: no human text and no picks. Answers are private, so this is all a bot gets once
-    /// the form is over, and it can never quote or count anyone else's answers in the chat.
+    /// the form is over, and it can never quote or count anyone else's answers in the chat. The era counts stay.
     /// </summary>
     public StyleProfile WithoutAnswers() => this with { Samples = [], Choices = [], TextAnswers = [] };
 
@@ -104,6 +117,14 @@ public sealed record StyleProfile(
                 .ToArray()))
             .ToArray();
 
+        EraCount[] eras = humanAnswers
+            .Select(a => byId.TryGetValue(a.QuestionId, out OnboardingQuestion? q) ? q.EraOf(a.OptionIds) : null)
+            .OfType<string>()
+            .GroupBy(e => e)
+            .Select(g => new EraCount(g.Key, g.Count()))
+            .OrderByDescending(e => e.Count).ThenBy(e => e.Era)
+            .ToArray();
+
         return new StyleProfile(
             Median(texts.Select(t => t.Length).ToArray()),
             lowercase,
@@ -112,7 +133,8 @@ public sealed record StyleProfile(
             texts.Distinct().Take(MaxSamples).ToArray(),
             choices)
         {
-            TextAnswers = perQuestion
+            TextAnswers = perQuestion,
+            Eras = eras
         };
     }
 

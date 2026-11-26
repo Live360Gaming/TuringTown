@@ -13,6 +13,11 @@ export class TuringTownPlayerDiscussion extends PlayerStage {
 
     build() {
         this.sending = false;
+        // The hot seat chat and the final chat follow each other on this same screen, so a new round redraws it.
+        const round = this.session.state.round;
+        this.listen(this.session, 'state', state => {
+            if (state.stage === 'Discussion' && state.round !== round) this.scene.restart();
+        });
         this.canWrite = !this.session.spectating;
 
         this.title = this.addText(roundTitle(this.session.state), {fontStyle: 'bold'}).setOrigin(0, 0.5);

@@ -22,6 +22,8 @@ public sealed class FoundryQuestionGenerator(ILlmClient llm, BotPrompts prompts,
             ["text"] = request.Mix.Text.ToString(),
             ["single"] = request.Mix.SingleChoice.ToString(),
             ["multi"] = request.Mix.MultiChoice.ToString(),
+            ["era"] = request.Mix.Era.ToString(),
+            ["eras"] = string.Join(", ", Eras.All),
             ["tone_requirement"] = !request.Policy.FamilyFriendly && request.Mix.Total > 0
                 ? "Include at least one cheeky question marked mature, while following the safety rules."
                 : "Every question and option must be suitable for the requested tone.",
@@ -53,10 +55,8 @@ public sealed class FoundryQuestionGenerator(ILlmClient llm, BotPrompts prompts,
         }
 
         List<OnboardingQuestion> questions = [];
-        int number = 0;
         foreach (JsonElement q in root.GetProperty("questions").EnumerateArray())
         {
-            number++;
             QuestionKind kind = Enum.TryParse(q.GetProperty("kind").GetString(), out QuestionKind k) ? k : throw new InvalidOperationException("Unknown question kind.");
             string text = PromptText.NormalizeDashes(PromptText.Sanitize(q.GetProperty("text").GetString(), 300));
             bool mature = q.GetProperty("mature").GetBoolean();
@@ -73,10 +73,27 @@ public sealed class FoundryQuestionGenerator(ILlmClient llm, BotPrompts prompts,
                 QuestionKind.SingleChoice => 1,
                 _ => q.GetProperty("maxSelect").GetInt32()
             };
-            questions.Add(new OnboardingQuestion($"q{number}", kind, text, mature, options, kind == QuestionKind.Text ? 0 : 1, max));
+            questions.Add(new OnboardingQuestion("", kind, text, mature, options, kind == QuestionKind.Text ? 0 : 1, max));
         }
 
-        return questions;
+        // Era questions are single choices whose options carry a decade. Each goes in at a random place, so the form
+        // does not always open or close with one.
+        if (root.TryGetProperty("eraQuestions", out JsonElement eraQuestions) && eraQuestions.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement q in eraQuestions.EnumerateArray())
+            {
+                string text = PromptText.NormalizeDashes(PromptText.Sanitize(q.GetProperty("text").GetString(), 300));
+                QuestionOption[] options = q.GetProperty("options").EnumerateArray()
+                    .Select((o, i) => new QuestionOption(((char)('a' + i)).ToString(),
+                        PromptText.NormalizeDashes(PromptText.Sanitize(o.GetProperty("text").GetString(), 100)),
+                        o.GetProperty("mature").GetBoolean(), o.GetProperty("era").GetString()))
+                    .ToArray();
+                questions.Insert(RandomNumberGenerator.GetInt32(questions.Count + 1),
+                    new OnboardingQuestion("", QuestionKind.SingleChoice, text, q.GetProperty("mature").GetBoolean(), options, 1, 1));
+            }
+        }
+
+        return questions.Select((q, i) => q with { Id = $"q{i + 1}" }).ToArray();
     }
 
     private static LlmJsonSchema Schema()
@@ -104,11 +121,41 @@ public sealed class FoundryQuestionGenerator(ILlmClient llm, BotPrompts prompts,
             ["additionalProperties"] = false
         };
 
+        JsonObject eraOption = new()
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["text"] = new JsonObject { ["type"] = "string" },
+                ["mature"] = new JsonObject { ["type"] = "boolean" },
+                ["era"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(Eras.All.Select(e => (JsonNode?)JsonValue.Create(e)).ToArray()) }
+            },
+            ["required"] = new JsonArray("text", "mature", "era"),
+            ["additionalProperties"] = false
+        };
+
+        JsonObject eraQuestion = new()
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["text"] = new JsonObject { ["type"] = "string" },
+                ["mature"] = new JsonObject { ["type"] = "boolean" },
+                ["options"] = new JsonObject { ["type"] = "array", ["items"] = eraOption }
+            },
+            ["required"] = new JsonArray("text", "mature", "options"),
+            ["additionalProperties"] = false
+        };
+
         JsonObject root = new()
         {
             ["type"] = "object",
-            ["properties"] = new JsonObject { ["questions"] = new JsonObject { ["type"] = "array", ["items"] = question } },
-            ["required"] = new JsonArray("questions"),
+            ["properties"] = new JsonObject
+            {
+                ["questions"] = new JsonObject { ["type"] = "array", ["items"] = question },
+                ["eraQuestions"] = new JsonObject { ["type"] = "array", ["items"] = eraQuestion }
+            },
+            ["required"] = new JsonArray("questions", "eraQuestions"),
             ["additionalProperties"] = false
         };
 

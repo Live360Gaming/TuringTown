@@ -2,12 +2,13 @@
 
 A room plays a **game night**: several mini games in a row, **Humans vs AI**. When the host (or the leader) presses
 Start, the AI team chooses the order of the games, the same seats play every game, and at the end the side with more
-points wins the night. There are two games, [Turing Town](game-flow.md) and [Witty Bits](witty-bits.md); the night
+points wins the night. There are three games, [Turing Town](game-flow.md), [Witty Bits](witty-bits.md) and
+[Shout Out](shout-out.md) (buzz-in trivia); the night
 plays every **enabled** one and the AI only chooses the order.
 
 **Turning a game off.** Each game's `game/src/minigames/<id>/data/game.json` has an `"enabled"` flag (true when missing).
 The server embeds these files (`GameDefinitions`) and leaves a disabled game out of the night. **Witty Bits is disabled for
-now**, so a night is just Turing Town (Planning, Turing Town, Finale). Set the flag to `true` to bring it back; a rebuild is
+now**, so a night is Turing Town and Shout Out in the order the AI picks. Set the flag to `true` to bring it back; a rebuild is
 needed, since the files are compiled into the server.
 
 The server runs the night (`Services/Games/GameNight`, one per room, started by `GameCoordinator`). Each game is an
@@ -41,8 +42,8 @@ character) play every game of the night, and everyone is back in play at the sta
 ## Score
 
 - **A team game** (Turing Town) gives its winning side a flat bonus, `GameNight:TuringTownWinPoints` (1000).
-- Turing Town also pays **per round**, doubling each round (`TuringTown:RoundPoints`, 100/200/400 over 3 rounds): the
-  humans earn the round's value when its top suspect is a bot, the AI team when it is a human (`GameOutcome.TeamPoints`).
+- Turing Town also pays **per round**, doubling each round (`TuringTown:RoundPoints`: 100 for the first vote in round 1,
+  400 for the final vote in round 3; the hot seat round has no vote): the humans earn the round's value when its top suspect is a bot, the AI team when it is a human (`GameOutcome.TeamPoints`).
 - **A points game** (Witty Bits) gives each team the **average** points of its seats, so a table of four humans does not
   beat one bot just by having more players.
 - The Finale names the side with the higher total.

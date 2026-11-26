@@ -23,6 +23,7 @@ export class TuringTownHostVoting extends HostStage {
             this.progressText = this.add.text(HOST_CENTER_X, 690, '', textStyle('meta', {fontSize: '22px'})).setOrigin(0.5);
             this.listen(this.session, 'progress', () => this.showProgress());
             this.showProgress();
+            this.speak('tap', data.hostLine);
             return;
         }
 
@@ -34,6 +35,7 @@ export class TuringTownHostVoting extends HostStage {
         this.progressText = this.add.text(HOST_CENTER_X, 200, '', textStyle('instruction', {fontSize: '30px'})).setOrigin(0.5);
         this.listen(this.session, 'progress', () => this.showProgress());
         this.showProgress();
+        if (final) this.speak('final', data.hostLine);
     }
 
     showAnswers({questions = [], answers = []}) {

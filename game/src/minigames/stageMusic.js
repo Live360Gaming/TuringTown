@@ -1,5 +1,6 @@
 import {playTrack, trackFor as turingTown} from './turing-town/music.js';
 import {trackFor as wittyBits} from './witty-bits/music.js';
+import {trackFor as shoutOut} from './shout-out/music.js';
 import {trackFor as gameNight} from './game-night/music.js';
 
 // Music that follows the stage, for whichever game the state belongs to. Each game says which track goes with each of
@@ -8,6 +9,7 @@ import {trackFor as gameNight} from './game-night/music.js';
 const TRACK_FOR = {
     'turing-town': turingTown,
     'witty-bits': wittyBits,
+    'shout-out': shoutOut,
     'game-night': gameNight,
 };
 

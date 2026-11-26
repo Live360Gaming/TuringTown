@@ -1,3 +1,4 @@
+import {ensureLatestBuild} from './core/version.js';
 import { Boot } from './scenes/boot/Boot.js';
 import { Preloader } from "./scenes/boot/Preloader.js";
 import { Game } from 'phaser';
@@ -9,6 +10,7 @@ import {Player} from "./scenes/player/Player.js";
 import {PlayerLobby} from "./scenes/player/PlayerLobby.js";
 import {TURING_TOWN_SCENES} from "./minigames/turing-town/index.js";
 import {WITTY_BITS_SCENES} from "./minigames/witty-bits/index.js";
+import {SHOUT_OUT_SCENES} from "./minigames/shout-out/index.js";
 import {GAME_NIGHT_SCENES} from "./minigames/game-night/index.js";
 import {HostSettings} from "./scenes/host/overlays/HostSettings.js";
 import {QuitConfirm} from "./scenes/host/overlays/QuitConfirm.js";
@@ -44,6 +46,7 @@ const config = {
         ...GAME_NIGHT_SCENES,
         ...TURING_TOWN_SCENES,
         ...WITTY_BITS_SCENES,
+        ...SHOUT_OUT_SCENES,
         // Overlays come after Host so they draw on top of it.
         HostSettings,
         QuitConfirm,
@@ -53,4 +56,4 @@ const config = {
 };
 
 // The server picks the season before any art is loaded (fast fallback to the normal look if it does not answer).
-export default loadSeason().then(() => new Game(config));
+export default ensureLatestBuild().then(loadSeason).then(() => new Game(config));

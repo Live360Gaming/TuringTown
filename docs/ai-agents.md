@@ -40,6 +40,7 @@ also its fallback:
 |---|---|---|---|
 | The AI team's coach: the order of the games and a line for the TV | `FoundryGameNightPlanner` | `ScriptedGameNightPlanner` (random order); the night also replaces an invalid or slow plan | Planning |
 | Witty Bits prompts (not a player: no persona, no context) | `FoundryWittyPromptGenerator` in `FallbackWittyPromptGenerator` | `BuiltInWittyPrompts` | Witty Bits tutorial |
+| Shout Out trivia (not a player; a second call answers each question cold and drops any it gets wrong) | `FoundryTriviaGenerator` in `FallbackTriviaGenerator` | `BuiltInTrivia` | Shout Out tutorial and category vote |
 | A Witty Bits bot: an answer, a vote | `FoundryWittyBotAgent` in `FallbackWittyBotAgent` | `ScriptedWittyBotAgent` | Writing, Matchup |
 
 - `AgentSelector` picks the agents **once per night** (`AgentSet` holds all of them, and the planner).
@@ -81,7 +82,7 @@ Two sections, deliberately apart:
 | Key | Default | Meaning |
 |---|---|---|
 | `Provider` | `Scripted` | `Scripted` or `Foundry` |
-| `Calls:<Chat\|Vote\|Onboarding\|Questions\|RoundNotes\|Plan\|WittyPrompts\|WittyAnswer\|WittyVote>` | see file | `ReasoningEffort` (sent as `reasoning_effort`, empty sends nothing), `MaxOutputTokens` (`max_completion_tokens`, which for a reasoning model **includes the hidden reasoning**), `TimeoutMs` |
+| `Calls:<Chat\|Vote\|Onboarding\|Questions\|RoundNotes\|Plan\|WittyPrompts\|WittyAnswer\|WittyVote\|Show\|ShowTopic\|Trivia\|TriviaCheck>` | see file | `ReasoningEffort` (sent as `reasoning_effort`, empty sends nothing), `MaxOutputTokens` (`max_completion_tokens`, which for a reasoning model **includes the hidden reasoning**), `TimeoutMs` |
 | `Limits:MaxConcurrentCalls` | 8 | calls in flight at once |
 | `Limits:MaxCallsPerGame` | 150 | per game |
 | `Limits:DailyTokenBudget` | 5,000,000 | input + output tokens per UTC day, from the model's own usage counts (about $5 on a small model) |

@@ -13,6 +13,11 @@ export class TuringTownHostDiscussion extends HostStage {
 
     build() {
         const {data} = this.session.state;
+        // The hot seat chat and the final chat follow each other on this same screen, so a new round redraws it.
+        const round = this.session.state.round;
+        this.listen(this.session, 'state', state => {
+            if (state.stage === 'Discussion' && state.round !== round) this.scene.restart();
+        });
         this.setTitle(roundTitle(this.session.state));
         this.setInstruction(chatHint(data));
         this.add.text(HOST_CENTER_X, 156, meterLine(data?.meter), textStyle('meta')).setOrigin(0.5);
@@ -25,5 +30,7 @@ export class TuringTownHostDiscussion extends HostStage {
 
         // A soft pop on the TV for every new line.
         this.listen(this.session, 'chat', () => this.sound.play('message_sfx2'));
+
+        if (data?.kind === 'Final') this.speak('discussion', data.hostLine);
     }
 }

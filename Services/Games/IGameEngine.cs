@@ -60,4 +60,13 @@ public sealed record GameOutcome(
     TeamTotals? TeamPoints = null)
 {
     public static GameOutcome Failed { get; } = new(false, null, new Dictionary<Guid, int>(), []);
+
+    /// <summary>
+    /// Personal points a team game gives single seats (Turing Town's Imposter). They count in the standings only, never
+    /// in a team's total.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, int> BonusSeatPoints { get; init; } = new Dictionary<Guid, int>();
+
+    /// <summary>The human who was secretly the Imposter in this game, if any (public once the game is over).</summary>
+    public Guid? Imposter { get; init; }
 }

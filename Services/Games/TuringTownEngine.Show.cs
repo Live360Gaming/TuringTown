@@ -97,7 +97,7 @@ public sealed partial class TuringTownEngine
             PlayerInfo? hot = beat is ShowBeats.HotSeat or ShowBeats.Answer && _hotSeat is { } id && _room.TryGetSeat(id, out PlayerSeat seat)
                 ? seat.ToInfo()
                 : null;
-            string? line = _sheet.Lines.GetValueOrDefault(beat)?.Replace("{alias}", hot?.Alias ?? "friend");
+            string? line = HostLine(beat, hot?.Alias);
             data = new TransitionData(beat, line, hot,
                 beat == ShowBeats.Answer ? _topic : null,
                 beat == ShowBeats.Answer ? _shownAnswer : null);
@@ -106,6 +106,10 @@ public sealed partial class TuringTownEngine
         await EnterStageAsync(Stage.Transition, round, 0, max, data);
         await _clock.WaitAsync(max, done);
     }
+
+    /// <summary>The AI host's line for a beat, with <c>{alias}</c> filled in. Call with the gate held.</summary>
+    private string? HostLine(string beat, string? alias = null) =>
+        _sheet.Lines.GetValueOrDefault(beat)?.Replace("{alias}", alias ?? "friend");
 
     /// <summary>The TV finished (or the leader skipped) the transition for <paramref name="beat"/>.</summary>
     public string? TransitionDone(string? beat)

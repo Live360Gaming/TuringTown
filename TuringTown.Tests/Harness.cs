@@ -96,6 +96,8 @@ internal sealed class Harness : IRoomBroadcaster
     public TuringTownEngine Engine { get; }
     public TuringTownOptions Options { get; } = new()
     {
+        // Most tests pin a 1 text / 1 single / 1 multi form; the era tests turn era questions back on.
+        EraQuestions = 0,
         TutorialMaxSeconds = 10,
         OnboardingSeconds = 10,
         DiscussionSeconds = 10,
@@ -240,6 +242,21 @@ internal sealed class Harness : IRoomBroadcaster
     public Task RosterChanged(Room room)
     {
         Record("roster", room.GetRoster());
+        return Task.CompletedTask;
+    }
+
+    public Task RoomChanged(Room room)
+    {
+        Record("room", room.GetSnapshot());
+        return Task.CompletedTask;
+    }
+
+    /// <summary>What was told to one player alone (never a broadcast, so it is not in <see cref="Messages"/>).</summary>
+    public List<(Guid PlayerId, SecretInfo Secret)> Secrets { get; } = [];
+
+    public Task Secret(Room room, Guid playerId, SecretInfo secret)
+    {
+        lock (Secrets) Secrets.Add((playerId, secret));
         return Task.CompletedTask;
     }
 

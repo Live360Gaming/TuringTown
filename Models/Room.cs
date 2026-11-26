@@ -387,6 +387,27 @@ public class Room(RoomCode rc, GameOptions options)
         }
     }
 
+    /// <summary>The player's current connection, or null while they are away (and always null for a bot).</summary>
+    internal string? ConnectionOf(Guid playerId)
+    {
+        lock (this)
+            return _players.FirstOrDefault(p => p.Id == playerId)?.ConnectionId;
+    }
+
+    /// <summary>
+    /// A human leaves the lobby on purpose (the Leave button): the seat is freed at once, with no grace period. If
+    /// they were the leader, the next human to have joined becomes the leader.
+    /// </summary>
+    /// <returns>True if the player was removed.</returns>
+    public bool TryRemovePlayer(Guid playerId)
+    {
+        lock (this)
+        {
+            if (_state.Stage != Stage.Lobby) return false;
+            return _players.RemoveAll(p => p.Id == playerId && !p.IsBot) > 0;
+        }
+    }
+
     /// <summary>
     /// Votes a player out. They stay in the room as a spectator.
     /// </summary>

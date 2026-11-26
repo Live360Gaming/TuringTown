@@ -21,6 +21,7 @@ public sealed class GameCoordinator(
     TimeProvider time,
     IOptions<TuringTownOptions> turingTown,
     IOptions<WittyBitsOptions> wittyBits,
+    IOptions<ShoutOutOptions> shoutOut,
     IOptions<GameNightOptions> night,
     ILoggerFactory loggerFactory)
 {
@@ -71,7 +72,14 @@ public sealed class GameCoordinator(
                     "and everyone else votes. Points are shared by vote, round 2 is worth double, and the last round has everyone " +
                     "answer one prompt. Each team scores the average points of its players."),
                 () => new WittyBitsEngine(room, set.WittyAgent, set.WittyPrompts, contentFilter, broadcaster, time, wittyBits.Value.Clone(),
-                    loggerFactory.CreateLogger<WittyBitsEngine>(), context))
+                    loggerFactory.CreateLogger<WittyBitsEngine>(), context)),
+            new NightGameEntry(
+                new PlannableGame(GameIds.ShoutOut, "Shout Out",
+                    "Buzz-in trivia. The room picks categories, then a question and four answers show on the TV; the first player " +
+                    "to buzz in answers. Right earns points, wrong costs points and the others get a go. The last questions are " +
+                    "worth double. Each team scores the average points of its players."),
+                () => new ShoutOutEngine(room, set.Trivia ?? new BuiltInTrivia(), contentFilter, broadcaster, time, shoutOut.Value.Clone(),
+                    loggerFactory.CreateLogger<ShoutOutEngine>(), context))
         ];
         return all.Where(e => definitions.IsEnabled(e.Info.GameId)).ToArray();
     }

@@ -7,7 +7,7 @@ import {listen} from './listen.js';
 import {getSession, leaveToMenu} from '../session.js';
 import {attachCountdown} from '../countdown.js';
 import {createAvatar} from '../characters.js';
-import {COLORS, fontPx, textStyle} from '../theme.js';
+import {COLORS, HEX, fontPx, textStyle} from '../theme.js';
 
 /**
  * Base for a screen on a player's phone or laptop during a game. It fills the whole window and draws the card
@@ -49,6 +49,7 @@ export class PlayerStage extends Scene {
         attachCountdown(this, this.session, this.timerText);
 
         this.build();
+        this.buildSecret();
         this.relayout();
         this.scale.on('resize', this.relayout, this);
         this.events.once('shutdown', () => this.scale.off('resize', this.relayout, this));
@@ -102,6 +103,58 @@ export class PlayerStage extends Scene {
         this.youText.setPosition(nameLeft, hy);
 
         this.layout(m);
+        this.layoutSecret(m);
+    }
+
+    /**
+     * Turing Town's Imposter: a card the first time this phone learns it (only this phone ever does), then a small gold
+     * reminder at the bottom of every Turing Town screen. Nothing appears on anyone else's phone.
+     */
+    buildSecret() {
+        this.secretPill = this.addText('', {fontStyle: 'bold'}).setColor(COLORS.gold).setDepth(30);
+        this.secretCard = null;
+        this.listen(this.session, 'secret', () => {
+            this.showSecret();
+            this.relayout();
+        });
+        this.showSecret();
+    }
+
+    showSecret() {
+        const secret = this.session.secret;
+        const here = secret && this.session.state?.gameId === 'turing-town' && this.session.state?.stage !== 'Results';
+        this.secretPill.setText(here ? `★ ${secret.title}` : '').setVisible(!!here && this.session.secretSeen);
+        if (!here || this.session.secretSeen || this.secretCard) return;
+
+        const shade = this.add.rectangle(0, 0, 10, 10, HEX.bgDeep, 0.85).setOrigin(0).setInteractive().setDepth(40);
+        const plate = this.add.graphics().setDepth(41);
+        const title = this.addText(secret.title, {fontStyle: 'bold', align: 'center'}).setColor(COLORS.gold).setDepth(42);
+        const text = this.addText(secret.text, {align: 'center'}).setDepth(42);
+        const ok = createTextButton(this, 0, 0, 'Got it', () => {
+            this.session.secretSeen = true;
+            [shade, plate, title, text, ok].forEach(item => item.destroy());
+            this.secretCard = null;
+            this.showSecret();
+            this.relayout();
+        }, {width: 240, height: 64, fontSize: '28px', variant: 'primary'}).setDepth(42);
+        this.secretCard = {shade, plate, title, text, ok};
+    }
+
+    layoutSecret(m) {
+        this.secretPill?.setPosition(m.cx, m.bottom - 22 * m.s).setFontSize(m.fs(18, 13));
+        const card = this.secretCard;
+        if (!card) return;
+        const w = m.panelW - 30 * m.s;
+        card.shade.setSize(m.width, m.height);
+        card.title.setFontSize(m.fs(38, 22)).setWordWrapWidth(w - 40 * m.s);
+        card.text.setFontSize(m.fs(24, 15)).setWordWrapWidth(w - 50 * m.s);
+        const h = card.title.height + card.text.height + 160 * m.s;
+        const top = m.cy - h / 2;
+        card.plate.clear().fillStyle(HEX.surface, 1).fillRoundedRect(m.cx - w / 2, top, w, h, 22)
+            .lineStyle(4, HEX.gold, 1).strokeRoundedRect(m.cx - w / 2, top, w, h, 22);
+        card.title.setPosition(m.cx, top + 30 * m.s + card.title.height / 2);
+        card.text.setPosition(m.cx, card.title.y + card.title.height / 2 + 20 * m.s + card.text.height / 2);
+        card.ok.setPosition(m.cx, top + h - 50 * m.s).setScale(Math.max(m.s, 0.6));
     }
 
     /** Shrinks a single-line text to fit `maxWidth`, down to 13px, then cuts it with an ellipsis. */

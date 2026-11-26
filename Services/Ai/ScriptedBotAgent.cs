@@ -77,6 +77,20 @@ public sealed partial class ScriptedBotAgent : IBotAgent
 
     private sealed record ChoiceTemplate(string Text, bool Mature, string[] Options, int MaxSelect);
 
+    /// <summary>An era question: each option with the decade it is typical of (see <see cref="Eras"/>).</summary>
+    private sealed record EraTemplate(string Text, (string Option, string Era)[] Options);
+
+    // What people grew up with, never their age. All family friendly, so they suit every room.
+    private static readonly EraTemplate[] EraPool =
+    [
+        new("Which game console takes you back?", [("NES", "1980s"), ("PlayStation", "1990s"), ("Wii", "2000s"), ("Nintendo Switch", "2010s")]),
+        new("Which cartoon did you grow up with?", [("The Smurfs", "1980s"), ("Rugrats", "1990s"), ("SpongeBob", "2000s"), ("Adventure Time", "2010s"), ("Bluey", "2020s")]),
+        new("How did you first listen to music?", [("Cassette tapes", "1980s"), ("CDs", "1990s"), ("An iPod", "2000s"), ("Streaming", "2010s")]),
+        new("Which toy craze do you remember best?", [("Cabbage Patch Kids", "1980s"), ("Tamagotchi", "1990s"), ("Webkinz", "2000s"), ("Fidget spinners", "2010s"), ("Squishmallows", "2020s")]),
+        new("Which movie night pick feels like childhood?", [("E.T.", "1980s"), ("The Lion King", "1990s"), ("Shrek", "2000s"), ("Frozen", "2010s"), ("Encanto", "2020s")]),
+        new("Which dance craze do you remember?", [("The Moonwalk", "1980s"), ("The Macarena", "1990s"), ("The Cha Cha Slide", "2000s"), ("Gangnam Style", "2010s")]),
+    ];
+
     private static readonly ChoiceTemplate[] FamilySingle =
     [
         new("Is a hot dog a sandwich?", false, ["Yes", "No", "Only on weekends", "It is a taco"], 1),
@@ -148,11 +162,16 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         foreach (ChoiceTemplate t in Draw(multis, mix.MultiChoice))
             picked.Add(ToQuestion(t, QuestionKind.MultiChoice));
 
-        if (!policy.FamilyFriendly && picked.Count > 0 && !picked.Any(q => q.Mature))
+        // A mature room gets one mature question; never in place of an era question, which keeps the mix.
+        int[] swappable = picked.Select((q, i) => (q, i)).Where(x => !x.q.IsEra).Select(x => x.i).ToArray();
+        if (!policy.FamilyFriendly && swappable.Length > 0 && !picked.Any(q => q.Mature))
         {
-            int index = RandomNumberGenerator.GetInt32(picked.Count);
+            int index = swappable[RandomNumberGenerator.GetInt32(swappable.Length)];
             picked[index] = MatureQuestion(picked[index].Kind);
         }
+
+        foreach (EraTemplate t in Draw(EraPool, mix.Era))
+            picked.Add(ToEraQuestion(t));
 
         return picked
             .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
@@ -182,6 +201,19 @@ public sealed partial class ScriptedBotAgent : IBotAgent
         };
         return questions.Where(q => (!policy.FamilyFriendly || !q.Mature) && (!matureOnly || q.Mature))
             .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToArray();
+    }
+
+    /// <summary>The built-in era questions, in a random order, for the engine's fallback form.</summary>
+    internal static IReadOnlyList<OnboardingQuestion> EraCandidates() =>
+        EraPool.Select(ToEraQuestion).OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue)).ToArray();
+
+    private static OnboardingQuestion ToEraQuestion(EraTemplate t)
+    {
+        QuestionOption[] options = t.Options
+            .OrderBy(_ => RandomNumberGenerator.GetInt32(int.MaxValue))
+            .Select((o, i) => new QuestionOption(((char)('a' + i)).ToString(), o.Option, false, o.Era))
+            .ToArray();
+        return new OnboardingQuestion("", QuestionKind.SingleChoice, t.Text, false, options, 1, 1);
     }
 
     private static OnboardingQuestion ToQuestion(ChoiceTemplate t, QuestionKind kind)

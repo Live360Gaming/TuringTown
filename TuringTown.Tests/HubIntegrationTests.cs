@@ -24,11 +24,11 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public Task<bool> IsAllowedAsync(string text, ContentPolicy policy, CancellationToken ct) => Task.FromResult(false);
     }
 
-    /// <summary>Plays Turing Town first, then Witty Bits, so a test knows which game comes when.</summary>
+    /// <summary>Plays Turing Town first, then Witty Bits, then Shout Out, so a test knows which game comes when.</summary>
     private sealed class TuringTownFirst : IGameNightPlanner
     {
         public Task<GameNightPlan> PlanAsync(GameNightPlanRequest request, CancellationToken ct) =>
-            Task.FromResult(new GameNightPlan([GameIds.TuringTown, GameIds.WittyBits], "Bring it on."));
+            Task.FromResult(new GameNightPlan([GameIds.TuringTown, GameIds.WittyBits, GameIds.ShoutOut], "Bring it on."));
     }
 
     private readonly WebApplicationFactory<Program> _factory;
@@ -68,7 +68,19 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
                 ["WittyBits:BotAnswerMinDelayMs"] = "0",
                 ["WittyBits:BotAnswerMaxDelayMs"] = "0",
                 ["WittyBits:BotVoteMinDelayMs"] = "0",
-                ["WittyBits:BotVoteMaxDelayMs"] = "0"
+                ["WittyBits:BotVoteMaxDelayMs"] = "0",
+                ["ShoutOut:TutorialMaxSeconds"] = "30",
+                ["ShoutOut:CategoriesSeconds"] = "30",
+                ["ShoutOut:Questions"] = "2",
+                ["ShoutOut:DoubleQuestions"] = "1",
+                ["ShoutOut:ReadSeconds"] = "0",
+                ["ShoutOut:BuzzSeconds"] = "2",
+                ["ShoutOut:RebuzzSeconds"] = "1",
+                ["ShoutOut:AnswerSeconds"] = "2",
+                ["ShoutOut:RevealSeconds"] = "1",
+                ["ShoutOut:ResultsSeconds"] = "30",
+                ["ShoutOut:BotCategoryMinDelayMs"] = "0",
+                ["ShoutOut:BotCategoryMaxDelayMs"] = "0"
             })));
     }
 
@@ -81,6 +93,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         public ConcurrentQueue<JsonElement> States { get; } = new();
         public ConcurrentQueue<JsonElement> Chat { get; } = new();
         public ConcurrentQueue<JsonElement> Rosters { get; } = new();
+        public ConcurrentQueue<JsonElement> Rooms { get; } = new();
         public ConcurrentQueue<string?> Closed { get; } = new();
         public ConcurrentQueue<string> Errors { get; } = new();
         public JsonElement Joined { get; set; }
@@ -116,6 +129,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         connection.On<JsonElement>("StateChanged", s => client.States.Enqueue(s.Clone()));
         connection.On<JsonElement>("ChatMessage", m => client.Chat.Enqueue(m.Clone()));
         connection.On<JsonElement>("RosterChanged", r => client.Rosters.Enqueue(r.Clone()));
+        connection.On<JsonElement>("RoomChanged", r => client.Rooms.Enqueue(r.Clone()));
         connection.On<string?>("RoomClosed", reason => client.Closed.Enqueue(reason));
         connection.On<string>("GameError", message => client.Errors.Enqueue(message));
 
@@ -157,6 +171,65 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("leader", Assert.Single(other.Closed));
         Assert.Empty(leader.Closed); // the one who quit is not told
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await http.GetAsync($"/api/room/{code}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Leaving_frees_the_seat_at_once_and_the_next_player_leads()
+    {
+        HttpClient http = _factory.CreateClient();
+        JsonElement room = await (await http.PostAsync("/api/room/create", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string code = room.GetProperty("roomCode").GetString()!;
+        string hostToken = room.GetProperty("hostToken").GetString()!;
+        Joined[] joined = new Joined[2];
+        for (int i = 0; i < 2; i++)
+        {
+            JsonElement r = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+            joined[i] = new Joined(r.GetProperty("roomCode").GetString()!, r.GetProperty("playerId").GetGuid(), r.GetProperty("playerToken").GetString()!,
+                r.GetProperty("characterId").GetString()!, r.GetProperty("alias").GetString()!, r.GetProperty("color").GetString()!);
+        }
+
+        await using Client host = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, hostToken));
+        await using Client leader = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[0].PlayerId, joined[0].PlayerToken));
+        await using Client other = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[1].PlayerId, joined[1].PlayerToken));
+
+        // The join result carries the lobby's settings, so no screen has to poll for them.
+        Assert.Equal(2, other.Joined.GetProperty("room").GetProperty("playerCount").GetInt32());
+        Assert.True(other.Joined.GetProperty("room").GetProperty("minPlayers").GetInt32() >= 1);
+
+        await leader.Connection.InvokeAsync("LeaveRoom");
+
+        // The room stays open, the seat is gone straight away, and the other player now leads.
+        await WaitUntilAsync(() => other.Rosters.Any(r => r.GetArrayLength() == 1));
+        JsonElement me = Assert.Single(other.Rosters.Last(r => r.GetArrayLength() == 1).EnumerateArray());
+        Assert.Equal(joined[1].PlayerId, me.GetProperty("id").GetGuid());
+        Assert.True(me.GetProperty("leader").GetBoolean());
+        await WaitUntilAsync(() => host.Rooms.Any(r => r.GetProperty("playerCount").GetInt32() == 1));
+        Assert.Empty(host.Closed);
+        Assert.Empty(other.Closed);
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await http.GetAsync($"/api/room/{code}")).StatusCode);
+
+        // The old seat's credentials no longer work.
+        await Assert.ThrowsAnyAsync<HubException>(() => ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, joined[0].PlayerId, joined[0].PlayerToken)));
+    }
+
+    [Fact]
+    public async Task A_settings_change_is_pushed_to_every_screen()
+    {
+        HttpClient http = _factory.CreateClient();
+        JsonElement room = await (await http.PostAsync("/api/room/create", null)).Content.ReadFromJsonAsync<JsonElement>();
+        string code = room.GetProperty("roomCode").GetString()!;
+        string hostToken = room.GetProperty("hostToken").GetString()!;
+        JsonElement j = await (await http.PostAsJsonAsync("/api/room/join", new { roomCode = code })).Content.ReadFromJsonAsync<JsonElement>();
+
+        await using Client host = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsHost", code, hostToken));
+        await using Client player = await ConnectAsync(c => c.InvokeAsync<JsonElement>("JoinAsPlayer", code, j.GetProperty("playerId").GetGuid(), j.GetProperty("playerToken").GetString()));
+
+        using HttpRequestMessage put = new(HttpMethod.Put, $"/api/room/{code}/settings") { Content = JsonContent.Create(new { familyFriendly = false }) };
+        put.Headers.Add("X-Host-Token", hostToken);
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await http.SendAsync(put)).StatusCode);
+
+        await WaitUntilAsync(() => player.Rooms.Any(r => !r.GetProperty("settings").GetProperty("familyFriendly").GetBoolean()));
+        await WaitUntilAsync(() => host.Rooms.Any(r => !r.GetProperty("settings").GetProperty("familyFriendly").GetBoolean()));
     }
 
     [Fact]
@@ -237,7 +310,7 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.All(joined, j =>
         {
             Assert.Matches(@"^[A-Z][a-z]+ [A-Z][a-z]+$", j.Alias);
-            Assert.Matches(@"^character_0[1-7]$", j.CharacterId);
+            Assert.Contains(j.CharacterId, Characters.All);
             Assert.Matches("^#[0-9a-f]{6}$", j.Color);
         });
         Assert.NotEqual(joined[0].Alias, joined[1].Alias);
@@ -298,11 +371,14 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         await p1.Connection.InvokeAsync("TutorialDone");
         JsonElement onboarding = await p1.WaitForStageAsync("Onboarding");
         JsonElement questions = onboarding.GetProperty("data").GetProperty("questions");
-        Assert.Equal(3, questions.GetArrayLength());
+        Assert.Equal(4, questions.GetArrayLength()); // 1 text, 1 single, 1 multi and 1 era question
         Assert.All(questions.EnumerateArray(), q => Assert.False(string.IsNullOrWhiteSpace(q.GetProperty("text").GetString())));
+        // Which decade an option points to stays on the server.
+        Assert.DoesNotContain("era", questions.GetRawText(), StringComparison.OrdinalIgnoreCase);
 
-        // The form has one question of each kind, and the wire format carries text or option ids per question.
-        Assert.Equal(["MultiChoice", "SingleChoice", "Text"], questions.EnumerateArray().Select(q => q.GetProperty("kind").GetString()!).Order().ToArray());
+        // The form has one question of each kind (the era question is a single choice on the wire), and the wire format
+        // carries text or option ids per question.
+        Assert.Equal(["MultiChoice", "SingleChoice", "SingleChoice", "Text"], questions.EnumerateArray().Select(q => q.GetProperty("kind").GetString()!).Order().ToArray());
         Assert.All(questions.EnumerateArray().Where(q => q.GetProperty("kind").GetString() != "Text"),
             q => Assert.InRange(q.GetProperty("options").GetArrayLength(), 2, 6));
 
@@ -389,6 +465,18 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         JsonElement wittyResults = await p1.WaitForStageAsync("Results", gameId: "witty-bits");
         Assert.Equal(4, wittyResults.GetProperty("data").GetProperty("standings").GetArrayLength());
 
+        // --- Shout Out: vote for categories, then buzz in and answer
+        await host.Connection.InvokeAsync("ContinueNight");
+        await WaitUntilAsync(() => p1.States.Last().GetProperty("stage").GetString() == "Scoreboard");
+        await p1.Connection.InvokeAsync("ContinueNight");
+        await p1.WaitForStageAsync("Tutorial", gameId: "shout-out");
+        await p1.Connection.InvokeAsync("TutorialDone");
+        await PlayShoutOutAsync([(p1, joined[0].PlayerId), (p2, joined[1].PlayerId)]);
+
+        JsonElement shoutResults = await p1.WaitForStageAsync("Results", gameId: "shout-out");
+        Assert.Equal(4, shoutResults.GetProperty("data").GetProperty("standings").GetArrayLength());
+        Assert.Contains(p1.States, st => st.GetProperty("stage").GetString() == "AnswerReveal");
+
         // --- the finale: the totals decide the winner, and every role is shown
         await host.Connection.InvokeAsync("ContinueNight");
         JsonElement finale = await p1.WaitForStageAsync("Finale");
@@ -466,6 +554,51 @@ public class HubIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
             await Task.Delay(25);
         }
         throw new TimeoutException("Witty Bits never reached its results.");
+    }
+
+    /// <summary>
+    /// Plays Shout Out from the states alone: vote for the first category, buzz on every open question, and answer "a"
+    /// when it is your turn. A refused buzz (too early, someone was faster) is part of the game.
+    /// </summary>
+    private static async Task PlayShoutOutAsync(IReadOnlyList<(Client Client, Guid Id)> players)
+    {
+        HashSet<string> done = [];
+        for (int i = 0; i < 2400; i++)
+        {
+            JsonElement state = players[0].Client.States.Last();
+            if (state.GetProperty("gameId").GetString() != "shout-out") { await Task.Delay(25); continue; }
+
+            string stage = state.GetProperty("stage").GetString()!;
+            if (stage == "Results") return;
+
+            string key = $"{stage}{state.GetProperty("round").GetInt32()}/{state.GetProperty("step").GetInt32()}";
+            if (done.Add(key))
+            {
+                JsonElement data = state.GetProperty("data");
+                foreach ((Client client, Guid id) in players)
+                {
+                    if (stage == "Categories")
+                    {
+                        string first = data.GetProperty("categories")[0].GetProperty("id").GetString()!;
+                        await client.Connection.InvokeAsync("ShoutOutCategories", new[] { first });
+                    }
+                    else if (stage == "Question")
+                    {
+                        try { await client.Connection.InvokeAsync("Buzz"); } catch (HubException) { }
+                    }
+                    else if (stage == "Buzzed" && data.GetProperty("buzzerId").GetGuid() == id)
+                    {
+                        await client.Connection.InvokeAsync("ShoutOutAnswer", "a");
+                    }
+                    else if (stage == "Buzzed")
+                    {
+                        await Assert.ThrowsAnyAsync<HubException>(() => client.Connection.InvokeAsync("ShoutOutAnswer", "a"));
+                    }
+                }
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException("Shout Out never reached its results.");
     }
 
     private static async Task VoteForSomeoneElseAsync(Client client, Guid myId)

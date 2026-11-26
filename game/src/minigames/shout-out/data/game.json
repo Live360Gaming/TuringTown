@@ -1,0 +1,19 @@
+{
+  "id": "shout-out",
+  "schemaVersion": 1,
+  "enabled": true,
+  "name": "Shout Out",
+  "description": "Buzz-in trivia. The room votes for categories, then each question shows on the TV with four answers. The first player to buzz in on their phone picks one: right earns points, wrong costs points and the question opens up for everyone else. The last questions are worth double.",
+  "players": { "min": 2, "max": 10 },
+  "content": {
+    "itemsPerRound": "one question per turn",
+    "rounds": 1,
+    "itemSchema": "question: { category, text, answers[4], correct, difficulty, era, mature }",
+    "constraints": [
+      "Exactly one answer is right, and it is a well-known, checkable fact.",
+      "Pitch questions at the decades the room grew up in, plus some timeless ones.",
+      "Never ask about the players themselves or about private people."
+    ]
+  },
+  "tones": ["family", "mature"]
+}

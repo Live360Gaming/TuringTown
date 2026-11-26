@@ -48,10 +48,11 @@ public static partial class QuestionValidator
         if (questions is null) return "no questions";
         if (questions.Count != mix.Total) return $"expected {mix.Total} questions, got {questions.Count}";
         int text = questions.Count(q => q?.Kind == QuestionKind.Text);
-        int single = questions.Count(q => q?.Kind == QuestionKind.SingleChoice);
+        int single = questions.Count(q => q?.Kind == QuestionKind.SingleChoice && !q.IsEra);
         int multi = questions.Count(q => q?.Kind == QuestionKind.MultiChoice);
-        if (text != mix.Text || single != mix.SingleChoice || multi != mix.MultiChoice)
-            return $"wrong mix: expected {mix.Text} text/{mix.SingleChoice} single/{mix.MultiChoice} multi, got {text}/{single}/{multi}";
+        int era = questions.Count(q => q?.IsEra == true);
+        if (text != mix.Text || single != mix.SingleChoice || multi != mix.MultiChoice || era != mix.Era)
+            return $"wrong mix: expected {mix.Text} text/{mix.SingleChoice} single/{mix.MultiChoice} multi/{mix.Era} era, got {text}/{single}/{multi}/{era}";
         return AllProblem(questions, policy);
     }
 
@@ -104,6 +105,18 @@ public static partial class QuestionValidator
             if (PersonalDetail.IsMatch(option.Text)) return $"option \"{option.Text}\" asks for a personal detail";
             if (policy.FamilyFriendly && option.Mature) return $"option \"{option.Text}\" flagged mature in a family-friendly room";
         }
-        return null;
+        return EraProblem(q, options);
+    }
+
+    /// <summary>An era question: a single choice, every option tagged with a known decade, at least three different ones.</summary>
+    private static string? EraProblem(OnboardingQuestion q, IReadOnlyList<QuestionOption> options)
+    {
+        int tagged = options.Count(o => o.Era is not null);
+        if (tagged == 0) return null;
+        if (tagged != options.Count) return "only some options have an era";
+        if (q.Kind != QuestionKind.SingleChoice) return "an era question must be a single choice";
+        if (options.FirstOrDefault(o => !Eras.IsValid(o.Era)) is { Text: not null } bad) return $"option \"{bad.Text}\" has an unknown era '{bad.Era}'";
+        int distinct = options.Select(o => o.Era).Distinct().Count();
+        return distinct < Eras.MinDistinct ? $"only {distinct} different eras (needs {Eras.MinDistinct})" : null;
     }
 }

@@ -11,6 +11,10 @@ public interface IRoomBroadcaster
 {
     Task StateChanged(Room room, GameState state);
     Task RosterChanged(Room room);
+
+    /// <summary>The room's settings or limits changed (<see cref="RoomSnapshot"/>). Also sent with every roster change.</summary>
+    Task RoomChanged(Room room);
+
     Task ChatMessage(Room room, ChatMessage message);
 
     /// <summary>A player (human or bot, indistinguishable) started or stopped typing. Only the id is sent.</summary>
@@ -20,6 +24,9 @@ public interface IRoomBroadcaster
     Task Progress(Room room, int done, int total);
 
     Task GameError(Room room, string message);
+
+    /// <summary>Tells one player something nobody else may know (see <see cref="SecretInfo"/>). Never sent to the group.</summary>
+    Task Secret(Room room, Guid playerId, SecretInfo secret);
 }
 
 /// <summary>
@@ -29,9 +36,21 @@ public sealed class SignalRRoomBroadcaster(IHubContext<GameHub> hub) : IRoomBroa
 {
     private IClientProxy Group(Room room) => hub.Clients.Group(room.Code.ToString());
 
-    public Task StateChanged(Room room, GameState state) => Group(room).SendAsync("StateChanged", state);
+    public async Task StateChanged(Room room, GameState state)
+    {
+        await Group(room).SendAsync("StateChanged", state);
+        // Back in the lobby the phase and player count (the bots have left) changed too.
+        if (state.Stage == Stage.Lobby) await RoomChanged(room);
+    }
 
-    public Task RosterChanged(Room room) => Group(room).SendAsync("RosterChanged", room.GetRoster());
+    // The snapshot's player count follows the roster, so it goes along with every roster change.
+    public async Task RosterChanged(Room room)
+    {
+        await Group(room).SendAsync("RosterChanged", room.GetRoster());
+        await RoomChanged(room);
+    }
+
+    public Task RoomChanged(Room room) => Group(room).SendAsync("RoomChanged", room.GetSnapshot());
 
     public Task ChatMessage(Room room, ChatMessage message) => Group(room).SendAsync("ChatMessage", message);
 
@@ -40,4 +59,7 @@ public sealed class SignalRRoomBroadcaster(IHubContext<GameHub> hub) : IRoomBroa
     public Task Progress(Room room, int done, int total) => Group(room).SendAsync("Progress", new { done, total });
 
     public Task GameError(Room room, string message) => Group(room).SendAsync("GameError", message);
+
+    public Task Secret(Room room, Guid playerId, SecretInfo secret) =>
+        room.ConnectionOf(playerId) is { } connection ? hub.Clients.Client(connection).SendAsync("Secret", secret) : Task.CompletedTask;
 }

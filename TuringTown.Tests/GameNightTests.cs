@@ -134,6 +134,8 @@ public class GameNightTests
         }
 
         public Task RosterChanged(Room room) => Task.CompletedTask;
+        public Task RoomChanged(Room room) => Task.CompletedTask;
+        public Task Secret(Room room, Guid playerId, SecretInfo secret) => Task.CompletedTask;
         public Task ChatMessage(Room room, ChatMessage message) => Task.CompletedTask;
         public Task Typing(Room room, Guid playerId, bool typing) => Task.CompletedTask;
         public Task Progress(Room room, int done, int total) => Task.CompletedTask;
@@ -153,6 +155,25 @@ public class GameNightTests
     public void A_night_seats_enough_bots_for_turing_town_and_at_least_four_players(int humans, int bots)
     {
         Assert.Equal(bots, GameNight.BotCountFor(humans));
+    }
+
+    [Theory]
+    [InlineData(2, 4)]
+    [InlineData(4, 5)]
+    [InlineData(6, 8)]
+    [InlineData(8, 10)]
+    public void A_full_room_needs_a_face_per_seat(int maxHumans, int seats)
+    {
+        Assert.Equal(seats, GameNight.SeatsFor(maxHumans));
+    }
+
+    [Fact]
+    public async Task The_server_refuses_a_player_limit_the_character_art_cannot_seat()
+    {
+        int tooMany = Enumerable.Range(1, 50).First(h => GameNight.SeatsFor(h) > Characters.All.Length);
+        await using var factory = new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+            b.UseSetting("Game:MaxPlayers", tooMany.ToString()));
+        Assert.ThrowsAny<Exception>(() => factory.CreateClient());
     }
 
     [Fact]
@@ -268,6 +289,27 @@ public class GameNightTests
         await shown.AtAsync(GameIds.Night, Stage.Scoreboard);
         Assert.Equal(new TeamTotals(1000, 0), shown.Last<ScoreboardData>(Stage.Scoreboard).Teams);
         Assert.Equal(shown.Seats.Where(s => s.IsBot).Select(s => s.Id).Order(), shown.Night.GetUnmasked().Order());
+    }
+
+    [Fact]
+    public async Task The_imposter_s_points_count_in_the_standings_but_not_for_either_team()
+    {
+        Guid imposter = Guid.Empty;
+        NightHarness h = new(3, Plan("a", "b"), room =>
+        {
+            imposter = room.GetSeats().First(s => !s.IsBot).Id;
+            return new GameOutcome(true, "Bots", new Dictionary<Guid, int>(), room.GetSeats().Where(s => s.IsBot).Select(s => s.Id).ToArray())
+            {
+                BonusSeatPoints = new Dictionary<Guid, int> { [imposter] = 1300 },
+                Imposter = imposter
+            };
+        }, NoPoints);
+        await h.PlayThroughAsync("a", "b");
+
+        FinaleData finale = h.Last<FinaleData>(Stage.Finale);
+        Assert.Equal(new TeamTotals(0, 1000), finale.Teams); // only the win bonus
+        Assert.Equal((imposter, 1300), (finale.Standings[0].PlayerId, finale.Standings[0].Points));
+        Assert.Equal(imposter, Assert.Single(finale.Roles, r => r.Imposter).PlayerId);
     }
 
     [Fact]

@@ -121,6 +121,16 @@ export class MusicPlayer {
         if (this.current) this.current.duckTarget = this.duckTarget();
     }
 
+    /**
+     * How long until the music is down under a voice: 0 when nothing is playing or the dip is done. Ask after duck(true).
+     */
+    msUntilDucked() {
+        const track = this.current;
+        if (!track || track.level <= 0 || track.duck <= track.duckTarget) return 0;
+        const range = Math.max(0.01, 1 - AUDIO_MIX.duckFactor);
+        return Math.ceil((track.duck - track.duckTarget) / range * AUDIO_MIX.duckDownMs);
+    }
+
     get ducked() {
         return this.duckers.size > 0;
     }
@@ -146,6 +156,8 @@ export class MusicPlayer {
         } else {
             const sound = this.game.sound.add(key, {loop, volume: 0});
             track = new Track(sound, volume);
+            // A track that starts while someone is speaking starts already low, rather than blaring and then dipping.
+            track.duck = this.duckTarget();
             if (!loop) {
                 // A one-shot frees itself when it ends but stays the current key, so it is not played again.
                 sound.once('complete', () => {

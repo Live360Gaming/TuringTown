@@ -21,6 +21,26 @@ public sealed class NightContext
     private int _number;
     private TeamScore? _score;
     private IReadOnlyList<PlayerNote> _players = [];
+    private IReadOnlyList<EraCount> _roomEras = [];
+
+    /// <summary>
+    /// Roughly when the humans grew up, from Turing Town's era questions (empty until it has run). Server-side only:
+    /// it is never in a <see cref="Snapshot"/>. Shout Out pitches its trivia with it.
+    /// </summary>
+    public IReadOnlyList<EraCount> RoomEras
+    {
+        get
+        {
+            lock (_gate)
+                return _roomEras;
+        }
+    }
+
+    public void SetRoomEras(IReadOnlyList<EraCount> eras)
+    {
+        lock (_gate)
+            _roomEras = eras.ToArray();
+    }
 
     public void SetPlan(IReadOnlyList<string> games)
     {

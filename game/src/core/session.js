@@ -16,7 +16,8 @@ export const MENU_NOTICE_KEY = 'menuNotice';
  * One player's or the host's live connection to a room, and everything the server has told them about it.
  * It outlives scenes: scenes read it and listen to it, but never create or stop the connection.
  *
- * Events: 'state' (state), 'roster' (roster), 'chat' (message), 'typing' (Set of player ids), 'progress' ({done, total}), and
+ * Events: 'state' (state), 'roster' (roster), 'room' (the lobby's settings and limits), 'chat' (message), 'typing'
+ * (Set of player ids), 'progress' ({done, total}), and
  * 'presence' ({player, status}) with status 'disconnected' | 'reconnected' | 'removed' when someone drops, comes
  * back, or is cleared from the lobby.
  *
@@ -36,6 +37,12 @@ export class GameSession extends Phaser.Events.EventEmitter {
 
         this.state = null;
         this.roster = [];
+        // The lobby's settings and limits ({phase, playerCount, settings, serverMaxPlayers, minPlayers}), pushed by the server.
+        this.room = null;
+        // Something only this player was told ({kind, title, text}): Turing Town's Imposter. Never on `you`, which the
+        // roster overwrites. `secretSeen` is set once its card has been dismissed.
+        this.secret = null;
+        this.secretSeen = false;
         this.transcript = [];
         // Players who are typing right now (humans and bots alike), id -> expiry timer.
         this.typing = new Map();
@@ -65,6 +72,8 @@ export class GameSession extends Phaser.Events.EventEmitter {
             on: {
                 StateChanged: state => this.setState(state),
                 RosterChanged: roster => this.setRoster(roster),
+                RoomChanged: room => this.setRoom(room),
+                Secret: secret => this.setSecret(secret),
                 Typing: ({playerId, typing}) => this.setTypingFor(playerId, typing),
                 ChatMessage: message => {
                     this.transcript.push(message);
@@ -134,7 +143,21 @@ Thanks for playing. Goodbye!`);
         this.unmasked = new Set(result.unmasked ?? []);
         this.roster = result.roster;
         this.emit('roster', this.roster);
+        if (result.room) this.setRoom(result.room);
         this.setState(result.state);
+        // A refreshed phone is told its secret again; the card is not shown twice.
+        this.setSecret(result.secret ?? null, {seen: !!result.secret && this.secret?.kind === result.secret.kind && this.secretSeen});
+    }
+
+    setSecret(secret, {seen = false} = {}) {
+        this.secret = secret;
+        this.secretSeen = seen;
+        this.emit('secret', secret);
+    }
+
+    setRoom(room) {
+        this.room = room;
+        this.emit('room', room);
     }
 
     setState(state) {
@@ -147,6 +170,7 @@ Thanks for playing. Goodbye!`);
             // A new game gets a new seating order, and nobody has been found out yet.
             this.seatOrder = null;
             this.unmasked.clear();
+            this.secret = null;
         } else if (state.stage === 'Reveal') {
             // The first moment a bot is known: the one just voted out, if it was a bot.
             if (state.data?.wasBot && state.data.eliminated) this.unmasked.add(state.data.eliminated.id);
@@ -324,10 +348,11 @@ export function clearCredentials() {
 export function leaveToMenu(scene) {
     const game = scene.game;
     const session = getSession(scene);
-    // The host or the leader (the first player) quitting closes the room, so the others are told goodbye instead of
-    // being left hanging. The server ignores the call from anyone else.
-    const closing = (session?.role === 'host' || session?.you?.leader) && session.connection
-        ? Promise.race([session.invoke('CloseRoom').catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))])
+    // The TV quitting closes the room, so the players are told goodbye instead of being left hanging. A player quitting
+    // gives up their seat at once (in the lobby the next player takes the lead), so nobody waits for them.
+    const call = session?.role === 'host' ? 'CloseRoom' : 'LeaveRoom';
+    const closing = session?.connection
+        ? Promise.race([session.invoke(call).catch(() => {}), new Promise(resolve => setTimeout(resolve, 1500))])
         : Promise.resolve();
 
     closing.then(() => {

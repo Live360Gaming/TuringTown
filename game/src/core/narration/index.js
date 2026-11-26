@@ -31,6 +31,7 @@ export function getNarration(game) {
                 };
             },
             duck: on => getMusic(game).duck(on, DUCK_OWNER),
+            duckLead: () => getMusic(game).msUntilDucked(),
             setTimeout: (callback, ms) => window.setTimeout(callback, ms),
             clearTimeout: id => window.clearTimeout(id),
             gapMs: AUDIO_MIX.narrationGapMs,

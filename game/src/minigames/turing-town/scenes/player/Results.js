@@ -11,11 +11,14 @@ export class TuringTownPlayerResults extends PlayerStage {
     build() {
         this.timerText.setVisible(false);
 
-        const {winner, hotSeatWasTheirs} = this.session.state.data ?? {};
+        const {winner, hotSeatWasTheirs, roles = []} = this.session.state.data ?? {};
         const humansWon = winner === 'Humans';
+        const imposter = roles.find(r => r.imposter);
         this.title = this.addText(humansWon ? 'The humans win!' : 'The bots win!', {fontStyle: 'bold', align: 'center'});
         this.subText = this.addText([humansWon ? 'A bot was caught.' : 'The bots blended in perfectly.',
             hotSeatWasTheirs === true ? 'The hot seat answer really was theirs.' : hotSeatWasTheirs === false ? 'Somebody else wrote the hot seat answer.' : '',
+            imposter?.playerId === this.session.you?.id ? 'You were the Imposter! Your bonus shows on the scoreboard.'
+                : imposter ? `${imposter.alias} was the Imposter.` : '',
         ].filter(Boolean).join('\n'), {align: 'center'});
         this.hintText = this.addText('Look at the TV to see who was who.', {align: 'center'});
 

@@ -54,8 +54,8 @@ served under a sub-path).
 - `Hubs/GameHub.cs` is the SignalR hub at `/hubs/game` (one group per room code). `POST /api/room/join` returns
   `roomCode`, `playerId`, `playerToken`, and the random `alias` ("Purple Mango"), `color` and `characterId`; the client
   then calls `JoinAsPlayer`. The host calls `JoinAsHost` with its `HostToken`. Joins return the current state, roster
-  and chat so a late or refreshed client can render at once. The lobby player count and settings are still **polled**
-  (`GET /api/room/<code>`).
+  and chat so a late or refreshed client can render at once, plus the lobby's settings and limits (`room`), which the
+  server pushes again as `RoomChanged` on every roster or settings change (nothing polls `GET /api/room/<code>`).
 - **The game night.** `StartGame` starts a `Services/Games/GameNight` (one per room, started by `GameCoordinator`):
   Planning (the AI team picks the order of the games) → each game → Scoreboard → ... → Finale → Lobby, Humans vs AI on
   points, on the same seats (`GameNight.BotCountFor`). Each game is an `IGameEngine` that returns a `GameOutcome` and never
@@ -67,7 +67,8 @@ served under a sub-path).
   Results (an AI show host, `IShowHost`, writes the content; `Transition` stages explain each part; only the last vote
   decides) and broadcasts a full `GameState` on every
   change. Witty Bits (prompts, funny answers, head-to-head votes) is `Services/Games/WittyBitsEngine`, see
-  [docs/witty-bits.md](docs/witty-bits.md). Both share `GameClock` and `GameStages`. **Roles (`Player.IsBot`) never leave the server before the reveal**: clients only get `PlayerInfo`, and
+  [docs/witty-bits.md](docs/witty-bits.md). Shout Out (buzz-in trivia written for the room's decades) is
+  `Services/Games/ShoutOutEngine`, see [docs/shout-out.md](docs/shout-out.md). All share `GameClock` and `GameStages`. **Roles (`Player.IsBot`) never leave the server before the reveal**: clients only get `PlayerInfo`, and
   `SecrecyAndIdentityTests` guards this. Do not add a role or token to any DTO. Bots use `IBotAgent`
   (`Services/Ai/`); `ScriptedBotAgent` works offline and is the fallback when the real AI is not available.
   Timings are the `TuringTown`, `WittyBits` and `GameNight` config sections (all optional). Full details, hub contract

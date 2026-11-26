@@ -35,7 +35,8 @@ export class GameNightHostFinale extends HostStage {
             const x = startX + i * gap;
             createAvatar(this, x, 380, 110, player);
             addNameplate(this, x, 460, player, {maxWidth: gap - 8, fontSize: 18});
-            this.add.text(x, 500, role.wasBot ? 'AI' : 'HUMAN', textStyle('meta', {fontSize: '24px', color: role.wasBot ? COLORS.green : COLORS.text})).setOrigin(0.5);
+            this.add.text(x, 500, role.wasBot ? 'AI' : role.imposter ? 'IMPOSTER' : 'HUMAN',
+                textStyle('meta', {fontSize: '24px', color: role.wasBot ? COLORS.green : role.imposter ? COLORS.gold : COLORS.text})).setOrigin(0.5);
         });
 
         const {goodbye} = this.session.state.data ?? {};

@@ -13,7 +13,8 @@ public sealed record AgentSet(
     bool UsesAi,
     IDisposable? Lease = null,
     IGameNightPlanner? Planner = null,
-    IShowHost? Host = null);
+    IShowHost? Host = null,
+    ITriviaGenerator? Trivia = null);
 
 /// <summary>
 /// Picks the agents for each new game: the real AI while the limits allow, otherwise the offline scripted ones. A game

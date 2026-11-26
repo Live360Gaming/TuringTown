@@ -46,11 +46,15 @@ public sealed class AiCalls
     public AiCallOptions Show { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 3000, TimeoutMs = 25000 };
     public AiCallOptions ShowTopic { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 800, TimeoutMs = 15000 };
 
+    // Shout Out: the trivia (written during its tutorial and category vote) and the check that answers it cold.
+    public AiCallOptions Trivia { get; set; } = new() { ReasoningEffort = "medium", MaxOutputTokens = 5000, TimeoutMs = 30000 };
+    public AiCallOptions TriviaCheck { get; set; } = new() { ReasoningEffort = "low", MaxOutputTokens = 1500, TimeoutMs = 15000 };
+
     public IEnumerable<(string Name, AiCallOptions Options)> All =>
     [
         (nameof(Chat), Chat), (nameof(Vote), Vote), (nameof(Onboarding), Onboarding), (nameof(Questions), Questions), (nameof(RoundNotes), RoundNotes),
         (nameof(Plan), Plan), (nameof(WittyPrompts), WittyPrompts), (nameof(WittyAnswer), WittyAnswer), (nameof(WittyVote), WittyVote),
-        (nameof(Show), Show), (nameof(ShowTopic), ShowTopic)
+        (nameof(Show), Show), (nameof(ShowTopic), ShowTopic), (nameof(Trivia), Trivia), (nameof(TriviaCheck), TriviaCheck)
     ];
 }
 

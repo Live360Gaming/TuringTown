@@ -190,6 +190,28 @@ public class GameFlowTests
         await silent.ToAsync(Stage.Onboarding);
     }
 
+    [Fact]
+    public async Task Only_the_beats_before_an_input_or_a_reveal_get_a_transition_of_their_own()
+    {
+        Harness h = new(humans: 2, o => { o.TransitionMaxSeconds = 1; o.RapidFireSeconds = 5; o.HotTopicSeconds = 5; o.HotSeatSeconds = 5; });
+        Assert.Null(h.Engine.TutorialDone());
+        await h.ToAsync(Stage.Onboarding);
+        foreach (Player human in h.Humans) Assert.Null(await h.Engine.SubmitOnboardingAsync(human.Id, h.Answers()));
+        await h.ToAsync(Stage.Results);
+
+        string[] beats;
+        lock (h.States)
+            beats = h.States.Where(s => s.Stage == Stage.Transition).Select(s => ((TransitionData)s.Data!).Beat).Distinct().ToArray();
+        Assert.Equal(["survey", "rapid", "topic", "hotseat", "answer", "verdict"], beats);
+
+        // The lines said over a screen still bring the AI host's line with them.
+        lock (h.States)
+        {
+            Assert.All(h.States.Where(s => s.Stage == Stage.Voting), s => Assert.NotNull(((RoundData)s.Data!).HostLine));
+            Assert.NotNull(((RevealData)h.States.First(s => s.Stage == Stage.Reveal).Data!).HostLine);
+        }
+    }
+
     private sealed class BrokenHost : IShowHost
     {
         public Task<RunSheet> PlanAsync(ShowRequest request, CancellationToken ct) =>

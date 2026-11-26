@@ -36,7 +36,8 @@ flowchart TD
 | Lines | Played on |
 |---|---|
 | `welcome`, `infiltration` | the Tutorial stage's two steps |
-| `survey` to `verdict` | the `Transition` stage with that `beat` |
+| `survey`, `rapid`, `topic`, `hotseat`, `answer`, `verdict` | the `Transition` stage with that `beat` |
+| `tap`, `meter`, `discussion`, `final` | said over their own screen (the first Voting, the meter Reveal, the final Discussion and Voting), with a caption (`HostStage.speak`) |
 | the ending line | the final `Reveal` |
 | the truth line | `Results` (`hotSeatWasTheirs`), queued behind the ending line |
 | goodbye lines | the night's `Finale` |
@@ -61,7 +62,8 @@ flowchart LR
 
 ## Timing
 
-- Transitions come **before** each timed stage, so listening never uses up answering time.
+- The six transitions come **before** an input or a reveal. The other four lines are said over the screen they
+  describe, so they cost no extra time; they do overlap the first seconds of those votes and the final discussion.
 - The TV reports `TransitionDone` when the line ends. The server also moves on after `TransitionMaxSeconds` (15), which
   `NarrationTests` keeps at least 3 seconds above the longest transition line (`survey`, 10.4 s).
 - Nothing else waits for audio. A missing, blocked (autoplay) or silent line leaves the caption and the usual timing.
@@ -74,6 +76,10 @@ heard last time, and sends its key in `FinaleData.goodbye`. The TV says `goodbye
 phones show both.
 
 ## Volume
+
+With music playing, a line waits until the music has dipped (`MusicPlayer.msUntilDucked`, at most `duckDownMs`,
+250 ms) and then plays; a run of lines keeps it down, so only the first waits. A track that starts during a line (the
+Finale's) starts already low.
 
 The host's volume slider (Phaser's master volume) applies. Music ducks to `AUDIO_MIX.duckFactor` while a line plays.
 The host can pause a game only on the server; the client does not pause audio.

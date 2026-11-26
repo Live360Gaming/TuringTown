@@ -21,7 +21,7 @@ public class FoundryAgentTests
         BotPrompts prompts = new();
         string[] names = ["bot-system", "chat-task", "vote-task", "onboarding-task", "round-notes-task", "questions-system", "questions-task", "tone-family", "tone-mature",
             "planner-system", "planner-task", "show-system", "show-task", "show-topic-task", "public-answer-task", "witty-prompts-system", "witty-prompts-task", "witty-system", "witty-answer-task", "witty-vote-task",
-            "small-talk"];
+            "small-talk", "trivia-system", "trivia-task", "trivia-check-task"];
 
         foreach (string name in names)
             Assert.True(prompts.Get(name).Version >= 1, name);

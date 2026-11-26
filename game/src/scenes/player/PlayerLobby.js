@@ -13,7 +13,8 @@ import {clearCredentials, GameSession, getSession, leaveToMenu, setSession} from
 // starts the game. It also keeps the GameSession for the whole visit; after a game ends the director brings the
 // player back here and the same session is reused (see core/director.js).
 const PICK_SIZE = 76;
-const PICK_GAP = 8;
+// A tap that moves less than this is a pick; more is a drag of the picker strip.
+const DRAG_SLOP = 8;
 
 export class PlayerLobby extends Scene {
     constructor() {
@@ -33,6 +34,20 @@ export class PlayerLobby extends Scene {
         this.panel = this.add.graphics();
         this.avatar = null;
         this.pickerTiles = [];
+        this.picker = {mode: 'grid', scroll: 0, maxScroll: 0, cell: 0, view: null, drag: null, centred: false};
+        // The tiles live in one container so the strip can scroll and be clipped; a single zone over the picker
+        // takes the taps and drags, so a tile hidden behind the clip can never be picked.
+        this.pickerStrip = this.add.container(0, 0);
+        this.pickerClip = this.make.graphics({}, false);
+        this.pickerZone = this.add.zone(0, 0, 1, 1).setOrigin(0, 0).setInteractive({useHandCursor: true});
+        this.pickerZone.on('pointerdown', this.pickerDown, this);
+        this.input.on('pointermove', this.pickerMove, this);
+        this.input.on('pointerup', this.pickerUp, this);
+        this.input.on('wheel', this.pickerWheel, this);
+        this.pickerPrev = createTextButton(this, 0, 0, '‹', () => this.scrollPicker(-1), {width: 44, height: 70, fontSize: '40px', variant: 'ghost'});
+        this.pickerNext = createTextButton(this, 0, 0, '›', () => this.scrollPicker(1), {width: 44, height: 70, fontSize: '40px', variant: 'ghost'});
+        this.pickerPrev.setVisible(false);
+        this.pickerNext.setVisible(false);
         this.nameText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.titleText = this.add.text(0, 0, '', {color: '#ffffff'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
         this.statusText = this.add.text(0, 0, 'Connecting...', {color: '#ffffff', align: 'center'}).setOrigin(0.5).setResolution(window.devicePixelRatio);
@@ -72,10 +87,11 @@ export class PlayerLobby extends Scene {
                 if (this.closed) return;
                 session.attachDirector();
             }
-            this.loadMinPlayers();
+            this.applyRoom(this.session.room);
             this.show();
             // A refresh, or a return after a game, may already be past the lobby; the director has moved us on if so.
             this.session.on('roster', this.show, this);
+            this.session.on('room', this.applyRoom, this);
             this.session.on('gameError', this.showGameError, this);
         } catch (err) {
             // The room is gone or the seat is no longer ours (e.g. the server restarted): forget it, so the
@@ -95,22 +111,16 @@ export class PlayerLobby extends Scene {
         this.avatar = createAvatar(this, 0, 0, 200, you);
         this.nameText.setText(you.alias).setColor(readableOn(you.color));
         this.titleText.setText(`You're in ${this.session.roomCode}`);
-        this.buildPicker();
+        this.refreshPicker();
         this.updateReady();
         this.layout();
     }
 
-    /** The number of players needed to start, so the leader's Start button knows when it can work. */
-    async loadMinPlayers() {
-        try {
-            const res = await fetch(`${window.location.origin}/api/room/${encodeURIComponent(this.session.roomCode)}`);
-            const state = await res.json();
-            if (this.closed) return;
-            this.minPlayers = state.minPlayers ?? 1;
-            this.updateReady();
-        } catch {
-            // The server still checks the minimum when Start is pressed.
-        }
+    /** The room's limits, pushed by the server: the leader's Start button needs the minimum number of players. */
+    applyRoom(room) {
+        if (!room || this.closed) return;
+        this.minPlayers = room.minPlayers ?? 1;
+        this.updateReady();
     }
 
     /** The Ready toggle, the leader's Start button, and the line telling everyone what we are waiting for. */
@@ -156,28 +166,92 @@ export class PlayerLobby extends Scene {
         }
     }
 
-    /** One tile per character: yours is outlined, ones other players hold are dimmed, the rest can be tapped. */
+    /** One tile per character, made once; refreshPicker() keeps them up to date with the roster. */
     buildPicker() {
-        this.pickerTiles.forEach(tile => tile.destroy());
-        this.pickerTiles = [];
-
-        const you = this.session.you;
-        const takenByOthers = new Set(this.session.roster.filter(p => p.id !== you.id).map(p => p.characterId));
-
         for (const key of CHARACTER_KEYS) {
-            const mine = key === you.characterId;
-            const taken = takenByOthers.has(key);
             const img = this.add.image(0, 0, key).setDisplaySize(PICK_SIZE, PICK_SIZE);
-            const ring = this.add.graphics()
-                .lineStyle(mine ? 5 : 2, mine ? HEX.cyan : HEX.border, 1)
-                .strokeRoundedRect(-PICK_SIZE / 2, -PICK_SIZE / 2, PICK_SIZE, PICK_SIZE, 10);
+            const ring = this.add.graphics();
             const tile = this.add.container(0, 0, [img, ring]).setSize(PICK_SIZE, PICK_SIZE);
-            tile.setAlpha(taken ? 0.3 : 1);
-            if (!mine && !taken) {
-                tile.setInteractive({useHandCursor: true}).on('pointerup', () => this.pick(key));
-            }
+            tile.key = key;
+            tile.ring = ring;
+            this.pickerStrip.add(tile);
             this.pickerTiles.push(tile);
         }
+    }
+
+    /** Yours is outlined, ones other players hold are dimmed, the rest can be tapped. */
+    refreshPicker() {
+        if (this.pickerTiles.length === 0) this.buildPicker();
+        const you = this.session.you;
+        const takenByOthers = new Set(this.session.roster.filter(p => p.id !== you.id).map(p => p.characterId));
+        for (const tile of this.pickerTiles) {
+            const mine = tile.key === you.characterId;
+            tile.mine = mine;
+            tile.taken = takenByOthers.has(tile.key);
+            tile.ring.clear()
+                .lineStyle(mine ? 5 : 2, mine ? HEX.cyan : HEX.border, 1)
+                .strokeRoundedRect(-PICK_SIZE / 2, -PICK_SIZE / 2, PICK_SIZE, PICK_SIZE, 10);
+            tile.setAlpha(tile.taken ? 0.3 : 1);
+        }
+    }
+
+    /** The tile under a screen point, or null (also null for a point the strip's clip hides). */
+    tileAt(x, y) {
+        const {cell, view} = this.picker;
+        if (view && (x < view.x || x > view.x + view.w)) return null;
+        return this.pickerTiles.find(t =>
+            Math.abs(x - (this.pickerStrip.x + t.x)) <= cell / 2 && Math.abs(y - t.y) <= cell / 2) ?? null;
+    }
+
+    pickerDown(pointer) {
+        this.picker.drag = {startX: pointer.x, startScroll: this.picker.scroll, moved: false};
+    }
+
+    pickerMove(pointer) {
+        const drag = this.picker.drag;
+        if (!drag || !pointer.isDown) return;
+        const dx = pointer.x - drag.startX;
+        if (Math.abs(dx) > DRAG_SLOP) drag.moved = true;
+        if (drag.moved && this.picker.mode === 'strip') this.setPickerScroll(drag.startScroll - dx);
+    }
+
+    pickerUp(pointer) {
+        const drag = this.picker.drag;
+        this.picker.drag = null;
+        if (!drag || drag.moved) return;
+        const tile = this.tileAt(pointer.x, pointer.y);
+        if (tile && !tile.mine && !tile.taken) this.pick(tile.key);
+    }
+
+    pickerWheel(pointer, objects, dx, dy) {
+        if (this.picker.mode !== 'strip') return;
+        this.setPickerScroll(this.picker.scroll + (Math.abs(dx) > Math.abs(dy) ? dx : dy));
+    }
+
+    /** The arrows move the strip by a view's width less one tile, so one tile stays in sight. */
+    scrollPicker(direction) {
+        const {view, cell} = this.picker;
+        if (!view) return;
+        const step = Math.max(cell, view.w - cell);
+        this.setPickerScroll(this.picker.scroll + direction * step, true);
+    }
+
+    setPickerScroll(value, animate = false) {
+        const scroll = Phaser.Math.Clamp(value, 0, this.picker.maxScroll);
+        this.picker.scroll = scroll;
+        const x = this.picker.view ? -scroll : 0;
+        this.tweens.killTweensOf(this.pickerStrip);
+        if (animate) this.tweens.add({targets: this.pickerStrip, x, duration: 220, ease: 'Cubic.easeOut'});
+        else this.pickerStrip.x = x;
+        this.updatePickerArrows();
+    }
+
+    updatePickerArrows() {
+        const strip = this.picker.mode === 'strip';
+        this.pickerPrev.setVisible(strip);
+        this.pickerNext.setVisible(strip);
+        this.pickerPrev.setEnabled(this.picker.scroll > 0);
+        this.pickerNext.setEnabled(this.picker.scroll < this.picker.maxScroll);
     }
 
     async pick(characterId) {
@@ -192,7 +266,12 @@ export class PlayerLobby extends Scene {
     cleanup() {
         this.closed = true;
         this.scale.off('resize', this.layout, this);
+        this.input.off('pointermove', this.pickerMove, this);
+        this.input.off('pointerup', this.pickerUp, this);
+        this.input.off('wheel', this.pickerWheel, this);
+        this.pickerClip.destroy();
         this.session?.off('roster', this.show, this);
+        this.session?.off('room', this.applyRoom, this);
         this.session?.off('gameError', this.showGameError, this);
         // The session stays open: it carries the player through the game. Quit closes it (see quit()).
     }
@@ -218,24 +297,88 @@ export class PlayerLobby extends Scene {
         this.nameText.setPosition(cx, cy - 190 * v).setFontSize(fontPx(38, s, 22));
         this.titleText.setPosition(cx, cy - 150 * v).setFontSize(fontPx(34, s, 18));
 
-        // The character picker: two rows, each tile big enough to tap. Four across once there are more than six
-        // characters, because a third row would run under the Ready button. A short last row is centred.
-        const count = this.pickerTiles.length;
-        const cols = count > 6 ? 4 : 3;
-        const cell = Math.min(110, (panelW - 40) / cols, availH * 0.14);
-        const tileScale = (cell - 10) / PICK_SIZE;
-        const row1 = cy - 60 * v;
-        this.pickerTiles.forEach((tile, i) => {
-            const row = Math.floor(i / cols);
-            const inRow = Math.min(cols, count - row * cols);
-            tile.setPosition(cx + ((i % cols) - (inRow - 1) / 2) * cell, row1 + row * cell).setScale(tileScale);
-        });
+        const pickerBottom = this.layoutPicker(cx, cy - 60 * v, panelW, availH, s);
 
-        this.statusText.setPosition(cx, row1 + cell * 1.5 + 36 * s)
+        const statusY = pickerBottom + 36 * s;
+        this.statusText.setPosition(cx, statusY)
             .setFontSize(fontPx(28, s, 16)).setWordWrapWidth(panelW - 60 * s);
-        this.readyBtn.setPosition(cx, cy + 215 * v).setScale(Math.max(s, 0.6));
-        this.startBtn.setPosition(cx, cy + 285 * v).setScale(Math.max(s, 0.6));
+        const readyY = Math.max(cy + 215 * v, statusY + 74 * s);
+        this.readyBtn.setPosition(cx, readyY).setScale(Math.max(s, 0.6));
+        this.startBtn.setPosition(cx, readyY + 70 * v).setScale(Math.max(s, 0.6));
         this.quitBtn.setPosition(cx, cy + panelH / 2 - 60 * s).setScale(Math.max(s, 0.6));
+    }
+
+    /**
+     * The character picker, centred on row y. Up to two rows it is a grid; with more characters than two rows hold it
+     * becomes one row that scrolls (drag, wheel or the arrows), so it never pushes the buttons off the card however
+     * many characters there are. Returns the picker's bottom edge.
+     */
+    layoutPicker(cx, y, panelW, availH, s) {
+        const count = this.pickerTiles.length;
+        const picker = this.picker;
+        if (count === 0) return y;
+        const innerW = panelW - 40 * s;
+        const minCell = Phaser.Math.Clamp(96 * s, 64, 110);
+        const maxCols = Math.max(3, Math.floor(innerW / minCell));
+        const grid = count <= maxCols * 2;
+        picker.mode = grid ? 'grid' : 'strip';
+
+        if (grid) {
+            // One row if they fit, else two balanced rows (7 is 4 + 3); a short last row is centred.
+            const cols = count <= maxCols ? count : Math.ceil(count / 2);
+            const cell = Math.min(110, innerW / Math.max(cols, 3), availH * 0.14);
+            const rows = Math.ceil(count / cols);
+            const scale = (cell - 10) / PICK_SIZE;
+            this.pickerTiles.forEach((tile, i) => {
+                const row = Math.floor(i / cols);
+                const inRow = Math.min(cols, count - row * cols);
+                tile.setPosition(cx + ((i % cols) - (inRow - 1) / 2) * cell, y + row * cell).setScale(scale);
+            });
+            picker.cell = cell;
+            picker.view = null;
+            picker.maxScroll = 0;
+            this.pickerStrip.clearMask();
+            this.placePickerZone(cx - (cols * cell) / 2, y - cell / 2, cols * cell, rows * cell);
+            this.setPickerScroll(0);
+            return y + (rows - 1) * cell + cell / 2;
+        }
+
+        const cell = Math.min(110, Math.max(minCell, availH * 0.12));
+        const arrowScale = Math.max(s, 0.6);
+        const arrowW = 44 * arrowScale;
+        const view = {x: cx - innerW / 2 + arrowW, w: innerW - 2 * arrowW};
+        // Show whole tiles: the view is a whole number of cells wide, centred between the arrows.
+        const visible = Math.max(1, Math.floor(view.w / cell));
+        view.x += (view.w - visible * cell) / 2;
+        view.w = visible * cell;
+        const scale = (cell - 10) / PICK_SIZE;
+        this.pickerTiles.forEach((tile, i) => tile.setPosition(view.x + cell / 2 + i * cell, y).setScale(scale));
+
+        picker.cell = cell;
+        picker.view = view;
+        picker.maxScroll = Math.max(0, count * cell - view.w);
+        this.pickerClip.clear().fillStyle(0xffffff).fillRect(view.x, y - cell / 2, view.w, cell);
+        this.pickerStrip.setMask(this.pickerClip.createGeometryMask());
+        this.placePickerZone(view.x, y - cell / 2, view.w, cell);
+        this.pickerPrev.setPosition(view.x - arrowW / 2 - 4, y).setScale(arrowScale);
+        this.pickerNext.setPosition(view.x + view.w + arrowW / 2 + 4, y).setScale(arrowScale);
+
+        // The first time, bring your own character into view.
+        let scroll = picker.scroll;
+        if (!picker.centred && this.session?.you) {
+            const mine = this.pickerTiles.findIndex(t => t.key === this.session.you.characterId);
+            if (mine >= 0) {
+                scroll = mine * cell - (view.w - cell) / 2;
+                picker.centred = true;
+            }
+        }
+        this.setPickerScroll(scroll);
+        return y + cell / 2;
+    }
+
+    placePickerZone(x, y, w, h) {
+        this.pickerZone.setPosition(x, y).setSize(w, h);
+        this.pickerZone.input.hitArea.setTo(0, 0, w, h);
     }
 
     /** Leave the room for good and go back to the main menu. */

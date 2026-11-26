@@ -19,6 +19,9 @@ builder.Services.AddSignalR()
 builder.Services.AddOptions<GameOptions>()
     .Bind(builder.Configuration.GetSection(GameOptions.SectionName))
     .ValidateDataAnnotations()
+    // A full room (humans plus the bots the night seats) must not need more faces than there is character art.
+    .Validate(o => GameNight.SeatsFor(o.MaxPlayers) <= Characters.All.Length,
+        $"Game:MaxPlayers is too high for the character art: a full room needs a face per seat, and there are {Characters.All.Length}. Add human sprites (Models/Characters.cs, constants.js) first.")
     .ValidateOnStart();
 
 builder.Services.AddSingleton<RoomManager>();
@@ -32,6 +35,7 @@ builder.Services.AddSingleton<SeasonProvider>();
 builder.Services.Configure<TuringTownOptions>(builder.Configuration.GetSection(TuringTownOptions.SectionName));
 builder.Services.Configure<GameNightOptions>(builder.Configuration.GetSection(GameNightOptions.SectionName));
 builder.Services.Configure<WittyBitsOptions>(builder.Configuration.GetSection(WittyBitsOptions.SectionName));
+builder.Services.Configure<ShoutOutOptions>(builder.Configuration.GetSection(ShoutOutOptions.SectionName));
 
 // The AI. The tunables are in the "Ai" section of appsettings.json. Where the model lives (Endpoint, Deployment, ApiKey) is the
 // "Foundry" section: user secrets in Development, the same keys as environment variables (Foundry__Endpoint) in production.
@@ -55,6 +59,7 @@ builder.Services.AddSingleton<BuiltInQuestionGenerator>();
 builder.Services.AddSingleton<IQuestionGenerator>(sp => sp.GetRequiredService<BuiltInQuestionGenerator>());
 builder.Services.AddSingleton<ScriptedWittyBotAgent>();
 builder.Services.AddSingleton<BuiltInWittyPrompts>();
+builder.Services.AddSingleton<BuiltInTrivia>();
 builder.Services.AddSingleton<IBotMemoryStore, InMemoryBotMemoryStore>();
 builder.Services.AddSingleton<BotPrompts>();
 builder.Services.AddSingleton<AiBudget>();
@@ -64,7 +69,8 @@ builder.Services.AddSingleton(sp =>
 {
     AiOptions ai = sp.GetRequiredService<IOptions<AiOptions>>().Value;
     AgentSet scripted = new(sp.GetRequiredService<ScriptedBotAgent>(), sp.GetRequiredService<BuiltInQuestionGenerator>(),
-        sp.GetRequiredService<ScriptedWittyBotAgent>(), sp.GetRequiredService<BuiltInWittyPrompts>(), UsesAi: false);
+        sp.GetRequiredService<ScriptedWittyBotAgent>(), sp.GetRequiredService<BuiltInWittyPrompts>(), UsesAi: false,
+        Trivia: sp.GetRequiredService<BuiltInTrivia>());
     AiBudget budget = sp.GetRequiredService<AiBudget>();
     if (ai.Provider != AiProvider.Foundry) return new AgentSelector(scripted, null, budget);
 
@@ -97,7 +103,12 @@ builder.Services.AddSingleton(sp =>
         new FoundryShowHost(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
         Wait(ai.Calls.Show), Wait(ai.Calls.ShowTopic), logs.CreateLogger<FallbackShowHost>());
 
-    return new AgentSelector(scripted, new AgentSet(bot, questions, witty, wittyPrompts, UsesAi: true, Planner: planner, Host: host), budget);
+    // Two calls (write, then check cold), so the wait covers both.
+    ITriviaGenerator trivia = new FallbackTriviaGenerator(
+        new FoundryTriviaGenerator(llm, sp.GetRequiredService<BotPrompts>(), sp.GetRequiredService<IOptions<AiOptions>>()),
+        Wait(ai.Calls.Trivia) + Wait(ai.Calls.TriviaCheck), logs.CreateLogger<FallbackTriviaGenerator>());
+
+    return new AgentSelector(scripted, new AgentSet(bot, questions, witty, wittyPrompts, UsesAi: true, Planner: planner, Host: host, Trivia: trivia), budget);
 });
 
 // The opt-in transcript archive (off by default).

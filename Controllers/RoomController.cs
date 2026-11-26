@@ -2,12 +2,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using TuringTown.Models;
 using TuringTown.Services;
+using TuringTown.Services.Games;
 
 namespace TuringTown.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public sealed class RoomController(RoomManager roomManager) : ControllerBase
+public sealed class RoomController(RoomManager roomManager, IRoomBroadcaster broadcaster) : ControllerBase
 {
     public const string HostTokenHeader = "X-Host-Token";
 
@@ -95,7 +96,8 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
     }
 
     /// <summary>
-    /// Current room state (phase, player count, settings). Polled by the host and phones.
+    /// Current room state (phase, player count, settings). Screens get it from the hub (<c>RoomChanged</c> and the
+    /// join result); this stays for tools and tests.
     /// </summary>
     [HttpGet("{code}")]
     public IActionResult GetRoom(string code)
@@ -115,7 +117,7 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
     /// Changes session settings. Host only (X-Host-Token header), lobby only.
     /// </summary>
     [HttpPut("{code}/settings")]
-    public IActionResult UpdateSettings(string code, [FromBody] UpdateSettingsReq req)
+    public async Task<IActionResult> UpdateSettings(string code, [FromBody] UpdateSettingsReq req)
     {
         if (!RoomCode.TryFromString(code, out RoomCode roomCode))
             return BadRequest(new {Error = "Failed to parse room code."});
@@ -136,6 +138,10 @@ public sealed class RoomController(RoomManager roomManager) : ControllerBase
             _ => "Invalid settings."
         };
 
-        return error is null ? Ok(room.GetSnapshot()) : Conflict(new {Error = error});
+        if (error is not null) return Conflict(new {Error = error});
+
+        // Every screen in the room (the TV, its settings overlay and the phones) follows the change.
+        await broadcaster.RoomChanged(room);
+        return Ok(room.GetSnapshot());
     }
 }

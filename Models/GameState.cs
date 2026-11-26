@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TuringTown.Models;
 
 /// <summary>
@@ -11,6 +13,8 @@ public static class GameIds
     public const string TuringTown = "turing-town";
 
     public const string WittyBits = "witty-bits";
+
+    public const string ShoutOut = "shout-out";
 }
 
 /// <summary>
@@ -46,7 +50,19 @@ public enum Stage
     Matchup,
 
     /// <summary>Witty Bits: who wrote which answer, the votes and the points.</summary>
-    MatchupResult
+    MatchupResult,
+
+    /// <summary>Shout Out: everyone picks the trivia categories they like.</summary>
+    Categories,
+
+    /// <summary>Shout Out: a trivia question is up and anyone may buzz in.</summary>
+    Question,
+
+    /// <summary>Shout Out: one player buzzed and is answering.</summary>
+    Buzzed,
+
+    /// <summary>Shout Out: the right answer, who got it and the points.</summary>
+    AnswerReveal
 }
 
 /// <summary>
@@ -97,8 +113,27 @@ public enum QuestionKind
     MultiChoice
 }
 
-/// <summary>One option of a choice question. Ids are <c>a</c>..<c>f</c>, assigned by the server.</summary>
-public readonly record struct QuestionOption(string Id, string Text, bool Mature);
+/// <summary>
+/// One option of a choice question. Ids are <c>a</c>..<c>f</c>, assigned by the server. <paramref name="Era"/> is set
+/// only on an era question (see <see cref="Eras"/>): the decade the option is typical of. It stays on the server: it is
+/// never serialized, so no client ever sees it.
+/// </summary>
+public readonly record struct QuestionOption(string Id, string Text, bool Mature, [property: JsonIgnore] string? Era = null);
+
+/// <summary>
+/// The decades an era question's options can point to. An era question ("Which cartoon did you grow up with?") is a
+/// single choice whose every option is typical of a decade. It never asks for an age, a year or an age range; the
+/// room's answers only help the bots sound like they grew up when the humans did.
+/// </summary>
+public static class Eras
+{
+    public static readonly string[] All = ["1960s", "1970s", "1980s", "1990s", "2000s", "2010s", "2020s"];
+
+    /// <summary>The fewest different decades an era question's options must cover.</summary>
+    public const int MinDistinct = 3;
+
+    public static bool IsValid(string? era) => era is not null && All.Contains(era);
+}
 
 /// <summary>
 /// One onboarding question. A <see cref="QuestionKind.Text"/> question has no options. A single choice has 2-6 and
@@ -118,6 +153,14 @@ public sealed record OnboardingQuestion(
         : this(id, QuestionKind.Text, text, mature, [], 0, 0)
     {
     }
+
+    /// <summary>An era question: a single choice whose options all carry an era. Server-side only.</summary>
+    [JsonIgnore]
+    public bool IsEra => Kind == QuestionKind.SingleChoice && Options is { Count: > 0 } && Options.All(o => o.Era is not null);
+
+    /// <summary>The era of the option picked, for an era question answered with <paramref name="optionIds"/>.</summary>
+    public string? EraOf(IReadOnlyList<string>? optionIds) =>
+        IsEra && optionIds is { Count: > 0 } ? Options.FirstOrDefault(o => o.Id == optionIds[0]).Era : null;
 }
 
 /// <summary>
@@ -126,10 +169,11 @@ public sealed record OnboardingQuestion(
 /// </summary>
 public sealed record OnboardingAnswer(string QuestionId, string? Text, IReadOnlyList<string>? OptionIds);
 
-/// <summary>How many questions of each kind a game asks.</summary>
-public readonly record struct QuestionMix(int Text, int SingleChoice, int MultiChoice)
+/// <summary>How many questions of each kind a game asks. <paramref name="Era"/> era questions come on top of the
+/// <paramref name="SingleChoice"/> ones (an era question is a single choice too, see <see cref="Eras"/>).</summary>
+public readonly record struct QuestionMix(int Text, int SingleChoice, int MultiChoice, int Era = 0)
 {
-    public int Total => Text + SingleChoice + MultiChoice;
+    public int Total => Text + SingleChoice + MultiChoice + Era;
 }
 
 /// <summary>Data for the Onboarding stage.</summary>
@@ -166,6 +210,9 @@ public sealed record RoundData(RoundKind Kind, IReadOnlyList<SuspicionLevel> Met
     public IReadOnlyList<PublicAnswers>? Answers { get; init; }
     public string? Topic { get; init; }
     public string? ShownAnswer { get; init; }
+
+    /// <summary>The AI host's line for the beat said over this screen (the vote on the answers, the final talk and vote).</summary>
+    public string? HostLine { get; init; }
 }
 
 /// <summary>
@@ -177,9 +224,20 @@ public sealed record TransitionData(string Beat, string? HostLine, PlayerInfo? H
 /// Data for the Reveal stage. Only the <paramref name="Final"/> round eliminates anyone: before it,
 /// <paramref name="Eliminated"/> and <paramref name="WasBot"/> are always null and only the meter moves.
 /// </summary>
-public readonly record struct RevealData(PlayerInfo? Eliminated, bool? WasBot, IReadOnlyList<VoteCount> Tally, bool Final, IReadOnlyList<SuspicionLevel> Meter);
+public readonly record struct RevealData(PlayerInfo? Eliminated, bool? WasBot, IReadOnlyList<VoteCount> Tally, bool Final, IReadOnlyList<SuspicionLevel> Meter)
+{
+    /// <summary>The AI host's line for the meter, said over it; null at the verdict.</summary>
+    public string? HostLine { get; init; }
+}
 
-public readonly record struct RoleReveal(Guid PlayerId, string Alias, bool WasBot);
+/// <param name="Imposter">This human was Turing Town's secret Imposter (trying to be voted out as the AI).</param>
+public readonly record struct RoleReveal(Guid PlayerId, string Alias, bool WasBot, bool Imposter = false);
+
+/// <summary>
+/// Something only one player is told, never broadcast: today, that they are Turing Town's Imposter
+/// (<paramref name="Kind"/> <c>imposter</c>). Sent to that player's connection alone, and again in their join result.
+/// </summary>
+public sealed record SecretInfo(string Kind, string Title, string Text);
 
 /// <summary>Data for the Results stage. This is the first point where every role is public.</summary>
 public readonly record struct ResultsData(string Winner, IReadOnlyList<RoleReveal> Roles)
@@ -268,7 +326,8 @@ public readonly record struct WittyResultsData(IReadOnlyList<Standing> Standings
 /// <summary>
 /// What a client gets back when it connects to the hub, enough to render the current screen immediately.
 /// <paramref name="Unmasked"/> lists the players who have already been revealed as bots (so a refreshed screen can
-/// show them as robots). It only ever holds bots whose reveal has been announced.
+/// show them as robots). It only ever holds bots whose reveal has been announced. <paramref name="Room"/> is the
+/// lobby's settings and limits (also pushed as <c>RoomChanged</c>), so no screen has to poll for them.
 /// </summary>
 public sealed record JoinResult(
     GameState State,
@@ -276,4 +335,6 @@ public sealed record JoinResult(
     PlayerInfo? You,
     IReadOnlyList<ChatMessage> Transcript,
     long ServerTimeUtcMs,
-    IReadOnlyList<Guid> Unmasked);
+    IReadOnlyList<Guid> Unmasked,
+    RoomSnapshot Room,
+    SecretInfo? Secret = null);

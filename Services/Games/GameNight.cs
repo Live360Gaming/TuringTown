@@ -33,6 +33,7 @@ public sealed class GameNight : IDisposable
     private IGameEngine? _current;
     private readonly HashSet<Guid> _unmasked = [];
     private readonly Dictionary<Guid, int> _seatPoints = [];
+    private readonly HashSet<Guid> _imposters = [];
     private int _humans;
     private int _ai;
     private TaskCompletionSource _continue = GameClock.NewSignal();
@@ -68,6 +69,10 @@ public sealed class GameNight : IDisposable
     /// four players, which Witty Bits needs. So 2 humans get 2 bots, 3 or 4 get 1, and 5 or more get 2.
     /// </summary>
     public static int BotCountFor(int humans) => Math.Max(TuringTownEngine.BotCountFor(humans), Math.Max(0, 4 - humans));
+
+    /// <summary>The most seats (humans plus bots) a room of up to <paramref name="maxHumans"/> humans can fill.</summary>
+    public static int SeatsFor(int maxHumans) =>
+        Enumerable.Range(1, Math.Max(1, maxHumans)).Max(humans => humans + BotCountFor(humans));
 
     /// <summary>Completes when the night has ended and the room is back in the lobby.</summary>
     public Task Completion => _loop ?? Task.CompletedTask;
@@ -247,6 +252,10 @@ public sealed class GameNight : IDisposable
                 _seatPoints[id] = _seatPoints.GetValueOrDefault(id) + p;
             foreach (Guid id in outcome.Unmasked)
                 _unmasked.Add(id);
+            // Personal points (Turing Town's Imposter) count in the standings, never in a team's total.
+            foreach ((Guid id, int p) in outcome.BonusSeatPoints)
+                _seatPoints[id] = _seatPoints.GetValueOrDefault(id) + p;
+            if (outcome.Imposter is { } imposter) _imposters.Add(imposter);
         }
 
         // The bots see the score the room sees: standings always, team totals only once they are public.
@@ -313,7 +322,9 @@ public sealed class GameNight : IDisposable
     private async Task FinaleAsync()
     {
         IReadOnlyList<PlayerSeat> seats = _room.GetSeats();
-        RoleReveal[] roles = seats.Select(s => new RoleReveal(s.Id, s.Alias, s.IsBot)).ToArray();
+        RoleReveal[] roles;
+        lock (_gate)
+            roles = seats.Select(s => new RoleReveal(s.Id, s.Alias, s.IsBot, _imposters.Contains(s.Id))).ToArray();
         TeamTotals totals;
         lock (_gate)
         {

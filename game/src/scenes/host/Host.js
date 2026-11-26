@@ -93,9 +93,8 @@ export class Host extends Scene {
             session = new GameSession(this.game, {role: 'host', roomCode: room.roomCode, hostToken: room.hostToken, lobbyKey: 'Host'});
             setSession(this.game, session);
             this.applyState(room.state);
-        } else {
-            this.applyState(await this.network.get(`/api/room/${encodeURIComponent(session.roomCode)}`));
-            if (this.closed) return;
+        } else if (session.room) {
+            this.applyState(session.room);
         }
 
         this.session = session;
@@ -105,9 +104,8 @@ export class Host extends Scene {
 
         this.codeText.setText(this.roomCode);
 
-        // Keep the player count / settings fresh (limits depend on who has joined).
-        this.network.on('poll:room', state => this.applyState(state));
-        this.network.startPolling('room', `/api/room/${encodeURIComponent(this.roomCode)}`, 1000);
+        // The player count and settings, pushed by the server whenever they change (limits depend on who has joined).
+        session.on('room', this.applyState, this);
 
         // Who has joined, shown as their avatars and aliases.
         session.on('roster', this.onRoster, this);
@@ -138,6 +136,7 @@ export class Host extends Scene {
         // into the game and the session stops it when the room is left.
         if (!getSession(this)) getMusic(this.game).stop(400);
         this.session?.off('roster', this.onRoster, this);
+        this.session?.off('room', this.applyState, this);
         this.session?.off('gameError', this.showGameError, this);
         this.closed = true;
         // The session stays open: it carries the room through the game. Quit closes it (see quit()).
